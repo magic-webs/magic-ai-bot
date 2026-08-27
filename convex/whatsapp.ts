@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 
 // WhatsApp caps a text body at 4096 characters.
 const MAX_BODY = 3900;
@@ -287,7 +287,7 @@ export const handleInbound = internalAction({
       text: string | null;
       toolCalls: string[];
       error?: string;
-    } = await ctx.runAction(api.engine.respond, {
+    } = await ctx.runAction(internal.engine.respond, {
       agentId: channel.agentId,
       channelType: "whatsapp",
       channelId: channel._id,

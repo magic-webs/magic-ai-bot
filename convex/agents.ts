@@ -3,6 +3,10 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { toneConfig } from "./schema";
 import { DEFAULT_BUILTIN_TOOLS, BUILTIN_TOOLS } from "./lib/shared";
 import { compileSystemPrompt } from "./lib/prompt";
+import {
+  requireAgent,
+  requireWorkspace,
+} from "./lib/auth";
 
 export const DEFAULT_TONE = {
   traits: ["professional", "warm", "clear", "consultative"],
@@ -41,6 +45,7 @@ const agentFields = {
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("agents")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -52,6 +57,7 @@ export const listByWorkspace = query({
 export const get = query({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
+    await requireAgent(ctx, args.agentId);
     return await ctx.db.get("agents", args.agentId);
   },
 });
@@ -73,6 +79,7 @@ export const create = mutation({
     builtinTools: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (!workspace) throw new Error("Workspace not found");
 
@@ -112,6 +119,7 @@ export const create = mutation({
 export const update = mutation({
   args: { agentId: v.id("agents"), ...agentFields },
   handler: async (ctx, args) => {
+    await requireAgent(ctx, args.agentId);
     const { agentId, ...rest } = args;
     const existing = await ctx.db.get("agents", agentId);
     if (!existing) throw new Error("Agent not found");
@@ -128,6 +136,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
+    await requireAgent(ctx, args.agentId);
     // Conversations and their messages
     const conversations = await ctx.db
       .query("conversations")
@@ -183,6 +192,7 @@ export const remove = mutation({
 export const previewPrompt = query({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
+    await requireAgent(ctx, args.agentId);
     const agent = await ctx.db.get("agents", args.agentId);
     if (!agent) return null;
     const workspace = await ctx.db.get("workspaces", agent.workspaceId);

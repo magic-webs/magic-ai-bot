@@ -7,6 +7,10 @@ import {
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { randomKey, maskSecret } from "./lib/shared";
+import {
+  requireChannel,
+  requireWorkspace,
+} from "./lib/auth";
 
 const whatsappInput = v.object({
   apiBaseUrl: v.optional(v.string()),
@@ -36,6 +40,7 @@ function redact(channel: Doc<"channels">) {
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const channels = await ctx.db
       .query("channels")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -58,6 +63,7 @@ export const listByWorkspace = query({
 export const get = query({
   args: { channelId: v.id("channels") },
   handler: async (ctx, args) => {
+    await requireChannel(ctx, args.channelId);
     const channel = await ctx.db.get("channels", args.channelId);
     return channel ? redact(channel) : null;
   },
@@ -72,6 +78,7 @@ export const create = mutation({
     whatsapp: v.optional(whatsappInput),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     if (args.type === "whatsapp") {
       if (!args.whatsapp?.phoneNumberId?.trim()) {
         throw new Error("A WhatsApp phone number ID is required");
@@ -124,6 +131,7 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireChannel(ctx, args.channelId);
     const existing = await ctx.db.get("channels", args.channelId);
     if (!existing) throw new Error("Channel not found");
 
@@ -175,6 +183,7 @@ export const update = mutation({
 export const rotateKeys = mutation({
   args: { channelId: v.id("channels") },
   handler: async (ctx, args) => {
+    await requireChannel(ctx, args.channelId);
     const channelKey = randomKey(28);
     const verifyToken = randomKey(20);
     await ctx.db.patch(args.channelId, {
@@ -189,6 +198,7 @@ export const rotateKeys = mutation({
 export const remove = mutation({
   args: { channelId: v.id("channels") },
   handler: async (ctx, args) => {
+    await requireChannel(ctx, args.channelId);
     await ctx.db.delete(args.channelId);
     return { success: true };
   },

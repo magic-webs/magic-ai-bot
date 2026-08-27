@@ -6,6 +6,9 @@ import {
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import {
+  requireWorkspace,
+} from "./lib/auth";
 
 const MAX_PAYLOAD_LOG = 8000;
 
@@ -54,6 +57,7 @@ export const logEvent = internalMutation({
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("webhookEvents")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -159,6 +163,9 @@ export const sendTest = action({
     error?: string;
     reason?: string;
   }> => {
+    await ctx.runQuery(internal.authDb.assertWorkspace, {
+      workspaceId: args.workspaceId,
+    });
     return await ctx.runAction(internal.webhooks.deliver, {
       workspaceId: args.workspaceId,
       event: "test",

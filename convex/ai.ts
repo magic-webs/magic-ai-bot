@@ -84,6 +84,11 @@ export const draftAgent = action({
     draft: z.infer<typeof agentDraftSchema>;
     agentId: Id<"agents"> | null;
   }> => {
+    // Only an administrator, or this workspace's own users, may spend model
+    // credits against it.
+    await ctx.runQuery(internal.authDb.assertWorkspace, {
+      workspaceId: args.workspaceId,
+    });
     const apiKey = requireApiKey();
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,
@@ -248,6 +253,11 @@ export const draftTool = action({
     notesForHuman: string;
     status: "draft" | "enabled";
   }> => {
+    // Only an administrator, or this workspace's own users, may spend model
+    // credits against it.
+    await ctx.runQuery(internal.authDb.assertWorkspace, {
+      workspaceId: args.workspaceId,
+    });
     const apiKey = requireApiKey();
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,
@@ -395,6 +405,11 @@ export const draftCatalogue = action({
     ctx,
     args
   ): Promise<{ created: number; updated: number }> => {
+    // Only an administrator, or this workspace's own users, may spend model
+    // credits against it.
+    await ctx.runQuery(internal.authDb.assertWorkspace, {
+      workspaceId: args.workspaceId,
+    });
     const apiKey = requireApiKey();
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,

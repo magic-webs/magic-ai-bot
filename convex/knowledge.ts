@@ -6,10 +6,16 @@ import {
   internalMutation,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import {
+  requireKnowledgeSource,
+  requireSignedIn,
+  requireWorkspace,
+} from "./lib/auth";
 
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const sources = await ctx.db
       .query("knowledgeSources")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -35,6 +41,7 @@ export const listByWorkspace = query({
 export const get = query({
   args: { sourceId: v.id("knowledgeSources") },
   handler: async (ctx, args) => {
+    await requireKnowledgeSource(ctx, args.sourceId);
     const source = await ctx.db.get("knowledgeSources", args.sourceId);
     if (!source) return null;
     const chunks = await ctx.db
@@ -74,6 +81,7 @@ export const addSource = mutation({
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     if (args.kind === "url" && !args.url?.trim()) {
       throw new Error("A URL is required for url sources");
     }
@@ -112,6 +120,7 @@ export const addSource = mutation({
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireSignedIn(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -119,6 +128,7 @@ export const generateUploadUrl = mutation({
 export const reprocess = mutation({
   args: { sourceId: v.id("knowledgeSources") },
   handler: async (ctx, args) => {
+    await requireKnowledgeSource(ctx, args.sourceId);
     const existing = await ctx.db.get("knowledgeSources", args.sourceId);
     if (!existing) throw new Error("Source not found");
 
@@ -144,6 +154,7 @@ export const reprocess = mutation({
 export const remove = mutation({
   args: { sourceId: v.id("knowledgeSources") },
   handler: async (ctx, args) => {
+    await requireKnowledgeSource(ctx, args.sourceId);
     const source = await ctx.db.get("knowledgeSources", args.sourceId);
     if (!source) return { success: true };
 
@@ -164,6 +175,7 @@ export const setScope = mutation({
     agentId: v.optional(v.id("agents")),
   },
   handler: async (ctx, args) => {
+    await requireKnowledgeSource(ctx, args.sourceId);
     const source = await ctx.db.get("knowledgeSources", args.sourceId);
     if (!source) throw new Error("Source not found");
 

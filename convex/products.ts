@@ -9,6 +9,10 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair, requirementField } from "./schema";
 import { slugify, buildSearchBlob, randomKey } from "./lib/shared";
+import {
+  requireProduct,
+  requireWorkspace,
+} from "./lib/auth";
 
 const productInput = {
   sku: v.optional(v.string()),
@@ -68,6 +72,7 @@ export const listByWorkspace = query({
     category: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const term = args.search?.trim();
     if (term) {
       return await ctx.db
@@ -101,6 +106,7 @@ export const listByWorkspace = query({
 export const categories = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const products = await ctx.db
       .query("products")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -112,6 +118,7 @@ export const categories = query({
 export const get = query({
   args: { productId: v.id("products") },
   handler: async (ctx, args) => {
+    await requireProduct(ctx, args.productId);
     return await ctx.db.get("products", args.productId);
   },
 });
@@ -119,6 +126,7 @@ export const get = query({
 export const create = mutation({
   args: { workspaceId: v.id("workspaces"), ...productInput },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const now = Date.now();
     const slug = await uniqueProductSlug(ctx, args.workspaceId, args.name);
     return await ctx.db.insert("products", {
@@ -152,6 +160,7 @@ export const update = mutation({
     status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
   },
   handler: async (ctx, args) => {
+    await requireProduct(ctx, args.productId);
     const { productId, ...rest } = args;
     const existing = await ctx.db.get("products", productId);
     if (!existing) throw new Error("Product not found");
@@ -176,6 +185,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { productId: v.id("products") },
   handler: async (ctx, args) => {
+    await requireProduct(ctx, args.productId);
     await ctx.db.delete(args.productId);
     return { success: true };
   },
@@ -203,6 +213,7 @@ export const bulkImport = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     let created = 0;
     let updated = 0;
     const now = Date.now();

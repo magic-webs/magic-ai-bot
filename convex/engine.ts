@@ -1,7 +1,11 @@
 "use node";
 
 import { v } from "convex/values";
-import { action, type ActionCtx } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  type ActionCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -542,26 +546,37 @@ function buildCustomTools(
 // The turn
 // ---------------------------------------------------------------------------
 
-export const respond = action({
-  args: {
-    agentId: v.id("agents"),
-    channelType: v.union(v.literal("whatsapp"), v.literal("web")),
-    channelId: v.optional(v.id("channels")),
-    externalId: v.string(),
-    contactName: v.optional(v.string()),
-    contactPhone: v.optional(v.string()),
-    text: v.string(),
-  },
-  handler: async (
-    ctx,
-    args
-  ): Promise<{
-    ok: boolean;
-    text: string | null;
-    conversationId: Id<"conversations"> | null;
-    toolCalls: string[];
-    error?: string;
-  }> => {
+const turnArgs = {
+  agentId: v.id("agents"),
+  channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+  channelId: v.optional(v.id("channels")),
+  externalId: v.string(),
+  contactName: v.optional(v.string()),
+  contactPhone: v.optional(v.string()),
+  text: v.string(),
+};
+
+type TurnArgs = {
+  agentId: Id<"agents">;
+  channelType: "whatsapp" | "web";
+  channelId?: Id<"channels">;
+  externalId: string;
+  contactName?: string;
+  contactPhone?: string;
+  text: string;
+};
+
+export type TurnResult = {
+  ok: boolean;
+  text: string | null;
+  conversationId: Id<"conversations"> | null;
+  toolCalls: string[];
+  error?: string;
+};
+
+// The turn itself. Shared so the authorized dashboard path and the WhatsApp
+// webhook path cannot drift apart.
+async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
     const startedAt = Date.now();
 
     const message = args.text.trim();
@@ -735,5 +750,18 @@ export const respond = action({
       toolCalls: turn.trace.map((t) => t.toolName),
       error: generationError,
     };
+}
+
+export const respond = internalAction({
+  args: turnArgs,
+  handler: async (ctx, args): Promise<TurnResult> => runTurn(ctx, args),
+});
+
+// Same turn, but only for a caller who may use this agent.
+export const respondAsUser = action({
+  args: turnArgs,
+  handler: async (ctx, args): Promise<TurnResult> => {
+    await ctx.runQuery(internal.authDb.assertAgent, { agentId: args.agentId });
+    return await runTurn(ctx, args);
   },
 });

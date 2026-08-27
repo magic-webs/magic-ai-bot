@@ -6,6 +6,10 @@ import {
   internalMutation,
 } from "./_generated/server";
 import { kvPair, toolParameter } from "./schema";
+import {
+  requireTool,
+  requireWorkspace,
+} from "./lib/auth";
 
 
 const httpConfig = v.object({
@@ -49,6 +53,7 @@ function toolName(input: string): string {
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const tools = await ctx.db
       .query("tools")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -71,6 +76,7 @@ export const listByWorkspace = query({
 export const get = query({
   args: { toolId: v.id("tools") },
   handler: async (ctx, args) => {
+    await requireTool(ctx, args.toolId);
     return await ctx.db.get("tools", args.toolId);
   },
 });
@@ -94,6 +100,7 @@ export const create = mutation({
     sourceTask: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     if (args.kind === "http" && !args.http) {
       throw new Error("HTTP tools need a request configuration");
     }
@@ -153,6 +160,7 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireTool(ctx, args.toolId);
     const { toolId, clearAgentScope, ...rest } = args;
     const existing = await ctx.db.get("tools", toolId);
     if (!existing) throw new Error("Tool not found");
@@ -171,6 +179,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { toolId: v.id("tools") },
   handler: async (ctx, args) => {
+    await requireTool(ctx, args.toolId);
     await ctx.db.delete(args.toolId);
     return { success: true };
   },

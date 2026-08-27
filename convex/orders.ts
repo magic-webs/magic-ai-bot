@@ -7,6 +7,10 @@ import {
 } from "./_generated/server";
 import { kvPair, orderStatus } from "./schema";
 import { randomKey } from "./lib/shared";
+import {
+  requireOrder,
+  requireWorkspace,
+} from "./lib/auth";
 
 function makeOrderNumber(workspaceName: string, at: number): string {
   const initials =
@@ -29,6 +33,7 @@ export const listByWorkspace = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const rows = args.status
       ? await ctx.db
           .query("orders")
@@ -51,6 +56,7 @@ export const listByWorkspace = query({
 export const get = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
+    await requireOrder(ctx, args.orderId);
     const order = await ctx.db.get("orders", args.orderId);
     if (!order) return null;
     const agent = order.agentId
@@ -63,6 +69,7 @@ export const get = query({
 export const updateStatus = mutation({
   args: { orderId: v.id("orders"), status: orderStatus },
   handler: async (ctx, args) => {
+    await requireOrder(ctx, args.orderId);
     await ctx.db.patch(args.orderId, {
       status: args.status,
       updatedAt: Date.now(),
@@ -74,6 +81,7 @@ export const updateStatus = mutation({
 export const remove = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
+    await requireOrder(ctx, args.orderId);
     await ctx.db.delete(args.orderId);
     return { success: true };
   },

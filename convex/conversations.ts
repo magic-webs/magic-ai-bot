@@ -7,6 +7,12 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
+import {
+  requireAgent,
+  requireContact,
+  requireConversation,
+  requireWorkspace,
+} from "./lib/auth";
 
 // ---------------------------------------------------------------------------
 // Dashboard reads
@@ -19,6 +25,7 @@ export const listByWorkspace = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const rows = args.agentId
       ? await ctx.db
           .query("conversations")
@@ -61,6 +68,7 @@ export const listMessages = query({
   },
   handler: async (ctx, args) => {
     if (!args.conversationId) return [];
+    await requireConversation(ctx, args.conversationId);
     return await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
@@ -76,6 +84,7 @@ export const listMessages = query({
 export const findWebConversation = query({
   args: { agentId: v.id("agents"), sessionId: v.string() },
   handler: async (ctx, args) => {
+    await requireAgent(ctx, args.agentId);
     const agent = await ctx.db.get("agents", args.agentId);
     if (!agent) return null;
 
@@ -99,6 +108,7 @@ export const findWebConversation = query({
 export const getWithContact = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    await requireConversation(ctx, args.conversationId);
     const conversation = await ctx.db.get("conversations", args.conversationId);
     if (!conversation) return null;
     const contact = await ctx.db.get("contacts", conversation.contactId);
@@ -114,6 +124,7 @@ export const getWithContact = query({
 export const reset = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    await requireConversation(ctx, args.conversationId);
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
@@ -142,6 +153,7 @@ export const setStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireConversation(ctx, args.conversationId);
     await ctx.db.patch(args.conversationId, { status: args.status });
     return { success: true };
   },
@@ -150,6 +162,7 @@ export const setStatus = mutation({
 export const remove = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    await requireConversation(ctx, args.conversationId);
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
@@ -409,6 +422,7 @@ export const getContactInternal = internalQuery({
 export const listContacts = query({
   args: { workspaceId: v.id("workspaces"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("contacts")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -427,6 +441,7 @@ export const updateContact = mutation({
     attributes: v.optional(v.array(kvPair)),
   },
   handler: async (ctx, args) => {
+    await requireContact(ctx, args.contactId);
     const { contactId, ...rest } = args;
     const patch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rest)) {

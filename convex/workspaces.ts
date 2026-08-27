@@ -8,6 +8,10 @@ import {
 import type { Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
 import { slugify, randomKey } from "./lib/shared";
+import {
+  requireAdmin,
+  requireWorkspace,
+} from "./lib/auth";
 
 const workspaceFields = {
   name: v.string(),
@@ -42,6 +46,7 @@ async function uniqueSlug(ctx: MutationCtx, desired: string): Promise<string> {
 export const list = query({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     return await ctx.db.query("workspaces").order("desc").collect();
   },
 });
@@ -49,16 +54,22 @@ export const list = query({
 export const getBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const workspace = await ctx.db
       .query("workspaces")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique();
+    if (!workspace) return null;
+    // Resolve first, then check — a company must not be able to probe for
+    // other workspaces by slug.
+    await requireWorkspace(ctx, workspace._id);
+    return workspace;
   },
 });
 
 export const get = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     return await ctx.db.get("workspaces", args.workspaceId);
   },
 });
@@ -67,6 +78,7 @@ export const get = query({
 export const summary = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const ws = args.workspaceId;
     const [agents, sources, channels, products, orders, conversations, tools, contacts] =
       await Promise.all([
@@ -102,6 +114,7 @@ export const summary = query({
 export const create = mutation({
   args: workspaceFields,
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
     const now = Date.now();
     const slug = await uniqueSlug(ctx, args.name);
     const workspaceId = await ctx.db.insert("workspaces", {
@@ -135,6 +148,7 @@ export const update = mutation({
     name: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const { workspaceId, ...rest } = args;
     const existing = await ctx.db.get("workspaces", workspaceId);
     if (!existing) throw new Error("Workspace not found");
@@ -151,6 +165,7 @@ export const update = mutation({
 export const rotateWebhookSecret = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
     const secret = randomKey(32);
     await ctx.db.patch(args.workspaceId, {
       webhookSecret: secret,
@@ -166,6 +181,7 @@ export const setStatus = mutation({
     status: v.union(v.literal("active"), v.literal("archived")),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
     await ctx.db.patch(args.workspaceId, {
       status: args.status,
       updatedAt: Date.now(),
@@ -178,6 +194,7 @@ export const setStatus = mutation({
 export const remove = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
     const conversations = await ctx.db
       .query("conversations")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -242,6 +259,7 @@ export const getInternal = internalQuery({
 export const seedDemo = mutation({
   args: {},
   handler: async (ctx): Promise<{ workspaceId: Id<"workspaces">; slug: string }> => {
+    await requireAdmin(ctx);
     const now = Date.now();
     const slug = await uniqueSlug(ctx, "Northwind Print Co");
     const workspaceId = await ctx.db.insert("workspaces", {
