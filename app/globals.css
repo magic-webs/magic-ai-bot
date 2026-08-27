@@ -72,6 +72,11 @@
   --chart-3: oklch(0.596 0.145 163.225);
   --chart-4: oklch(0.508 0.118 165.612);
   --chart-5: oklch(0.432 0.095 166.913);
+  /* Dashboard viz steps. The ramp is one hue, so charts encode magnitude with
+     one colour; the step is chosen per mode (see components/dashboard-charts.tsx)
+     rather than flipped, because --chart-1 fails the contrast floor on white. */
+  --viz-series: var(--chart-2);
+  --viz-series-alt: var(--chart-4);
   --radius: 0.625rem;
   --sidebar: oklch(0.988 0.003 106.5);
   --sidebar-foreground: oklch(0.153 0.006 107.1);
@@ -107,6 +112,9 @@
   --chart-3: oklch(0.596 0.145 163.225);
   --chart-4: oklch(0.508 0.118 165.612);
   --chart-5: oklch(0.432 0.095 166.913);
+  /* One step lighter than light mode, to read against the dark card. */
+  --viz-series: var(--chart-1);
+  --viz-series-alt: var(--chart-3);
   --sidebar: oklch(0.228 0.013 107.4);
   --sidebar-foreground: oklch(0.988 0.003 106.5);
   --sidebar-primary: oklch(0.768 0.233 130.85);
