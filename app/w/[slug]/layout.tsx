@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { WorkspaceProvider } from "@/components/workspace-provider";
+import { useSession } from "@/components/use-session";
 import {
   Sidebar,
   SidebarContent,
@@ -43,6 +44,7 @@ import {
   GearIcon,
   ArrowLeftIcon,
   WarningIcon,
+  SignOutIcon,
 } from "@phosphor-icons/react";
 
 const NAV = [
@@ -81,7 +83,37 @@ export default function WorkspaceLayout({
 }: LayoutProps<"/w/[slug]">) {
   const { slug } = use(params);
   const pathname = usePathname();
-  const workspace = useQuery(api.workspaces.getBySlug, { slug });
+  const session = useSession();
+  // A company may only ever load its own workspace; skip the query rather than
+  // firing one the server will refuse.
+  const allowed =
+    session.me?.role === "admin" || session.me?.workspaceSlug === slug;
+  const workspace = useQuery(
+    api.workspaces.getBySlug,
+    allowed ? { slug } : "skip"
+  );
+
+  if (session.me && !allowed) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8">
+        <Empty className="max-w-md border border-dashed">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <WarningIcon />
+            </EmptyMedia>
+            <EmptyTitle>Not your workspace</EmptyTitle>
+            <EmptyDescription>
+              Your sign-in only grants access to{" "}
+              <span className="font-mono">
+                {session.me.workspaceSlug ?? "another workspace"}
+              </span>
+              .
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
+    );
+  }
 
   if (workspace === undefined) {
     return (
@@ -102,8 +134,8 @@ export default function WorkspaceLayout({
             <EmptyTitle>Workspace not found</EmptyTitle>
             <EmptyDescription>
               No workspace exists at <span className="font-mono">/{slug}</span>.{" "}
-              <Link href="/" className="underline">
-                Back to all workspaces
+              <Link href="/login" className="underline">
+                Sign in again
               </Link>
               .
             </EmptyDescription>
@@ -181,13 +213,24 @@ export default function WorkspaceLayout({
 
           <SidebarFooter>
             <SidebarMenu>
+              {session.isAdmin ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="All workspaces"
+                    render={<Link href="/admin" />}
+                  >
+                    <ArrowLeftIcon />
+                    <span>All workspaces</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ) : null}
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  tooltip="All workspaces"
-                  render={<Link href="/" />}
+                  tooltip={`Sign out${session.me?.label ? ` — ${session.me.label}` : ""}`}
+                  onClick={() => void session.signOut()}
                 >
-                  <ArrowLeftIcon />
-                  <span>All workspaces</span>
+                  <SignOutIcon />
+                  <span>Sign out</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

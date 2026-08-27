@@ -101,7 +101,7 @@ export default function AgentTestPage({
   const messages = useQuery(api.conversations.listMessages, {
     conversationId: conversation?._id,
   });
-  const respond = useAction(api.engine.respond);
+  const respond = useAction(api.engine.respondAsUser);
   const resetConversation = useMutation(api.conversations.reset);
 
   const [input, setInput] = useState("");
