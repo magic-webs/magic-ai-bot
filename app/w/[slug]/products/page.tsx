@@ -15,6 +15,19 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
 import { SelectField } from "@/components/select-field";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  CSV_COLUMNS,
+  parseProductCsv,
+  sampleProductCsv,
+  type ParseResult,
+} from "@/lib/product-csv";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +62,10 @@ import {
   MagnifyingGlassIcon,
   SparkleIcon,
   UploadSimpleIcon,
+  FileCsvIcon,
+  DownloadSimpleIcon,
+  WarningIcon,
+  CheckCircleIcon,
   PencilSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -462,25 +479,57 @@ function ImportDialog() {
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [json, setJson] = useState("");
   const [brief, setBrief] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [parsed, setParsed] = useState<ParseResult | null>(null);
+
+  const readFile = async (file: File | undefined) => {
+    if (!file) return;
+    setFileName(file.name);
+    try {
+      setParsed(parseProductCsv(await file.text()));
+    } catch (error) {
+      setParsed(null);
+      toast.add({
+        title: "Could not read that file",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
+
+  const downloadSample = () => {
+    const blob = new Blob([sampleProductCsv()], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "catalogue-sample.csv";
+    // A detached anchor does not reliably start a blob download, so put it in
+    // the document for the duration of the click.
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Revoking synchronously can cancel a download that is still starting.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   const runImport = async () => {
+    if (!parsed) return;
     setBusy(true);
     try {
-      const parsed = JSON.parse(json);
-      if (!Array.isArray(parsed)) {
-        throw new Error("The JSON must be an array of product objects.");
-      }
       const result = await bulkImport({
         workspaceId: workspace._id,
-        products: parsed,
+        products: parsed.products,
       });
       toast.add({
         title: `${result.created} added, ${result.updated} updated`,
         type: "success",
       });
-      setJson("");
+      setParsed(null);
+      setFileName("");
       setOpen(false);
     } catch (error) {
       toast.add({
@@ -517,6 +566,11 @@ function ImportDialog() {
     }
   };
 
+  // A catalogue imported half-right is worse than one not imported at all: the
+  // agent starts asking the wrong spec questions. So any issue blocks import.
+  const blocked =
+    !parsed || parsed.issues.length > 0 || parsed.products.length === 0;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
@@ -526,11 +580,11 @@ function ImportDialog() {
           </Button>
         }
       />
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Populate the catalogue</DialogTitle>
           <DialogDescription>
-            Paste JSON exported from your own system, or let the model draft a
+            Upload a CSV exported from your own system, or let the model draft a
             starter catalogue from the workspace description.
           </DialogDescription>
         </DialogHeader>
@@ -540,8 +594,8 @@ function ImportDialog() {
             <TabsTrigger value="draft">
               <SparkleIcon /> Draft with AI
             </TabsTrigger>
-            <TabsTrigger value="json">
-              <UploadSimpleIcon /> Paste JSON
+            <TabsTrigger value="csv">
+              <FileCsvIcon /> Import CSV
             </TabsTrigger>
           </TabsList>
 
@@ -557,20 +611,187 @@ function ImportDialog() {
             </Button>
           </TabsContent>
 
-          <TabsContent value="json" className="flex flex-col gap-3 pt-3">
-            <Textarea
-              rows={10}
-              className="font-mono"
-              value={json}
-              placeholder={`[\n  {\n    "name": "Business cards",\n    "category": "Stationery",\n    "description": "Printed both sides on 450gsm silk",\n    "requirementFields": [\n      { "key": "quantity", "label": "Quantity", "type": "number", "required": true }\n    ]\n  }\n]`}
-              onChange={(event) => setJson(event.target.value)}
-            />
-            <p className="text-[0.625rem] text-muted-foreground">
-              Products are matched by name — an existing product with the same
-              name is updated rather than duplicated.
-            </p>
-            <Button onClick={runImport} disabled={busy}>
-              {busy ? <Spinner /> : <UploadSimpleIcon />} Import
+          <TabsContent value="csv" className="flex flex-col gap-3 pt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="file"
+                accept=".csv,text/csv"
+                className="h-auto flex-1 py-1"
+                onChange={(event) => {
+                  void readFile(event.target.files?.[0]);
+                }}
+              />
+              <Button variant="outline" onClick={downloadSample}>
+                <DownloadSimpleIcon /> Sample CSV
+              </Button>
+            </div>
+
+            <Accordion>
+              <AccordionItem value="columns">
+                <AccordionTrigger className="text-xs">
+                  Columns, and how spec questions are written
+                </AccordionTrigger>
+                <AccordionContent>
+                  <p className="mb-2 text-[0.625rem] text-muted-foreground">
+                    One row per spec question. Leave <code>name</code> blank to
+                    add another question to the product on the row above; a
+                    product with no questions is a single row. Column order does
+                    not matter, and extra columns are ignored.
+                  </p>
+                  <div className="max-h-56 overflow-y-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-36">Column</TableHead>
+                          <TableHead>Meaning</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {CSV_COLUMNS.map((column) => (
+                          <TableRow key={column.name}>
+                            <TableCell className="align-top font-mono text-[0.625rem]">
+                              {column.name}
+                              {column.required ? (
+                                <span className="text-destructive"> *</span>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="text-[0.625rem] text-muted-foreground">
+                              {column.detail}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+
+            {parsed ? (
+              <>
+                {parsed.issues.length > 0 ? (
+                  <Alert variant="destructive">
+                    <WarningIcon />
+                    <AlertTitle>
+                      {parsed.issues.length}{" "}
+                      {parsed.issues.length === 1 ? "problem" : "problems"} in{" "}
+                      {fileName}
+                    </AlertTitle>
+                    <AlertDescription>
+                      Fix these and choose the file again. Nothing is imported
+                      until the file is clean.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert>
+                    <CheckCircleIcon />
+                    <AlertTitle>
+                      {parsed.products.length}{" "}
+                      {parsed.products.length === 1 ? "product" : "products"},{" "}
+                      {parsed.fieldCount} spec{" "}
+                      {parsed.fieldCount === 1 ? "question" : "questions"}
+                    </AlertTitle>
+                    <AlertDescription>
+                      Matched by name — an existing product with the same name is
+                      updated rather than duplicated.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {parsed.unknownColumns.length > 0 ? (
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Ignored{" "}
+                    {parsed.unknownColumns.length === 1 ? "column" : "columns"}:{" "}
+                    <span className="font-mono">
+                      {parsed.unknownColumns.join(", ")}
+                    </span>
+                  </p>
+                ) : null}
+
+                <div className="max-h-56 overflow-y-auto rounded-md border">
+                  {parsed.issues.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-14">Line</TableHead>
+                          <TableHead className="w-28">Column</TableHead>
+                          <TableHead>Problem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {parsed.issues.slice(0, 50).map((issue, index) => (
+                          <TableRow
+                            key={`${issue.line}-${issue.column}-${index}`}
+                          >
+                            <TableCell className="font-mono tabular-nums">
+                              {issue.line}
+                            </TableCell>
+                            <TableCell className="font-mono text-[0.625rem]">
+                              {issue.column}
+                            </TableCell>
+                            <TableCell className="text-[0.625rem]">
+                              {issue.message}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead className="text-right">Price</TableHead>
+                          <TableHead className="text-right">
+                            Questions
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {parsed.products.slice(0, 25).map((product) => (
+                          <TableRow key={product.name}>
+                            <TableCell className="font-medium">
+                              {product.name}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {product.category || "General"}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {product.price === undefined
+                                ? "—"
+                                : `${product.currency ?? ""} ${product.price}`}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {product.requirementFields?.length ?? 0}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+
+                {parsed.issues.length > 50 ? (
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Showing the first 50 of {parsed.issues.length}.
+                  </p>
+                ) : null}
+                {parsed.issues.length === 0 && parsed.products.length > 25 ? (
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Showing the first 25 of {parsed.products.length}.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+
+            <Button onClick={runImport} disabled={busy || blocked}>
+              {busy ? <Spinner /> : <UploadSimpleIcon />}{" "}
+              {parsed &&
+              parsed.issues.length === 0 &&
+              parsed.products.length > 0
+                ? `Import ${parsed.products.length} ${parsed.products.length === 1 ? "product" : "products"}`
+                : "Import"}
             </Button>
           </TabsContent>
         </Tabs>
@@ -664,7 +885,7 @@ export default function ProductsPage() {
             <EmptyDescription>
               {search
                 ? "Try a different search term."
-                : "Agents refuse to discuss products that aren't listed here. Add them manually, paste JSON, or let the model draft a starter set."}
+                : "Agents refuse to discuss products that aren't listed here. Add them manually, import a CSV, or let the model draft a starter set."}
             </EmptyDescription>
           </EmptyHeader>
           {!search ? (
@@ -697,10 +918,15 @@ export default function ProductsPage() {
             <TableBody>
               {products.map((product) => (
                 <TableRow key={product._id}>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{product.name}</span>
-                      <span className="line-clamp-1 text-[0.625rem] text-muted-foreground">
+                  {/* Bounded, so line-clamp-1 has something to clamp against:
+                      an unbounded cell sizes to the description's full single
+                      line and pushes every later column off-screen. */}
+                  <TableCell className="max-w-md min-w-0">
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium">
+                        {product.name}
+                      </span>
+                      <span className="truncate text-[0.625rem] text-muted-foreground">
                         {product.description || "No description"}
                       </span>
                     </div>
@@ -721,26 +947,43 @@ export default function ProductsPage() {
                         ) : null}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">quoted</span>
+                      // Not "quoted" — that is also an order status, so it
+                      // reads as state rather than a price.
+                      <span className="text-muted-foreground">On request</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  {/* Capped, or a product with eight spec questions widens the
+                      table until Category and Price scroll out of view. */}
+                  <TableCell className="max-w-88 min-w-0">
                     <div className="flex flex-wrap gap-1">
                       {product.requirementFields.length === 0 ? (
                         <span className="text-[0.625rem] text-muted-foreground">
                           none — the agent will improvise
                         </span>
                       ) : (
-                        product.requirementFields.map((field) => (
-                          <Badge
-                            key={field.key}
-                            variant={field.required ? "outline" : "ghost"}
-                            className="font-mono text-[0.625rem]"
-                          >
-                            {field.key}
-                            {field.required ? "*" : ""}
-                          </Badge>
-                        ))
+                        <>
+                          {/* Capped at four, so a product with eight questions
+                              does not make its row four times as tall as its
+                              neighbours. The editor shows the full list. */}
+                          {product.requirementFields.slice(0, 4).map((field) => (
+                            <Badge
+                              key={field.key}
+                              variant={field.required ? "outline" : "ghost"}
+                              className="font-mono text-[0.625rem]"
+                            >
+                              {field.key}
+                              {field.required ? "*" : ""}
+                            </Badge>
+                          ))}
+                          {product.requirementFields.length > 4 ? (
+                            <Badge
+                              variant="ghost"
+                              className="text-[0.625rem] text-muted-foreground"
+                            >
+                              +{product.requirementFields.length - 4} more
+                            </Badge>
+                          ) : null}
+                        </>
                       )}
                     </div>
                   </TableCell>
