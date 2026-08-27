@@ -10,12 +10,16 @@
 
 import type * as agents from "../agents.js";
 import type * as ai from "../ai.js";
+import type * as analytics from "../analytics.js";
+import type * as auth from "../auth.js";
+import type * as authDb from "../authDb.js";
 import type * as channels from "../channels.js";
 import type * as conversations from "../conversations.js";
 import type * as engine from "../engine.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as knowledge from "../knowledge.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as lib_prompt from "../lib/prompt.js";
 import type * as lib_shared from "../lib/shared.js";
 import type * as lib_toolSchema from "../lib/toolSchema.js";
@@ -35,12 +39,16 @@ import type {
 declare const fullApi: ApiFromModules<{
   agents: typeof agents;
   ai: typeof ai;
+  analytics: typeof analytics;
+  auth: typeof auth;
+  authDb: typeof authDb;
   channels: typeof channels;
   conversations: typeof conversations;
   engine: typeof engine;
   http: typeof http;
   ingest: typeof ingest;
   knowledge: typeof knowledge;
+  "lib/auth": typeof lib_auth;
   "lib/prompt": typeof lib_prompt;
   "lib/shared": typeof lib_shared;
   "lib/toolSchema": typeof lib_toolSchema;
