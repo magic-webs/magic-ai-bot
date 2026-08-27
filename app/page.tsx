@@ -1,15 +1,8 @@
-"use client";
-
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import type { Metadata } from "next";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   Card,
   CardContent,
@@ -17,331 +10,372 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Message, MessageContent } from "@/components/ui/message";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { Spinner } from "@/components/ui/spinner";
-import { SelectField } from "@/components/select-field";
-import { toast } from "@/components/ui/toast";
-import {
-  BuildingsIcon,
-  PlusIcon,
+  RobotIcon,
+  BooksIcon,
+  PackageIcon,
+  WrenchIcon,
+  WhatsappLogoIcon,
+  ReceiptIcon,
   ArrowRightIcon,
-  SparkleIcon,
-} from "@phosphor-icons/react";
+  CheckIcon,
+  LightningIcon,
+  ProhibitIcon,
+  HandshakeIcon,
+  ClockIcon,
+} from "@phosphor-icons/react/dist/ssr";
 
-const LOCALES = ["en-GB", "en-US", "en-IN", "en-AU", "de-DE", "fr-FR", "es-ES"];
-const CURRENCIES = ["GBP", "USD", "EUR", "INR", "AUD", "CAD", "AED"];
-const TIMEZONES = [
-  "Europe/London",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Asia/Kolkata",
-  "Asia/Dubai",
-  "Australia/Sydney",
+export const metadata: Metadata = {
+  title: "Magic AI Bot — your AI sales assistant on WhatsApp",
+  description:
+    "An AI assistant that answers your customers on WhatsApp, works from your own policies and price list, collects every detail your team needs, and hands you a complete enquiry.",
+};
+
+const CAPABILITIES = [
+  {
+    icon: BooksIcon,
+    title: "It answers from your documents",
+    body: "Upload your delivery policy, minimum order, artwork requirements — whatever your team actually answers from. Your assistant quotes those, not the internet.",
+  },
+  {
+    icon: PackageIcon,
+    title: "It asks the right questions",
+    body: "Tell it what you need to know for each product — size, quantity, material, finish — and it works through the list one question at a time until nothing is missing.",
+  },
+  {
+    icon: ReceiptIcon,
+    title: "You get a complete enquiry",
+    body: "Every conversation that finishes arrives as a structured order with all the specifications collected, ready for your team to price. No scrolling back through chat.",
+  },
+  {
+    icon: WhatsappLogoIcon,
+    title: "On the number you already use",
+    body: "Connect your own WhatsApp Business number. Your customers message the same place they always did, and get an answer in seconds instead of the next morning.",
+  },
+  {
+    icon: RobotIcon,
+    title: "It sounds like your business",
+    body: "Give it a name, a role and a tone of voice. Set the things it must always say and the things it must never say. Change any of it whenever you like.",
+  },
+  {
+    icon: WrenchIcon,
+    title: "It can check your systems",
+    body: "Need it to look up stock, check a delivery area or fetch an order status? Describe the job in a sentence and the connection is built for you.",
+  },
 ];
 
-function CreateWorkspaceDialog() {
-  const router = useRouter();
-  const createWorkspace = useMutation(api.workspaces.create);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    tagline: "",
-    industry: "",
-    description: "",
-    website: "",
-    supportEmail: "",
-    locale: "en-GB",
-    currency: "GBP",
-    timezone: "Europe/London",
-  });
+const GUARDRAILS = [
+  {
+    icon: ProhibitIcon,
+    title: "It never invents a price",
+    body: "If a price is not in your list, it says the team will confirm — it does not guess, estimate, or offer a range.",
+  },
+  {
+    icon: ClockIcon,
+    title: "It never promises a date",
+    body: "Lead times and delivery dates only come from what you have told it. Nothing is committed on your behalf.",
+  },
+  {
+    icon: HandshakeIcon,
+    title: "It knows when to step aside",
+    body: "Complaints, awkward questions and anyone asking for a person are handed straight to your team, with a summary.",
+  },
+];
 
-  const set = (key: keyof typeof form) => (value: string) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+const STEPS = [
+  {
+    title: "Tell it about your business",
+    body: "What you sell, where you deliver, your minimum order. A few minutes of setup.",
+  },
+  {
+    title: "Add your products and policies",
+    body: "Your price list and the documents your team answers from, so nothing is guessed.",
+  },
+  {
+    title: "Try it, then switch it on",
+    body: "Chat to it yourself until you are happy, then connect WhatsApp and let it answer.",
+  },
+];
 
-  const submit = async () => {
-    if (!form.name.trim()) {
-      toast.add({ title: "A workspace name is required", type: "error" });
-      return;
-    }
-    setBusy(true);
-    try {
-      const { slug } = await createWorkspace({
-        name: form.name,
-        tagline: form.tagline || undefined,
-        industry: form.industry || undefined,
-        description: form.description || undefined,
-        website: form.website || undefined,
-        supportEmail: form.supportEmail || undefined,
-        locale: form.locale,
-        currency: form.currency,
-        timezone: form.timezone,
-        facts: [],
-      });
-      toast.add({ title: `${form.name} created`, type: "success" });
-      setOpen(false);
-      router.push(`/w/${slug}`);
-    } catch (error) {
-      toast.add({
-        title: "Could not create the workspace",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
+export default function LandingPage() {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon /> New workspace</Button>} />
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create a workspace</DialogTitle>
-          <DialogDescription>
-            A workspace is one company or project. Its agents, knowledge,
-            catalogue, orders and channels all live inside it.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="flex min-h-svh flex-col">
+      {/* ------------------------------------------------------------- header */}
+      <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-6">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <RobotIcon className="size-4" />
+            </span>
+            <span className="font-heading text-sm font-semibold tracking-tight">
+              Magic AI Bot
+            </span>
+          </Link>
 
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ws-name">Company or project name</Label>
-            <Input
-              id="ws-name"
-              value={form.name}
-              placeholder="Northwind Print Co"
-              onChange={(event) => set("name")(event.target.value)}
-            />
-          </div>
+          <nav className="hidden items-center gap-6 text-xs text-muted-foreground md:flex">
+            <a href="#what-it-does" className="hover:text-foreground">
+              What it does
+            </a>
+            <a href="#guardrails" className="hover:text-foreground">
+              Guardrails
+            </a>
+            <a href="#how" className="hover:text-foreground">
+              Getting started
+            </a>
+          </nav>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-tagline">Tagline</Label>
-              <Input
-                id="ws-tagline"
-                value={form.tagline}
-                placeholder="Commercial print & packaging"
-                onChange={(event) => set("tagline")(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-industry">Industry</Label>
-              <Input
-                id="ws-industry"
-                value={form.industry}
-                placeholder="Commercial printing"
-                onChange={(event) => set("industry")(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ws-description">
-              What the business does
-              <span className="ml-1 font-normal text-muted-foreground">
-                — agents are grounded in this
-              </span>
-            </Label>
-            <Textarea
-              id="ws-description"
-              rows={3}
-              value={form.description}
-              placeholder="Northwind supplies business stationery, marketing print and branded merchandise to UK businesses. Quotes are prepared by the sales team."
-              onChange={(event) => set("description")(event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-website">Website</Label>
-              <Input
-                id="ws-website"
-                value={form.website}
-                placeholder="https://example.com"
-                onChange={(event) => set("website")(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-email">Support email</Label>
-              <Input
-                id="ws-email"
-                value={form.supportEmail}
-                placeholder="hello@example.com"
-                onChange={(event) => set("supportEmail")(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-locale">Locale</Label>
-              <SelectField
-                id="ws-locale"
-                className="w-full"
-                value={form.locale}
-                onValueChange={set("locale")}
-                options={LOCALES.map((locale) => ({
-                  value: locale,
-                  label: locale,
-                }))}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-currency">Currency</Label>
-              <SelectField
-                id="ws-currency"
-                className="w-full"
-                value={form.currency}
-                onValueChange={set("currency")}
-                options={CURRENCIES.map((currency) => ({
-                  value: currency,
-                  label: currency,
-                }))}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-tz">Timezone</Label>
-              <SelectField
-                id="ws-tz"
-                className="w-full"
-                value={form.timezone}
-                onValueChange={set("timezone")}
-                options={TIMEZONES.map((timezone) => ({
-                  value: timezone,
-                  label: timezone,
-                }))}
-              />
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Cancel
+          <Button size="sm" nativeButton={false} render={<Link href="/login" />}>
+            Sign in <ArrowRightIcon />
           </Button>
-          <Button onClick={submit} disabled={busy}>
-            {busy ? <Spinner /> : <PlusIcon />} Create workspace
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export default function HomePage() {
-  const workspaces = useQuery(api.workspaces.list);
-  const seedDemo = useMutation(api.workspaces.seedDemo);
-  const router = useRouter();
-  const [seeding, setSeeding] = useState(false);
-
-  return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            Magic AI Bot
-          </p>
-          <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">
-            Workspaces
-          </h1>
-          <p className="mt-1 max-w-xl text-xs text-muted-foreground">
-            Each workspace is one company or project: its own agents, knowledge
-            base, catalogue, orders, custom tools and WhatsApp numbers.
-          </p>
         </div>
-        <CreateWorkspaceDialog />
       </header>
 
-      {workspaces === undefined ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Spinner /> Loading workspaces…
-        </div>
-      ) : workspaces.length === 0 ? (
-        <Empty className="border border-dashed">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <BuildingsIcon />
-            </EmptyMedia>
-            <EmptyTitle>No workspaces yet</EmptyTitle>
-            <EmptyDescription>
-              Create one for the company or project you want a bot for, or start
-              from a sample workspace to see how it fits together.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <div className="flex flex-wrap justify-center gap-2">
-              <CreateWorkspaceDialog />
+      <main className="flex-1">
+        {/* ----------------------------------------------------------- hero */}
+        <section className="mx-auto grid w-full max-w-6xl gap-10 px-6 py-14 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:py-20">
+          <div className="flex flex-col items-start gap-5">
+            <Badge variant="secondary" className="gap-1.5">
+              <LightningIcon className="size-3" />
+              Answers in seconds, day or night
+            </Badge>
+
+            <h1 className="font-heading text-3xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl">
+              Your AI sales assistant, answering on WhatsApp.
+            </h1>
+
+            <p className="max-w-xl text-sm/relaxed text-muted-foreground">
+              Every enquiry gets a reply straight away — from your own policies
+              and price list, in your own tone of voice. It asks the questions
+              your team needs answered, then hands you a complete enquiry ready
+              to quote.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
+                Sign in <ArrowRightIcon />
+              </Button>
               <Button
+                size="lg"
                 variant="outline"
-                disabled={seeding}
-                onClick={async () => {
-                  setSeeding(true);
-                  try {
-                    const { slug } = await seedDemo({});
-                    router.push(`/w/${slug}`);
-                  } finally {
-                    setSeeding(false);
-                  }
-                }}
+                nativeButton={false}
+                render={<a href="#what-it-does" />}
               >
-                {seeding ? <Spinner /> : <SparkleIcon />} Start from a sample
+                See what it does
               </Button>
             </div>
-          </EmptyContent>
-        </Empty>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {workspaces.map((workspace) => (
-            <Card key={workspace._id} className="flex flex-col">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between gap-2">
-                  <span className="truncate">{workspace.name}</span>
-                  {workspace.status === "archived" ? (
-                    <Badge variant="secondary">archived</Badge>
-                  ) : null}
-                </CardTitle>
-                <CardDescription className="line-clamp-2">
-                  {workspace.tagline ||
-                    workspace.description ||
-                    workspace.industry ||
-                    "No description yet"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="mt-auto flex items-center justify-between gap-2">
-                <span className="font-mono text-[0.625rem] text-muted-foreground">
-                  /{workspace.slug}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  nativeButton={false}
-                  render={<Link href={`/w/${workspace.slug}`} />}
-                >
-                  Open <ArrowRightIcon />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+
+            <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
+              {[
+                "Your own WhatsApp number",
+                "Answers from your documents",
+                "Never quotes a price it was not given",
+              ].map((point) => (
+                <li key={point} className="flex items-center gap-1.5">
+                  <CheckIcon className="size-3 text-primary" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* A real exchange, rendered with the same chat components the
+              product uses. */}
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b bg-muted/40">
+              <CardTitle className="flex items-center gap-2 text-xs">
+                <WhatsappLogoIcon className="size-4" />
+                Your business on WhatsApp
+                <Badge variant="secondary" className="ml-auto">
+                  live
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 py-4">
+              <Message align="end">
+                <MessageContent>
+                  <Bubble>
+                    <BubbleContent>Hi, I need 1000 business cards</BubbleContent>
+                  </Bubble>
+                </MessageContent>
+              </Message>
+
+              <Message align="start">
+                <MessageContent>
+                  <Bubble variant="muted">
+                    <BubbleContent>
+                      Happy to help. Standard size is 55 × 85mm — would you like
+                      silk coated 350gsm, and printed one side or both?
+                    </BubbleContent>
+                  </Bubble>
+                </MessageContent>
+              </Message>
+
+              <Message align="end">
+                <MessageContent>
+                  <Bubble>
+                    <BubbleContent>
+                      Both sides, matt lamination. Do you deliver to Belfast?
+                    </BubbleContent>
+                  </Bubble>
+                </MessageContent>
+              </Message>
+
+              <Message align="start">
+                <MessageContent>
+                  <Bubble variant="muted">
+                    <BubbleContent>
+                      We deliver to UK mainland addresses only, so Belfast is
+                      outside our area. Shall I quote for a mainland address
+                      instead?
+                    </BubbleContent>
+                  </Bubble>
+                </MessageContent>
+              </Message>
+
+              <div className="flex items-center gap-1.5 pt-1 text-[0.625rem] text-muted-foreground">
+                <BooksIcon className="size-3" />
+                Answered from your own delivery policy
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <Separator />
+
+        {/* -------------------------------------------------- what it does */}
+        <section
+          id="what-it-does"
+          className="mx-auto w-full max-w-6xl px-6 py-14 lg:py-18"
+        >
+          <div className="max-w-2xl">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight">
+              An assistant that actually knows your business
+            </h2>
+            <p className="mt-2 text-sm/relaxed text-muted-foreground">
+              It is not a chatbot with a script. You give it your documents, your
+              products and your rules, and it works from those.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {CAPABILITIES.map((capability) => {
+              const Icon = capability.icon;
+              return (
+                <Card key={capability.title} className="h-full">
+                  <CardHeader>
+                    <span className="flex size-8 items-center justify-center rounded-md bg-muted text-foreground">
+                      <Icon className="size-4" />
+                    </span>
+                    <CardTitle className="mt-2">{capability.title}</CardTitle>
+                    <CardDescription className="leading-relaxed">
+                      {capability.body}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+
+        <Separator />
+
+        {/* ----------------------------------------------------- guardrails */}
+        <section
+          id="guardrails"
+          className="mx-auto w-full max-w-6xl px-6 py-14 lg:py-18"
+        >
+          <div className="max-w-2xl">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight">
+              What it will never do
+            </h2>
+            <p className="mt-2 text-sm/relaxed text-muted-foreground">
+              The risk with an assistant answering for you is that it says
+              something you would not. These limits are built in, not optional.
+            </p>
+          </div>
+
+          <div className="mt-8 flex flex-col gap-2">
+            {GUARDRAILS.map((guardrail) => {
+              const Icon = guardrail.icon;
+              return (
+                <Item key={guardrail.title} variant="outline">
+                  <ItemMedia variant="icon">
+                    <Icon />
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>{guardrail.title}</ItemTitle>
+                    <ItemDescription>{guardrail.body}</ItemDescription>
+                  </ItemContent>
+                </Item>
+              );
+            })}
+          </div>
+        </section>
+
+        <Separator />
+
+        {/* ------------------------------------------------------ how it works */}
+        <section id="how" className="mx-auto w-full max-w-6xl px-6 py-14 lg:py-18">
+          <div className="max-w-2xl">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight">
+              Up and running the same day
+            </h2>
+            <p className="mt-2 text-sm/relaxed text-muted-foreground">
+              You do not write any prompts. Describe the job in a sentence and
+              the assistant is drafted for you to review and adjust.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            {STEPS.map((step, index) => (
+              <Card key={step.title} className="h-full">
+                <CardHeader>
+                  <Badge variant="outline" className="w-fit font-mono">
+                    {String(index + 1).padStart(2, "0")}
+                  </Badge>
+                  <CardTitle className="mt-2">{step.title}</CardTitle>
+                  <CardDescription className="leading-relaxed">
+                    {step.body}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-5 py-4">
+            <p className="text-sm font-medium">
+              Already have your sign-in details?
+            </p>
+            <Button
+              size="sm"
+              className="ml-auto"
+              nativeButton={false}
+              render={<Link href="/login" />}
+            >
+              Open your workspace <ArrowRightIcon />
+            </Button>
+          </div>
+        </section>
+      </main>
+
+      {/* ------------------------------------------------------------- footer */}
+      <footer className="border-t">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-[0.625rem] text-muted-foreground">
+          <span>Magic AI Bot</span>
+          <Link href="/login" className="underline">
+            Sign in
+          </Link>
         </div>
-      )}
-    </main>
+      </footer>
+    </div>
   );
 }
