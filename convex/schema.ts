@@ -1,0 +1,463 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+// ---------------------------------------------------------------------------
+// Shared validator fragments
+// ---------------------------------------------------------------------------
+
+// A free-form key/value pair. Used everywhere the platform needs to store
+// tenant-defined attributes without schema migrations.
+export const kvPair = v.object({
+  key: v.string(),
+  value: v.string(),
+});
+
+// How an agent should sound. Compiled into the system prompt at runtime.
+export const toneConfig = v.object({
+  traits: v.array(v.string()),
+  avoid: v.array(v.string()),
+  formality: v.union(
+    v.literal("casual"),
+    v.literal("neutral"),
+    v.literal("formal")
+  ),
+  emoji: v.union(
+    v.literal("none"),
+    v.literal("sparing"),
+    v.literal("expressive")
+  ),
+  responseLength: v.union(
+    v.literal("short"),
+    v.literal("medium"),
+    v.literal("detailed")
+  ),
+  languages: v.array(v.string()),
+  mirrorUserLanguage: v.boolean(),
+});
+
+// A single question the agent must answer before an order is complete.
+export const requirementField = v.object({
+  key: v.string(),
+  label: v.string(),
+  type: v.union(
+    v.literal("text"),
+    v.literal("number"),
+    v.literal("select"),
+    v.literal("boolean"),
+    v.literal("date")
+  ),
+  required: v.boolean(),
+  options: v.optional(v.array(v.string())),
+  example: v.optional(v.string()),
+});
+
+// One parameter of a tool's input schema. Stored declaratively so tools can be
+// created from the dashboard (or drafted by the model) with no code changes.
+export const toolParameter = v.object({
+  name: v.string(),
+  type: v.union(
+    v.literal("string"),
+    v.literal("number"),
+    v.literal("boolean")
+  ),
+  description: v.string(),
+  required: v.boolean(),
+  enumValues: v.optional(v.array(v.string())),
+});
+
+export const orderStatus = v.union(
+  v.literal("new"),
+  v.literal("quoted"),
+  v.literal("confirmed"),
+  v.literal("in_progress"),
+  v.literal("completed"),
+  v.literal("cancelled")
+);
+
+export default defineSchema({
+  // -------------------------------------------------------------------------
+  // Workspace — the tenant. One company / project. Everything else hangs off it.
+  // -------------------------------------------------------------------------
+  workspaces: defineTable({
+    name: v.string(),
+    slug: v.string(),
+    tagline: v.optional(v.string()),
+    description: v.optional(v.string()),
+    industry: v.optional(v.string()),
+    website: v.optional(v.string()),
+    supportEmail: v.optional(v.string()),
+    supportPhone: v.optional(v.string()),
+    address: v.optional(v.string()),
+    // Locale defaults that agents inherit
+    locale: v.string(), // e.g. "en-GB"
+    timezone: v.string(), // e.g. "Europe/London"
+    currency: v.string(), // e.g. "GBP"
+    // Where order_created / escalation events are POSTed
+    webhookUrl: v.optional(v.string()),
+    webhookSecret: v.optional(v.string()),
+    // Arbitrary company facts injected into every agent prompt
+    facts: v.array(kvPair),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_slug", ["slug"]),
+
+  // -------------------------------------------------------------------------
+  // Agents — a configured bot. Persona + job + model settings + capabilities.
+  // -------------------------------------------------------------------------
+  agents: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(), // internal name, e.g. "Sales qualifier"
+    botName: v.string(), // the name the customer sees, e.g. "John"
+    role: v.string(), // e.g. "AI Sales Consultant"
+    objective: v.string(), // what success looks like
+    jobDescription: v.string(), // free text: what this agent does, step by step
+    greeting: v.optional(v.string()),
+    tone: toneConfig,
+    rules: v.array(v.string()), // hard "always" instructions
+    guardrails: v.array(v.string()), // hard "never" instructions
+    escalationPolicy: v.optional(v.string()),
+    // Model settings
+    model: v.string(), // e.g. "gpt-4.1-mini"
+    temperature: v.number(),
+    maxSteps: v.number(), // tool-loop budget
+    historyLimit: v.number(), // how many prior messages to replay
+    // Retrieval settings
+    knowledgeEnabled: v.boolean(),
+    knowledgeTopK: v.number(),
+    // Which builtin tools this agent may call (keys from BUILTIN_TOOLS)
+    builtinTools: v.array(v.string()),
+    // Free-form extra prompt appended verbatim, for power users
+    promptOverride: v.optional(v.string()),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("active"),
+      v.literal("paused")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  // -------------------------------------------------------------------------
+  // Knowledge base — sources and their embedded chunks.
+  // -------------------------------------------------------------------------
+  knowledgeSources: defineTable({
+    workspaceId: v.id("workspaces"),
+    // null/undefined = available to every agent in the workspace
+    agentId: v.optional(v.id("agents")),
+    title: v.string(),
+    kind: v.union(
+      v.literal("text"),
+      v.literal("faq"),
+      v.literal("url"),
+      v.literal("file")
+    ),
+    // Source payload — exactly one of these is used depending on `kind`
+    rawText: v.optional(v.string()),
+    url: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    filename: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    size: v.optional(v.number()),
+    tags: v.array(v.string()),
+    chunkCount: v.number(),
+    charCount: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("ready"),
+      v.literal("failed")
+    ),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_agent", ["agentId"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  knowledgeChunks: defineTable({
+    workspaceId: v.id("workspaces"),
+    sourceId: v.id("knowledgeSources"),
+    sourceTitle: v.string(),
+    text: v.string(),
+    order: v.number(),
+    embedding: v.array(v.float64()),
+    // Composite filter key so one vector query can fetch both workspace-wide
+    // chunks and chunks scoped to the calling agent:
+    //   `${workspaceId}|*`         -> shared across the workspace
+    //   `${workspaceId}|${agentId}` -> private to one agent
+    scopeKey: v.string(),
+  })
+    .index("by_source", ["sourceId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["scopeKey"],
+    }),
+
+  // -------------------------------------------------------------------------
+  // Channels — where an agent is reachable. WhatsApp Cloud API / WABA config.
+  // -------------------------------------------------------------------------
+  channels: defineTable({
+    workspaceId: v.id("workspaces"),
+    agentId: v.id("agents"),
+    type: v.union(v.literal("whatsapp"), v.literal("web")),
+    name: v.string(),
+    // Public, unguessable segment used in the inbound webhook URL:
+    //   /api/whatsapp/<channelKey>
+    channelKey: v.string(),
+    // Meta echoes this back on webhook verification (hub.verify_token)
+    verifyToken: v.string(),
+    // Denormalised phone_number_id so inbound payloads can be routed by index
+    externalId: v.optional(v.string()),
+    whatsapp: v.optional(
+      v.object({
+        apiBaseUrl: v.string(), // e.g. https://graph.facebook.com
+        apiVersion: v.string(), // e.g. v23.0
+        phoneNumberId: v.string(),
+        wabaId: v.optional(v.string()),
+        businessId: v.optional(v.string()),
+        displayPhoneNumber: v.optional(v.string()),
+        accessToken: v.string(),
+      })
+    ),
+    status: v.union(
+      v.literal("active"),
+      v.literal("paused"),
+      v.literal("error")
+    ),
+    lastInboundAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_agent", ["agentId"])
+    .index("by_channelKey", ["channelKey"])
+    .index("by_externalId", ["externalId"]),
+
+  // -------------------------------------------------------------------------
+  // Catalogue — products the agent sells / quotes for.
+  // -------------------------------------------------------------------------
+  products: defineTable({
+    workspaceId: v.id("workspaces"),
+    slug: v.string(),
+    sku: v.optional(v.string()),
+    name: v.string(),
+    category: v.string(),
+    description: v.string(),
+    // Optional pricing. Agents are told never to quote unless price is present.
+    price: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    unit: v.optional(v.string()), // e.g. "per 1000"
+    // The spec questions the agent must collect for this product
+    requirementFields: v.array(requirementField),
+    attributes: v.array(kvPair),
+    exampleSpec: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    tags: v.array(v.string()),
+    // Lowercased "name category description tags" blob for cheap text search
+    searchBlob: v.string(),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_slug", ["workspaceId", "slug"])
+    .index("by_workspace_category", ["workspaceId", "category"])
+    .searchIndex("search_products", {
+      searchField: "searchBlob",
+      filterFields: ["workspaceId", "status"],
+    }),
+
+  // -------------------------------------------------------------------------
+  // Contacts — the people talking to the agents.
+  // -------------------------------------------------------------------------
+  contacts: defineTable({
+    workspaceId: v.id("workspaces"),
+    // WhatsApp number for whatsapp channels, browser session id for web tests
+    externalId: v.string(),
+    channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+    name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    company: v.optional(v.string()),
+    attributes: v.array(kvPair),
+    lastSeenAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_external", ["workspaceId", "externalId"]),
+
+  conversations: defineTable({
+    workspaceId: v.id("workspaces"),
+    agentId: v.id("agents"),
+    contactId: v.id("contacts"),
+    channelId: v.optional(v.id("channels")),
+    channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+    status: v.union(
+      v.literal("open"),
+      v.literal("escalated"),
+      v.literal("closed")
+    ),
+    messageCount: v.number(),
+    lastMessageAt: v.number(),
+    lastMessagePreview: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_agent", ["agentId"])
+    .index("by_contact_agent", ["contactId", "agentId"]),
+
+  messages: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    role: v.union(
+      v.literal("user"),
+      v.literal("assistant"),
+      v.literal("system")
+    ),
+    kind: v.union(
+      v.literal("text"),
+      v.literal("tool"),
+      v.literal("note"),
+      v.literal("error")
+    ),
+    text: v.optional(v.string()),
+    // Populated on kind === "tool" so the playground can show the tool trace
+    toolName: v.optional(v.string()),
+    toolInput: v.optional(v.string()), // JSON
+    toolOutput: v.optional(v.string()), // JSON, truncated
+    toolOk: v.optional(v.boolean()),
+    latencyMs: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_conversation", ["conversationId"])
+    .index("by_workspace", ["workspaceId"]),
+
+  // -------------------------------------------------------------------------
+  // Tools — builtin toggles live on the agent; these are the custom ones.
+  // -------------------------------------------------------------------------
+  tools: defineTable({
+    workspaceId: v.id("workspaces"),
+    // undefined = usable by every agent in the workspace
+    agentId: v.optional(v.id("agents")),
+    // snake_case identifier exposed to the model
+    name: v.string(),
+    displayName: v.string(),
+    description: v.string(), // shown to the model — this drives tool selection
+    whenToUse: v.optional(v.string()),
+    kind: v.union(v.literal("http"), v.literal("db_query")),
+    parameters: v.array(toolParameter),
+    http: v.optional(
+      v.object({
+        method: v.union(
+          v.literal("GET"),
+          v.literal("POST"),
+          v.literal("PUT"),
+          v.literal("PATCH"),
+          v.literal("DELETE")
+        ),
+        // Supports {{paramName}} placeholders
+        urlTemplate: v.string(),
+        headers: v.array(kvPair),
+        bodyTemplate: v.optional(v.string()),
+        timeoutMs: v.optional(v.number()),
+      })
+    ),
+    dbQuery: v.optional(
+      v.object({
+        table: v.union(
+          v.literal("products"),
+          v.literal("orders"),
+          v.literal("contacts")
+        ),
+        // Which tool parameter holds the free-text search term
+        searchParam: v.optional(v.string()),
+        limit: v.number(),
+      })
+    ),
+    // Draft tools are visible in the dashboard but never given to the model
+    status: v.union(
+      v.literal("draft"),
+      v.literal("enabled"),
+      v.literal("disabled")
+    ),
+    // How the tool came to exist — useful for the "auto-created" flow
+    origin: v.union(v.literal("manual"), v.literal("ai_drafted")),
+    sourceTask: v.optional(v.string()), // the task description it was drafted from
+    callCount: v.number(),
+    lastCalledAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_name", ["workspaceId", "name"])
+    .index("by_agent", ["agentId"]),
+
+  // -------------------------------------------------------------------------
+  // Orders — captured by the create_order tool.
+  // -------------------------------------------------------------------------
+  orders: defineTable({
+    workspaceId: v.id("workspaces"),
+    agentId: v.optional(v.id("agents")),
+    conversationId: v.optional(v.id("conversations")),
+    contactId: v.optional(v.id("contacts")),
+    orderNumber: v.string(),
+    customer: v.object({
+      name: v.string(),
+      phone: v.optional(v.string()),
+      email: v.optional(v.string()),
+      company: v.optional(v.string()),
+    }),
+    items: v.array(
+      v.object({
+        productId: v.optional(v.id("products")),
+        productName: v.string(),
+        quantity: v.string(),
+        unitPrice: v.optional(v.number()),
+        // Everything product-specific lands here — no schema change per vertical
+        specs: v.array(kvPair),
+      })
+    ),
+    delivery: v.optional(
+      v.object({
+        address: v.optional(v.string()),
+        city: v.optional(v.string()),
+        postcode: v.optional(v.string()),
+        country: v.optional(v.string()),
+        requiredDate: v.optional(v.string()),
+      })
+    ),
+    notes: v.optional(v.string()),
+    total: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    source: v.union(v.literal("whatsapp"), v.literal("web"), v.literal("api")),
+    status: orderStatus,
+    rawPayload: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_contact", ["contactId"])
+    .index("by_conversation", ["conversationId"]),
+
+  // -------------------------------------------------------------------------
+  // Outbound webhook delivery log.
+  // -------------------------------------------------------------------------
+  webhookEvents: defineTable({
+    workspaceId: v.id("workspaces"),
+    event: v.string(), // "order_created" | "escalation" | ...
+    payload: v.string(), // JSON
+    status: v.union(v.literal("sent"), v.literal("failed"), v.literal("skipped")),
+    responseStatus: v.optional(v.number()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_event", ["workspaceId", "event"]),
+});
