@@ -8,13 +8,49 @@
  * @module
  */
 
+import type * as agents from "../agents.js";
+import type * as ai from "../ai.js";
+import type * as channels from "../channels.js";
+import type * as conversations from "../conversations.js";
+import type * as engine from "../engine.js";
+import type * as http from "../http.js";
+import type * as ingest from "../ingest.js";
+import type * as knowledge from "../knowledge.js";
+import type * as lib_prompt from "../lib/prompt.js";
+import type * as lib_shared from "../lib/shared.js";
+import type * as lib_toolSchema from "../lib/toolSchema.js";
+import type * as orders from "../orders.js";
+import type * as products from "../products.js";
+import type * as tools from "../tools.js";
+import type * as webhooks from "../webhooks.js";
+import type * as whatsapp from "../whatsapp.js";
+import type * as workspaces from "../workspaces.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  agents: typeof agents;
+  ai: typeof ai;
+  channels: typeof channels;
+  conversations: typeof conversations;
+  engine: typeof engine;
+  http: typeof http;
+  ingest: typeof ingest;
+  knowledge: typeof knowledge;
+  "lib/prompt": typeof lib_prompt;
+  "lib/shared": typeof lib_shared;
+  "lib/toolSchema": typeof lib_toolSchema;
+  orders: typeof orders;
+  products: typeof products;
+  tools: typeof tools;
+  webhooks: typeof webhooks;
+  whatsapp: typeof whatsapp;
+  workspaces: typeof workspaces;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
