@@ -4,6 +4,51 @@ import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
+// ---------------------------------------------------------------------------
+// OIDC discovery + JWKS for our own session JWTs.
+//
+// convex/auth.config.ts points `domain` at this deployment's .convex.site, so
+// Convex fetches these two routes to learn how to verify the tokens it is
+// handed. Keeping the issuer inside Convex means auth works in local
+// development with no tunnel and no third-party identity provider.
+// ---------------------------------------------------------------------------
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=300",
+    },
+  });
+}
+
+http.route({
+  path: "/.well-known/openid-configuration",
+  method: "GET",
+  handler: httpAction(async () => {
+    const issuer = process.env.CONVEX_SITE_URL ?? "";
+    return jsonResponse({
+      issuer,
+      jwks_uri: `${issuer}/.well-known/jwks.json`,
+      authorization_endpoint: `${issuer}/oauth/authorize`,
+      response_types_supported: ["id_token"],
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+    });
+  }),
+});
+
+http.route({
+  path: "/.well-known/jwks.json",
+  method: "GET",
+  handler: httpAction(async () => {
+    const raw = process.env.JWT_PUBLIC_JWK;
+    if (!raw) return jsonResponse({ keys: [] });
+    return jsonResponse({ keys: [JSON.parse(raw)] });
+  }),
+});
+
 // Meta's webhook lives on the Convex deployment rather than the Next app: the
 // URL is public without a tunnel (so local development works against a real
 // number), and the channel's access token never leaves Convex.
