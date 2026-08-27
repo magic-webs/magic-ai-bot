@@ -26,7 +26,8 @@ off it, so nothing about a vertical is baked into code:
 | **Channels** | A WhatsApp number (WABA ID, phone number ID, access token) routed to one agent |
 | **Conversations** | Every thread across WhatsApp and web, including the tool trace for each turn |
 
-Routes live under `/w/<slug>/…`.
+Routes live under `/w/<slug>/…`. A marketing page sits at `/`, the platform
+console at `/admin`, and sign-in at `/login`.
 
 ---
 
@@ -36,15 +37,24 @@ Routes live under `/w/<slug>/…`.
 bun install
 npx convex dev          # pushes the schema + functions, generates types
 npx convex env set OPENAI_API_KEY sk-...   # required — actions run on Convex
+
+# Session signing key — see Authentication below
+node -e '(async()=>{const p=await crypto.subtle.generateKey({name:"RSASSA-PKCS1-v1_5",modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},true,["sign","verify"]);const k=await crypto.subtle.exportKey("pkcs8",p.privateKey);const j=await crypto.subtle.exportKey("jwk",p.publicKey);console.log("JWT_PRIVATE_KEY="+Buffer.from(k).toString("base64"));console.log("JWT_PUBLIC_JWK="+JSON.stringify({kty:j.kty,n:j.n,e:j.e,alg:"RS256",use:"sig",kid:"magic-ai-bot-1"}))})()'
+npx convex env set JWT_PRIVATE_KEY "<value from above>"
+npx convex env set JWT_PUBLIC_JWK  "<value from above>"
+
 bun dev
 ```
 
 `.env.local` needs `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL`
-(both written by `convex dev`). The OpenAI key must be set **on the Convex
-deployment**, not just in `.env.local`, because every model call happens inside
-a Convex action.
+(both written by `convex dev`). The OpenAI key and the signing key must be set
+**on the Convex deployment**, not just in `.env.local`, because every model call
+and every token signature happens inside a Convex action.
 
-Then, in the dashboard:
+Open `/login`. While no administrator exists that page offers a one-time setup
+form to create the first one; it locks itself the moment an account exists.
+
+Then, in the console:
 
 1. **New workspace** — name, description, locale, currency. The description and
    "company facts" are injected into every agent prompt, so specificity pays off.
@@ -57,6 +67,10 @@ Then, in the dashboard:
 5. **Test in chat** — talk to it in the web playground, with the tool trace visible.
 6. **Channels → Connect WhatsApp** — paste your WABA credentials, copy the
    callback URL and verify token into Meta, flip it live.
+7. **Hand over the keys** — on `/admin`, open a workspace's **Access** dialog and
+   generate a password. It is shown once; send it to the company along with the
+   workspace ID, which is their username. They sign in at `/login` and land
+   straight in their own workspace.
 
 ---
 
@@ -64,14 +78,14 @@ Then, in the dashboard:
 
 ### One engine, two front doors
 
-`convex/engine.ts` → `engine.respond` is the only place a conversation turn is
-processed. Both the web playground and the WhatsApp webhook call it, so what you
-test is exactly what customers get.
+`convex/engine.ts` holds a single `runTurn` implementation with two entry
+points, so the authorized dashboard path and the unauthenticated webhook path
+cannot drift:
 
 ```
-web playground ─┐
-                ├─→ engine.respond ─→ generateText(tools) ─→ reply + tool trace
-WhatsApp webhook┘
+web playground ──→ api.engine.respondAsUser ──┐ (checks the caller may use this agent)
+                                              ├─→ runTurn ─→ generateText(tools)
+WhatsApp webhook ─→ internal.engine.respond ──┘              → reply + tool trace
 ```
 
 A turn does:
@@ -190,11 +204,84 @@ with a **Send test event** button.
 
 ---
 
+## Authentication
+
+Two kinds of principal:
+
+| Role | Username is | Can see |
+| --- | --- | --- |
+| **admin** | their email address | every workspace, and who has access to each |
+| **workspace** | the workspace ID | only its own workspace |
+
+There is **one** sign-in form: username and password, no role picker. An email
+always contains `@` and a workspace ID never does, so `auth.login` resolves the
+namespace itself, then tells the route handler which area to open — `/admin` or
+`/w/<slug>`. A failed attempt returns the same generic message either way, and
+is compared against an unmatchable hash so response time cannot reveal whether
+the username exists.
+
+### How a session works
+
+There is no third-party identity provider. The deployment signs its own tokens
+and verifies them through its own JWKS:
+
+1. `/api/auth/login` calls `auth.login`, which checks the password and returns
+   an opaque session token plus the resolved role. Next stores the token in an
+   **httpOnly** cookie, so browser JavaScript can never read it, and answers
+   with the destination for that role.
+2. `/api/auth/token` exchanges that cookie for a short-lived (30 minute) RS256
+   JWT.
+3. `convex/http.ts` serves `/.well-known/openid-configuration` and
+   `/.well-known/jwks.json`, and `convex/auth.config.ts` points `domain` at this
+   deployment's own `.convex.site`. Convex therefore verifies the tokens it is
+   handed with no external service — and it works in local development with no
+   tunnel.
+4. The browser's Convex client attaches that JWT to every request, so
+   `ctx.auth.getUserIdentity()` is available in **every** Convex function without
+   a token being threaded through any argument.
+
+Because the durable credential stays in an httpOnly cookie and only short-lived
+JWTs reach JavaScript, an XSS bug cannot steal a lasting session.
+
+### Where authorization is enforced
+
+Inside Convex, not in the UI. `convex/lib/auth.ts` exposes `requireAdmin`,
+`requireWorkspace` and per-document guards (`requireAgent`, `requireOrder`, …)
+that resolve a record's owning workspace before deciding. All 60 public
+functions call one, so a direct request to the Convex HTTP API from outside the
+app is refused exactly as the UI would be.
+
+Each guard also **re-reads the underlying record**, so revoking a company's
+access locks it out on the very next request rather than when its token expires.
+
+`proxy.ts` — the Next 16 replacement for `middleware.ts` — is a UX guard only:
+it keeps signed-out visitors off protected routes and sends each role to its own
+area. Forging its cookies buys nothing.
+
+### Passwords
+
+- PBKDF2-SHA256 at 210,000 iterations (OWASP's 2023 floor) with a per-password
+  salt, stored as `pbkdf2$<iterations>$<salt>$<hash>`.
+- Company passwords are **generated** as four `Xxxxx` groups from an alphabet
+  with `0/O` and `1/l/I` removed, because these get read aloud and retyped.
+- A generated password is returned to the admin exactly once and never stored in
+  plaintext. Lost means reissue, not recover.
+- Issuing or rotating one revokes every open session for that workspace.
+- The company is flagged `mustChangePassword` and prompted to set its own under
+  **Settings → Workspace access**, after which the issuer can no longer sign in
+  as them.
+- A failed sign-in is compared against a dummy hash, so response time does not
+  reveal whether the account exists.
+
+
 ## Layout
 
 ```
 convex/
   schema.ts           tables, indexes, vector index, shared validator fragments
+  auth.ts             password hashing, sessions, JWT signing (Node runtime)
+  authDb.ts           auth reads/writes, plus guards callable from actions
+  auth.config.ts      points Convex at our own JWKS
   engine.ts           the turn: retrieval → toolset → generateText → persist
   ai.ts               generateObject drafting: agents, tools, catalogues
   http.ts             WhatsApp webhook (verification + inbound)
@@ -203,12 +290,18 @@ convex/
   workspaces.ts agents.ts knowledge.ts products.ts orders.ts
   channels.ts tools.ts conversations.ts webhooks.ts
   lib/
+    auth.ts           requireAdmin / requireWorkspace / per-document guards
     prompt.ts         configuration → system prompt (pure)
     shared.ts         builtin tool catalogue, slugs, masking (pure)
     toolSchema.ts     declarative parameters → JSON Schema, templating (pure)
 
+proxy.ts              route gate: signed-out → /login, each role → its area
+
 app/
-  page.tsx                              workspace list + create
+  page.tsx                              landing page, written for the company
+  login/page.tsx                        one username/password form, routes by role
+  admin/page.tsx                        workspace list + access management
+  api/auth/*                            login, logout, session, token exchange
   w/[slug]/layout.tsx                   sidebar shell, resolves slug → workspace
   w/[slug]/page.tsx                     overview + setup checklist
   w/[slug]/agents/[agentId]/page.tsx    agent configuration (6 tabs)
@@ -223,11 +316,12 @@ ingestion status update live without polling.
 
 ## Not included
 
-- **Authentication.** The dashboard is open and every Convex query is
-  unauthenticated. WhatsApp access tokens live in the database. Add
-  authentication before exposing this beyond localhost — the `convex-auth` skill
-  covers the wiring, and queries are already workspace-scoped, so the change is
-  adding an ownership check rather than a restructure.
+- **Password reset by email.** There is no self-service reset; an administrator
+  reissues the password. Wiring email would remove that round trip.
+- **Rate limiting on sign-in.** Failed attempts are not throttled. Before
+  exposing this to the internet, add the `@convex-dev/rate-limiter` component to
+  `auth.login`.
+- **Two-factor authentication** for administrators.
 - **Media into the knowledge base from WhatsApp.** Inbound images and documents
   get a polite "send it as text" reply. Voice notes *are* transcribed.
 - **Scanned/image-only PDFs.** There is no OCR in the ingestion path; text is
