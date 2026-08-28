@@ -93,10 +93,17 @@ http.route({
     // challenge under a different name. So: echo a challenge if one is
     // offered, otherwise answer OK.
     //
+    // `challange` is not a typo here. The MagicXBot panel spells it that way
+    // on the wire — its own failure notice reads "Failed to verify challange"
+    // — and printly-ai-bot has always had to read that spelling first. Miss it
+    // and verification fails with no other symptom.
+    //
     // Nothing is authenticated here and nothing needs to be. The unguessable
     // channelKey in the path is what selects the channel, and this response
     // discloses only the caller's own challenge string.
     const challenge =
+      params.get("challange") ??
+      params.get("hub.challange") ??
       params.get("hub.challenge") ??
       params.get("challenge") ??
       params.get("hub_challenge");
@@ -134,7 +141,8 @@ http.route({
     // Some panels verify with a POST rather than a GET. Echo the challenge and
     // do not treat it as a message: a verification ping has no entry array.
     if (!("entry" in shape)) {
-      const challenge = shape["challenge"] ?? shape["hub.challenge"];
+      const challenge =
+        shape["challange"] ?? shape["challenge"] ?? shape["hub.challenge"];
       if (typeof challenge === "string") {
         return new Response(challenge, {
           status: 200,
