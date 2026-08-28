@@ -479,23 +479,18 @@ export default function ChannelsPage() {
                     </Alert>
                   ) : null}
 
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <CopyField label="Callback URL" value={webhookUrl} />
-                    <CopyField
-                      label="Verify token"
-                      value={channel.verifyToken}
-                    />
-                  </div>
+                  <CopyField label="Callback URL" value={webhookUrl} />
 
                   <Alert>
                     <InfoIcon />
                     <AlertTitle>Wiring this up in Meta</AlertTitle>
                     <AlertDescription>
                       In your app&apos;s WhatsApp → Configuration, set the
-                      callback URL and verify token above, then subscribe to the{" "}
-                      <span className="font-mono">messages</span> field. The URL
-                      must be publicly reachable, so use a tunnel while
-                      developing locally.
+                      callback URL above, then subscribe to the{" "}
+                      <span className="font-mono">messages</span> field. Meta
+                      insists on a verify token — type anything you like, it is
+                      not checked. The URL must be publicly reachable, so use a
+                      tunnel while developing locally.
                     </AlertDescription>
                   </Alert>
 
@@ -571,7 +566,7 @@ export default function ChannelsPage() {
                         onClick={async () => {
                           await rotateKeys({ channelId: channel._id });
                           toast.add({
-                            title: "New URL and verify token generated",
+                            title: "New callback URL generated",
                             description:
                               "Update the configuration in Meta or inbound messages will stop.",
                             type: "warning",
