@@ -151,6 +151,92 @@ export const reprocess = mutation({
   },
 });
 
+/**
+ * Edit a source in place.
+ *
+ * Re-embedding is the expensive part, so it happens only when the text
+ * actually changes: chunk vectors are built from the passage text alone, never
+ * the title, and retrieval reads the title off the source at query time. A
+ * rename is therefore pure metadata.
+ */
+export const updateSource = mutation({
+  args: {
+    sourceId: v.id("knowledgeSources"),
+    title: v.optional(v.string()),
+    rawText: v.optional(v.string()),
+    url: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    await requireKnowledgeSource(ctx, args.sourceId);
+    const source = await ctx.db.get("knowledgeSources", args.sourceId);
+    if (!source) throw new Error("Source not found");
+
+    const patch: Record<string, unknown> = { updatedAt: Date.now() };
+    let mustReindex = false;
+
+    if (args.title !== undefined) {
+      const title = args.title.trim();
+      if (!title) throw new Error("A title is required");
+      patch.title = title;
+    }
+
+    if (args.tags !== undefined) {
+      patch.tags = args.tags.map((tag) => tag.trim()).filter(Boolean);
+    }
+
+    if (args.rawText !== undefined) {
+      if (source.kind !== "text" && source.kind !== "faq") {
+        throw new Error(
+          `The text of a ${source.kind} source comes from the ${source.kind} itself. Edit the ${source.kind}, then reprocess.`
+        );
+      }
+      const rawText = args.rawText.trim();
+      if (!rawText) throw new Error("Text content is required");
+      if (rawText !== source.rawText) {
+        patch.rawText = rawText;
+        patch.charCount = rawText.length;
+        mustReindex = true;
+      }
+    }
+
+    if (args.url !== undefined) {
+      if (source.kind !== "url") {
+        throw new Error("Only a url source has a URL to change");
+      }
+      const url = args.url.trim();
+      if (!url) throw new Error("A URL is required");
+      if (url !== source.url) {
+        patch.url = url;
+        mustReindex = true;
+      }
+    }
+
+    if (mustReindex) {
+      // Old chunks are dropped before the new ones land, so a retrieval that
+      // runs mid-edit can return nothing but never a mix of both versions.
+      const chunks = await ctx.db
+        .query("knowledgeChunks")
+        .withIndex("by_source", (q) => q.eq("sourceId", args.sourceId))
+        .collect();
+      for (const chunk of chunks) await ctx.db.delete(chunk._id);
+      patch.status = "pending";
+      patch.chunkCount = 0;
+      patch.failureReason = undefined;
+    }
+
+    await ctx.db.patch(args.sourceId, patch);
+
+    if (mustReindex) {
+      await ctx.scheduler.runAfter(0, internal.ingest.processSource, {
+        sourceId: args.sourceId,
+      });
+    }
+
+    return { success: true, reindexing: mustReindex };
+  },
+});
+
 export const remove = mutation({
   args: { sourceId: v.id("knowledgeSources") },
   handler: async (ctx, args) => {
