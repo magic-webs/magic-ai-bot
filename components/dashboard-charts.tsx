@@ -146,31 +146,73 @@ export function Sparkline({
 // Ships a table view so no value is reachable only by hovering.
 // ---------------------------------------------------------------------------
 
+type Column = {
+  key: string;
+  label: string;
+  format?: (value: number) => string;
+  /**
+   * Counts must not tick at 1.5; money must not tick at 0, 1, 2 while the
+   * data sits around 0.003. Defaults to whole numbers, which is what a
+   * message count wants.
+   */
+  fractional?: boolean;
+};
+
+/**
+ * A day-by-day area chart with a Values twin.
+ *
+ * `series` and `columns` default to the workspace dashboard's messages series,
+ * so that call site reads the same as before generalising this for the admin
+ * cost chart.
+ */
 export function ActivityChart({
   data,
   windowDays,
   truncated,
+  series = { key: "messages", label: "Messages" },
+  columns,
+  noun = "messages",
+  emptyLabel = "Messages appear here once an agent starts replying.",
 }: {
-  data: Array<{ date: string; messages: number; conversations: number }>;
+  data: Array<Record<string, unknown> & { date: string }>;
   windowDays: number;
   truncated: boolean;
+  series?: Column;
+  columns?: Column[];
+  noun?: string;
+  emptyLabel?: string;
 }) {
   const [view, setView] = useState<"chart" | "table">("chart");
 
   const config = {
-    messages: { label: "Messages", color: SERIES },
+    [series.key]: { label: series.label, color: SERIES },
   } satisfies ChartConfig;
 
-  const total = data.reduce((sum, row) => sum + row.messages, 0);
+  const tableColumns: Column[] =
+    columns ??
+    [
+      { key: "messages", label: "Messages" },
+      { key: "conversations", label: "Conversations" },
+    ];
+
+  const value = (row: Record<string, unknown>, key: string) =>
+    typeof row[key] === "number" ? (row[key] as number) : 0;
+  const show = (column: Column, row: Record<string, unknown>) =>
+    column.format
+      ? column.format(value(row, column.key))
+      : value(row, column.key).toLocaleString();
+
+  const total = data.reduce((sum, row) => sum + value(row, series.key), 0);
   if (total === 0) {
-    return <NoData label="Messages appear here once an agent starts replying." />;
+    return <NoData label={emptyLabel} />;
   }
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[0.625rem] text-muted-foreground">
-          {total.toLocaleString()} messages over {windowDays} days
+          {series.format ? series.format(total) : total.toLocaleString()}{" "}
+          {noun} over {windowDays} days
           {truncated ? " · earliest days may be partial" : ""}
         </p>
         <div className="flex gap-1">
@@ -202,12 +244,12 @@ export function ActivityChart({
               <linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1">
                 <stop
                   offset="0%"
-                  stopColor="var(--color-messages)"
+                  stopColor={`var(--color-${series.key})`}
                   stopOpacity={0.2}
                 />
                 <stop
                   offset="100%"
-                  stopColor="var(--color-messages)"
+                  stopColor={`var(--color-${series.key})`}
                   stopOpacity={0.02}
                 />
               </linearGradient>
@@ -227,8 +269,14 @@ export function ActivityChart({
               tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
             />
             <YAxis
-              allowDecimals={false}
-              width={28}
+              allowDecimals={series.fractional ?? false}
+              // A formatted money tick needs room that a 2-digit count does not.
+              width={series.fractional ? 56 : 28}
+              tickFormatter={
+                series.fractional && series.format
+                  ? (value) => series.format!(Number(value))
+                  : undefined
+              }
               tickLine={false}
               axisLine={false}
               tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
@@ -237,9 +285,9 @@ export function ActivityChart({
               content={<ChartTooltipContent labelFormatter={(l) => formatDay(String(l))} />}
             />
             <Area
-              dataKey="messages"
+              dataKey={series.key}
               type="monotone"
-              stroke="var(--color-messages)"
+              stroke={`var(--color-${series.key})`}
               strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -250,7 +298,7 @@ export function ActivityChart({
                 r: 4,
                 strokeWidth: 2,
                 stroke: "var(--card)",
-                fill: "var(--color-messages)",
+                fill: `var(--color-${series.key})`,
               }}
             />
           </AreaChart>
@@ -261,20 +309,25 @@ export function ActivityChart({
             <TableHeader>
               <TableRow>
                 <TableHead>Day</TableHead>
-                <TableHead className="text-right">Messages</TableHead>
-                <TableHead className="text-right">Conversations</TableHead>
+                {tableColumns.map((column) => (
+                  <TableHead key={column.key} className="text-right">
+                    {column.label}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {[...data].reverse().map((row) => (
                 <TableRow key={row.date}>
                   <TableCell>{formatDay(row.date)}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {row.messages}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {row.conversations}
-                  </TableCell>
+                  {tableColumns.map((column) => (
+                    <TableCell
+                      key={column.key}
+                      className="text-right tabular-nums"
+                    >
+                      {show(column, row)}
+                    </TableCell>
+                  ))}
                 </TableRow>
               ))}
             </TableBody>
@@ -305,6 +358,7 @@ export function RankedBars({
   valueLabel,
   emptyLabel,
   formatCategory,
+  formatValue,
 }: {
   data: Array<Record<string, string | number>>;
   categoryKey: string;
@@ -312,6 +366,8 @@ export function RankedBars({
   valueLabel: string;
   emptyLabel: string;
   formatCategory?: (value: string) => string;
+  /** Raw counts read fine; money does not. */
+  formatValue?: (value: number) => string;
 }) {
   const rows = data.map((row) => ({
     category: String(row[categoryKey]),
@@ -350,10 +406,10 @@ export function RankedBars({
                 />
               </div>
             </td>
-            <td className="w-8 pl-2 text-right align-middle tabular-nums">
+            <td className="whitespace-nowrap pl-2 text-right align-middle tabular-nums">
               {/* Value in text ink, never the data colour. */}
               <span className={row.value === 0 ? "text-muted-foreground" : ""}>
-                {row.value}
+                {formatValue ? formatValue(row.value) : row.value}
               </span>
             </td>
           </tr>
@@ -443,14 +499,18 @@ export function StatTile({
   data,
   dataKey,
   suffix,
+  format,
   lowerIsBetter = false,
 }: {
   label: string;
   value: number | null;
   previous: number | null;
-  data: Array<Record<string, unknown>>;
-  dataKey: string;
+  /** Omit both to render a tile with no sparkline. */
+  data?: Array<Record<string, unknown>>;
+  dataKey?: string;
   suffix?: string;
+  /** Overrides toLocaleString — money needs more decimals than a count. */
+  format?: (value: number) => string;
   lowerIsBetter?: boolean;
 }) {
   const hasDelta =
@@ -468,7 +528,7 @@ export function StatTile({
       <div className="flex items-end gap-2">
         {/* Proportional figures: tabular-nums makes big numbers look loose. */}
         <span className="font-heading text-2xl font-semibold leading-none">
-          {value === null ? "—" : value.toLocaleString()}
+          {value === null ? "—" : format ? format(value) : value.toLocaleString()}
           {value !== null && suffix ? (
             <span className="ml-0.5 text-sm font-normal text-muted-foreground">
               {suffix}
@@ -487,7 +547,9 @@ export function StatTile({
           </span>
         ) : null}
       </div>
-      <Sparkline data={data} dataKey={dataKey} label={label} />
+      {data && dataKey ? (
+        <Sparkline data={data} dataKey={dataKey} label={label} />
+      ) : null}
     </div>
   );
 }
