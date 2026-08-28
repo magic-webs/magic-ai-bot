@@ -220,6 +220,55 @@ export const insertAdmin = internalMutation({
   },
 });
 
+/**
+ * Create the administrator, or reset an existing one's password.
+ *
+ * Unlike insertAdmin this is deliberately idempotent: it backs the
+ * provision-admin script, which is the only way to recover from a lost
+ * administrator password. Rotating the password revokes every live session for
+ * that admin, so a stolen cookie does not outlive the credential it came from.
+ */
+export const upsertAdminPassword = internalMutation({
+  args: {
+    email: v.string(),
+    name: v.optional(v.string()),
+    passwordHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("admins")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .unique();
+
+    if (!existing) {
+      const adminId = await ctx.db.insert("admins", {
+        email: args.email,
+        name: args.name,
+        passwordHash: args.passwordHash,
+        createdAt: Date.now(),
+      });
+      return { adminId, created: true, sessionsRevoked: 0 };
+    }
+
+    await ctx.db.patch(existing._id, {
+      passwordHash: args.passwordHash,
+      ...(args.name ? { name: args.name } : {}),
+    });
+
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("by_admin", (q) => q.eq("adminId", existing._id))
+      .collect();
+    for (const session of sessions) await ctx.db.delete(session._id);
+
+    return {
+      adminId: existing._id,
+      created: false,
+      sessionsRevoked: sessions.length,
+    };
+  },
+});
+
 export const upsertWorkspaceCredential = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),

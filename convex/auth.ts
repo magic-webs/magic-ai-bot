@@ -212,6 +212,51 @@ export const setupFirstAdmin = action({
   },
 });
 
+/**
+ * Set the administrator's password from ADMIN_EMAIL / ADMIN_PASSWORD.
+ *
+ * An internalAction, so the only callers are the Convex CLI and dashboard:
+ * deploy access *is* the authorization. That is what makes it safe to be the
+ * recovery path — a lost administrator password cannot be reset through any
+ * signed-in flow, because you cannot sign in to use it.
+ *
+ * Run it with `npm run provision:admin`.
+ */
+export const provisionAdmin = internalAction({
+  args: {
+    email: v.string(),
+    name: v.optional(v.string()),
+    password: v.string(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    email: string;
+    created: boolean;
+    sessionsRevoked: number;
+  }> => {
+    const email = args.email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      throw new Error(`ADMIN_EMAIL is not a valid email address: "${email}"`);
+    }
+    if (args.password.length < 16) {
+      throw new Error(
+        "ADMIN_PASSWORD must be at least 16 characters. This account administers every workspace on the platform."
+      );
+    }
+
+    const result: { created: boolean; sessionsRevoked: number } =
+      await ctx.runMutation(internal.authDb.upsertAdminPassword, {
+        email,
+        name: args.name?.trim() || undefined,
+        passwordHash: await hashPassword(args.password),
+      });
+
+    return { email, ...result };
+  },
+});
+
 export const createAdmin = action({
   args: {
     email: v.string(),
