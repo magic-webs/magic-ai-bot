@@ -73,7 +73,6 @@ http.route({
 
     const params = new URL(request.url).searchParams;
     const mode = params.get("hub.mode");
-    const token = params.get("hub.verify_token");
     const challenge = params.get("hub.challenge");
 
     const resolved = await ctx.runQuery(internal.channels.resolveByKey, {
@@ -83,7 +82,11 @@ http.route({
       return new Response("Unknown channel", { status: 404 });
     }
 
-    if (mode !== "subscribe" || token !== resolved.channel.verifyToken) {
+    // hub.verify_token is not checked. Meta makes you type one into its
+    // dashboard, but it adds nothing here: the unguessable channelKey in the
+    // path is what identifies the channel, and the handshake only echoes a
+    // challenge back. One less string to copy between two consoles.
+    if (mode !== "subscribe") {
       return new Response("Verification failed", { status: 403 });
     }
 

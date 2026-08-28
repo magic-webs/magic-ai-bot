@@ -254,8 +254,6 @@ export default defineSchema({
     // Public, unguessable segment used in the inbound webhook URL:
     //   /api/whatsapp/<channelKey>
     channelKey: v.string(),
-    // Meta echoes this back on webhook verification (hub.verify_token)
-    verifyToken: v.string(),
     // Denormalised phone_number_id so inbound payloads can be routed by index
     externalId: v.optional(v.string()),
     whatsapp: v.optional(

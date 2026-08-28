@@ -95,7 +95,6 @@ export const create = mutation({
       type: args.type,
       name: args.name.trim() || "WhatsApp",
       channelKey: randomKey(28),
-      verifyToken: randomKey(20),
       externalId: args.whatsapp?.phoneNumberId,
       whatsapp:
         args.type === "whatsapp" && args.whatsapp
@@ -185,13 +184,11 @@ export const rotateKeys = mutation({
   handler: async (ctx, args) => {
     await requireChannel(ctx, args.channelId);
     const channelKey = randomKey(28);
-    const verifyToken = randomKey(20);
     await ctx.db.patch(args.channelId, {
       channelKey,
-      verifyToken,
       updatedAt: Date.now(),
     });
-    return { channelKey, verifyToken };
+    return { channelKey };
   },
 });
 
