@@ -492,6 +492,43 @@ export default defineSchema({
   // -------------------------------------------------------------------------
   // Outbound webhook delivery log.
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // One row per model call, so spend can be attributed rather than estimated.
+  // -------------------------------------------------------------------------
+  usageEvents: defineTable({
+    workspaceId: v.id("workspaces"),
+    agentId: v.optional(v.id("agents")),
+    conversationId: v.optional(v.id("conversations")),
+    // What the tokens were spent on.
+    source: v.union(
+      v.literal("chat"), // an agent answering a turn
+      v.literal("retrieval"), // embedding an incoming message to search
+      v.literal("ingest"), // embedding knowledge chunks
+      v.literal("draft_agent"),
+      v.literal("draft_tool"),
+      v.literal("draft_catalogue")
+    ),
+    channelType: v.optional(
+      v.union(v.literal("whatsapp"), v.literal("web"))
+    ),
+    model: v.string(),
+    kind: v.union(v.literal("chat"), v.literal("embedding")),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    totalTokens: v.number(),
+    // Nano-USD as an integer. Float dollars drift once you sum tens of
+    // thousands of rows, and a token of gpt-4.1-mini input costs $0.0000004 —
+    // too small for cents and awkward in micro-USD, exact at 400 nano-USD.
+    costNanoUsd: v.number(),
+    // False when the model is not in the price table: the tokens are still
+    // recorded and the dashboard says so, rather than quietly reporting $0.
+    priced: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_workspace_createdAt", ["workspaceId", "createdAt"]),
+
   webhookEvents: defineTable({
     workspaceId: v.id("workspaces"),
     event: v.string(), // "order_created" | "escalation" | ...
