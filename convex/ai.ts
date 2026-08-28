@@ -102,7 +102,7 @@ export const draftAgent = action({
     );
 
     const openai = createOpenAI({ apiKey });
-    const { object } = await generateObject({
+    const { object, usage } = await generateObject({
       model: openai(DRAFT_MODEL),
       schema: agentDraftSchema,
       system: [
@@ -129,6 +129,15 @@ export const draftAgent = action({
       ]
         .filter(Boolean)
         .join("\n"),
+    });
+
+    await ctx.runMutation(internal.usage.record, {
+      workspaceId: args.workspaceId,
+      source: "draft_agent",
+      model: DRAFT_MODEL,
+      kind: "chat",
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
     });
 
     const validKeys = new Set(BUILTIN_TOOLS.map((t) => t.key));
@@ -266,7 +275,7 @@ export const draftTool = action({
     if (!workspace) throw new Error("Workspace not found");
 
     const openai = createOpenAI({ apiKey });
-    const { object } = await generateObject({
+    const { object, usage } = await generateObject({
       model: openai(DRAFT_MODEL),
       schema: toolDraftSchema,
       system: [
@@ -287,6 +296,15 @@ export const draftTool = action({
       ]
         .filter(Boolean)
         .join("\n"),
+    });
+
+    await ctx.runMutation(internal.usage.record, {
+      workspaceId: args.workspaceId,
+      source: "draft_tool",
+      model: DRAFT_MODEL,
+      kind: "chat",
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
     });
 
     // Make sure the config matches the kind the model chose.
@@ -418,7 +436,7 @@ export const draftCatalogue = action({
     if (!workspace) throw new Error("Workspace not found");
 
     const openai = createOpenAI({ apiKey });
-    const { object } = await generateObject({
+    const { object, usage } = await generateObject({
       model: openai(DRAFT_MODEL),
       schema: catalogueSchema,
       system: [
@@ -437,6 +455,15 @@ export const draftCatalogue = action({
       ]
         .filter(Boolean)
         .join("\n"),
+    });
+
+    await ctx.runMutation(internal.usage.record, {
+      workspaceId: args.workspaceId,
+      source: "draft_catalogue",
+      model: DRAFT_MODEL,
+      kind: "chat",
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
     });
 
     // `null` is how strict structured outputs express "absent"; the Convex

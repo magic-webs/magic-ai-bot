@@ -104,12 +104,31 @@ async function retrieveKnowledge(
     agentId: Id<"agents">;
     queryText: string;
     topK: number;
+    // Carried purely for usage attribution: the embedding is part of whatever
+    // conversation asked for it, and reporting it as channel-less would put
+    // real per-message spend under "no channel".
+    channelType?: "whatsapp" | "web";
+    conversationId?: Id<"conversations">;
   }
 ): Promise<Array<{ text: string; sourceTitle: string }>> {
   const openai = createOpenAI({ apiKey: opts.apiKey });
-  const { embedding } = await embed({
+  const { embedding, usage } = await embed({
     model: openai.embedding(EMBEDDING_MODEL),
     value: opts.queryText,
+  });
+
+  // Every retrieval embeds the query, so it is a real per-message cost even
+  // though it is tiny next to the chat call.
+  await ctx.runMutation(internal.usage.record, {
+    workspaceId: opts.workspaceId,
+    agentId: opts.agentId,
+    conversationId: opts.conversationId,
+    channelType: opts.channelType,
+    source: "retrieval",
+    model: EMBEDDING_MODEL,
+    kind: "embedding",
+    inputTokens: usage?.tokens ?? 0,
+    outputTokens: 0,
   });
 
   const hits = await ctx.vectorSearch("knowledgeChunks", "by_embedding", {
@@ -166,6 +185,8 @@ function buildBuiltinTools(
           agentId: agent._id,
           queryText: query,
           topK: agent.knowledgeTopK,
+          channelType: turn.channelType,
+          conversationId: turn.conversationId,
         });
         if (passages.length === 0) {
           return {
@@ -666,6 +687,8 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           agentId: agent._id,
           queryText: message,
           topK: agent.knowledgeTopK,
+          channelType: turn.channelType,
+          conversationId: turn.conversationId,
         });
         knowledgeContext = formatKnowledge(passages);
       } catch (error) {
@@ -711,6 +734,20 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       });
 
       replyText = result.text?.trim() ?? "";
+
+      // totalUsage, not usage: the agent loop can run several steps and only
+      // the total covers all of them.
+      await ctx.runMutation(internal.usage.record, {
+        workspaceId: workspace._id,
+        agentId: agent._id,
+        conversationId: turn.conversationId,
+        source: "chat",
+        channelType: args.channelType,
+        model: agent.model,
+        kind: "chat",
+        inputTokens: result.totalUsage?.inputTokens ?? 0,
+        outputTokens: result.totalUsage?.outputTokens ?? 0,
+      });
 
       // When the loop stops on a tool call the final text can be empty —
       // fall back to the last step that produced any.

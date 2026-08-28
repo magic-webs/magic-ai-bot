@@ -157,9 +157,22 @@ export const processSource = internalAction({
       const openai = createOpenAI({ apiKey });
       for (let start = 0; start < chunks.length; start += EMBED_BATCH) {
         const batch = chunks.slice(start, start + EMBED_BATCH);
-        const { embeddings } = await embedMany({
+        const { embeddings, usage } = await embedMany({
           model: openai.embedding(EMBEDDING_MODEL),
           values: batch,
+        });
+
+        // Recorded per batch rather than per source: a large document is
+        // several calls, and a failure part-way should still have billed for
+        // the batches that did run.
+        await ctx.runMutation(internal.usage.record, {
+          workspaceId: source.workspaceId,
+          agentId: source.agentId,
+          source: "ingest",
+          model: EMBEDDING_MODEL,
+          kind: "embedding",
+          inputTokens: usage?.tokens ?? 0,
+          outputTokens: 0,
         });
 
         await ctx.runMutation(internal.knowledge.saveChunks, {
