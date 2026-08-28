@@ -36,6 +36,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UsagePanel } from "@/components/usage-panel";
 import { Separator } from "@/components/ui/separator";
 import { useSession } from "@/components/use-session";
 import { WorkspaceAccessCard } from "@/components/workspace-access";
@@ -43,6 +45,7 @@ import { SelectField } from "@/components/select-field";
 import { toast } from "@/components/ui/toast";
 import {
   BuildingsIcon,
+  CoinsIcon,
   PlusIcon,
   ArrowRightIcon,
   SparkleIcon,
@@ -367,102 +370,119 @@ export default function AdminWorkspacesPage() {
         </div>
       </div>
 
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            Magic AI Bot
-          </p>
-          <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">
-            Workspaces
-          </h1>
-          <p className="mt-1 max-w-xl text-xs text-muted-foreground">
-            Each workspace is one company or project: its own agents, knowledge
-            base, catalogue, orders, custom tools and WhatsApp numbers.
-          </p>
-        </div>
-        <CreateWorkspaceDialog />
-      </header>
+      <Tabs defaultValue="workspaces" className="gap-5">
+        <TabsList>
+          <TabsTrigger value="workspaces">
+            <BuildingsIcon /> Workspaces
+          </TabsTrigger>
+          <TabsTrigger value="usage">
+            <CoinsIcon /> Tokens &amp; cost
+          </TabsTrigger>
+        </TabsList>
 
-      {workspaces === undefined ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Spinner /> Loading workspaces…
-        </div>
-      ) : workspaces.length === 0 ? (
-        <Empty className="border border-dashed">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <BuildingsIcon />
-            </EmptyMedia>
-            <EmptyTitle>No workspaces yet</EmptyTitle>
-            <EmptyDescription>
-              Create one for the company or project you want a bot for, or start
-              from a sample workspace to see how it fits together.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <div className="flex flex-wrap justify-center gap-2">
-              <CreateWorkspaceDialog />
-              <Button
-                variant="outline"
-                disabled={seeding}
-                onClick={async () => {
-                  setSeeding(true);
-                  try {
-                    const { slug } = await seedDemo({});
-                    router.push(`/w/${slug}`);
-                  } finally {
-                    setSeeding(false);
-                  }
-                }}
-              >
-                {seeding ? <Spinner /> : <SparkleIcon />} Start from a sample
-              </Button>
-            </div>
-          </EmptyContent>
-        </Empty>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {workspaces.map((workspace) => (
-            <Card key={workspace._id} className="flex flex-col">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between gap-2">
-                  <span className="truncate">{workspace.name}</span>
-                  {workspace.status === "archived" ? (
-                    <Badge variant="secondary">archived</Badge>
-                  ) : null}
-                </CardTitle>
-                <CardDescription className="line-clamp-2">
-                  {workspace.tagline ||
-                    workspace.description ||
-                    workspace.industry ||
-                    "No description yet"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="mt-auto flex flex-col gap-2">
-                <span className="font-mono text-[0.625rem] text-muted-foreground">
-                  /{workspace.slug}
-                </span>
-                <Separator />
-                <div className="flex items-center justify-between gap-1">
-                  <AccessDialog
-                    workspaceId={workspace._id}
-                    name={workspace.name}
-                    slug={workspace.slug}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    nativeButton={false}
-                    render={<Link href={`/w/${workspace.slug}`} />}
-                  >
-                    Open <ArrowRightIcon />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+        <TabsContent value="workspaces" className="flex flex-col gap-6">
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Magic AI Bot
+            </p>
+            <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">
+              Workspaces
+            </h1>
+            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+              Each workspace is one company or project: its own agents, knowledge
+              base, catalogue, orders, custom tools and WhatsApp numbers.
+            </p>
+          </div>
+          <CreateWorkspaceDialog />
+        </header>
+
+        {workspaces === undefined ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Spinner /> Loading workspaces…
+          </div>
+        ) : workspaces.length === 0 ? (
+          <Empty className="border border-dashed">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <BuildingsIcon />
+              </EmptyMedia>
+              <EmptyTitle>No workspaces yet</EmptyTitle>
+              <EmptyDescription>
+                Create one for the company or project you want a bot for, or start
+                from a sample workspace to see how it fits together.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <div className="flex flex-wrap justify-center gap-2">
+                <CreateWorkspaceDialog />
+                <Button
+                  variant="outline"
+                  disabled={seeding}
+                  onClick={async () => {
+                    setSeeding(true);
+                    try {
+                      const { slug } = await seedDemo({});
+                      router.push(`/w/${slug}`);
+                    } finally {
+                      setSeeding(false);
+                    }
+                  }}
+                >
+                  {seeding ? <Spinner /> : <SparkleIcon />} Start from a sample
+                </Button>
+              </div>
+            </EmptyContent>
+          </Empty>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {workspaces.map((workspace) => (
+              <Card key={workspace._id} className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between gap-2">
+                    <span className="truncate">{workspace.name}</span>
+                    {workspace.status === "archived" ? (
+                      <Badge variant="secondary">archived</Badge>
+                    ) : null}
+                  </CardTitle>
+                  <CardDescription className="line-clamp-2">
+                    {workspace.tagline ||
+                      workspace.description ||
+                      workspace.industry ||
+                      "No description yet"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="mt-auto flex flex-col gap-2">
+                  <span className="font-mono text-[0.625rem] text-muted-foreground">
+                    /{workspace.slug}
+                  </span>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-1">
+                    <AccessDialog
+                      workspaceId={workspace._id}
+                      name={workspace.name}
+                      slug={workspace.slug}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      nativeButton={false}
+                      render={<Link href={`/w/${workspace.slug}`} />}
+                    >
+                      Open <ArrowRightIcon />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+        </TabsContent>
+
+        <TabsContent value="usage">
+          <UsagePanel />
+        </TabsContent>
+      </Tabs>
     </main>
   );
 }
