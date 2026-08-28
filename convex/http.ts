@@ -71,9 +71,8 @@ http.route({
       return new Response("Not found", { status: 404 });
     }
 
-    const params = new URL(request.url).searchParams;
-    const mode = params.get("hub.mode");
-    const challenge = params.get("hub.challenge");
+    const url = new URL(request.url);
+    const params = url.searchParams;
 
     const resolved = await ctx.runQuery(internal.channels.resolveByKey, {
       channelKey,
@@ -82,15 +81,27 @@ http.route({
       return new Response("Unknown channel", { status: 404 });
     }
 
-    // hub.verify_token is not checked. Meta makes you type one into its
-    // dashboard, but it adds nothing here: the unguessable channelKey in the
-    // path is what identifies the channel, and the handshake only echoes a
-    // challenge back. One less string to copy between two consoles.
-    if (mode !== "subscribe") {
-      return new Response("Verification failed", { status: 403 });
-    }
+    // Logged because the handshake is the step that goes wrong, and the only
+    // way to know what a provider actually sent is to have recorded it.
+    console.log(
+      `[whatsapp] verify GET channel=${channelKey} query=${url.search || "(none)"}`
+    );
 
-    return new Response(challenge ?? "", {
+    // Providers disagree about this handshake. Meta sends hub.mode,
+    // hub.verify_token and hub.challenge; the reseller panels built on the
+    // Cloud API often just GET the URL bare and want a 200, or send the
+    // challenge under a different name. So: echo a challenge if one is
+    // offered, otherwise answer OK.
+    //
+    // Nothing is authenticated here and nothing needs to be. The unguessable
+    // channelKey in the path is what selects the channel, and this response
+    // discloses only the caller's own challenge string.
+    const challenge =
+      params.get("hub.challenge") ??
+      params.get("challenge") ??
+      params.get("hub_challenge");
+
+    return new Response(challenge ?? "OK", {
       status: 200,
       headers: { "Content-Type": "text/plain" },
     });
@@ -112,6 +123,24 @@ http.route({
       payload = await request.json();
     } catch {
       return new Response("Invalid JSON", { status: 400 });
+    }
+
+    const shape =
+      payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+    console.log(
+      `[whatsapp] POST channel=${channelKey} keys=${Object.keys(shape).join(",") || "(none)"}`
+    );
+
+    // Some panels verify with a POST rather than a GET. Echo the challenge and
+    // do not treat it as a message: a verification ping has no entry array.
+    if (!("entry" in shape)) {
+      const challenge = shape["challenge"] ?? shape["hub.challenge"];
+      if (typeof challenge === "string") {
+        return new Response(challenge, {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
     }
 
     // Meta retries anything that is slow or non-2xx, so acknowledge straight
