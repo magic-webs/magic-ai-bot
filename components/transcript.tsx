@@ -49,7 +49,7 @@ export function ToolTrace({ message }: { message: Doc<"messages"> }) {
     <Collapsible>
       <CollapsibleTrigger
         render={
-          <Button variant="ghost" size="xs" className="text-muted-foreground">
+          <Button variant="ghost" size="lg" className="text-muted-foreground">
             {/* The trigger is this Button, so `data-panel-open` lands on the
                 group/button element the icon sits inside. */}
             <CaretRightIcon className="transition-transform group-data-panel-open/button:rotate-90" />

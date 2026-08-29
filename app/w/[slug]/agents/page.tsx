@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/empty";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
+import { CardGridSkeleton } from "@/components/skeletons";
 import {
   RobotIcon,
   PlusIcon,
@@ -240,7 +241,7 @@ export default function AgentsPage() {
       <Separator />
 
       {agents === undefined ? (
-        <Spinner />
+        <CardGridSkeleton count={3} />
       ) : agents.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -274,20 +275,13 @@ export default function AgentsPage() {
                     {agent.status}
                   </Badge>
                 </CardTitle>
-                <CardDescription className="line-clamp-2">
+                <CardDescription className="line-clamp-1">
                   {agent.role}
                 </CardDescription>
               </CardHeader>
 
               <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
-                <p className="line-clamp-3 text-sm text-muted-foreground">
-                  {agent.objective}
-                </p>
-
                 <div className="flex flex-wrap gap-1">
-                  <Badge variant="outline" className="font-mono">
-                    {agent.model}
-                  </Badge>
                   {/* Capped: an agent with six tools would otherwise make its
                       card twice the height of its neighbours in the grid. */}
                   {agent.builtinTools.slice(0, 3).map((toolKey) => (
@@ -308,7 +302,7 @@ export default function AgentsPage() {
 
                 <div className="mt-auto flex gap-1 pt-1">
                   <Button
-                    size="sm"
+                    size="lg"
                     variant="outline"
                     className="flex-1"
                     nativeButton={false}
@@ -317,7 +311,7 @@ export default function AgentsPage() {
                     <ChatsIcon /> Test
                   </Button>
                   <Button
-                    size="sm"
+                    size="lg"
                     className="flex-1"
                     nativeButton={false}
                     render={<Link href={`${base}/agents/${agent._id}`} />}

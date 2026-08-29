@@ -43,6 +43,7 @@ import { useSession } from "@/components/use-session";
 import { WorkspaceAccessCard } from "@/components/workspace-access";
 import { SelectField } from "@/components/select-field";
 import { toast } from "@/components/ui/toast";
+import { CardGridSkeleton } from "@/components/skeletons";
 import {
   BuildingsIcon,
   CoinsIcon,
@@ -270,7 +271,7 @@ function AccessDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button size="sm" variant="ghost">
+          <Button size="lg" variant="ghost">
             <KeyIcon /> Access
           </Button>
         }
@@ -367,7 +368,7 @@ export default function AdminWorkspacesPage() {
           <span className="text-xs text-muted-foreground">
             {session.me?.label ?? ""}
           </span>
-          <Button size="sm" variant="ghost" onClick={() => void session.signOut()}>
+          <Button size="lg" variant="ghost" onClick={() => void session.signOut()}>
             <SignOutIcon /> Sign out
           </Button>
         </div>
@@ -398,9 +399,7 @@ export default function AdminWorkspacesPage() {
         </header>
 
         {workspaces === undefined ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner /> Loading workspaces…
-          </div>
+          <CardGridSkeleton count={4} className="sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" />
         ) : workspaces.length === 0 ? (
           <Empty className="border border-dashed">
             <EmptyHeader>
@@ -464,7 +463,7 @@ export default function AdminWorkspacesPage() {
                       slug={workspace.slug}
                     />
                     <Button
-                      size="sm"
+                      size="lg"
                       variant="outline"
                       nativeButton={false}
                       render={<Link href={`/w/${workspace.slug}`} />}

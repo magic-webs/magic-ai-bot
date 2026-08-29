@@ -95,7 +95,7 @@ function ToastDescription({
 
 function ToastAction({
   className,
-  render = <Button variant="outline" size="sm" />,
+  render = <Button variant="outline" size="lg" />,
   ...props
 }: ToastPrimitive.Action.Props) {
   return (
@@ -111,7 +111,7 @@ function ToastAction({
 function ToastClose({
   className,
   children,
-  render = <Button variant="ghost" size="icon-sm" />,
+  render = <Button variant="ghost" size="icon-lg" />,
   ...props
 }: ToastPrimitive.Close.Props) {
   return (

@@ -55,6 +55,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { toast } from "@/components/ui/toast";
+import { TableSkeleton } from "@/components/skeletons";
 import {
   PackageIcon,
   PlusIcon,
@@ -148,7 +149,7 @@ function RequirementFieldsEditor({
               ]}
             />
             <Button
-              size="icon"
+              size="icon-lg"
               variant="ghost"
               aria-label="Remove field"
               onClick={() => onChange(value.filter((_, i) => i !== index))}
@@ -199,7 +200,7 @@ function RequirementFieldsEditor({
 
       <Button
         variant="outline"
-        size="sm"
+        size="lg"
         className="self-start"
         onClick={() =>
           onChange([
@@ -871,7 +872,7 @@ export default function ProductsPage() {
       </div>
 
       {products === undefined ? (
-        <Spinner />
+        <TableSkeleton rows={8} columns={4} />
       ) : products.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -910,7 +911,6 @@ export default function ProductsPage() {
                 <TableHead>Product</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Price</TableHead>
-                <TableHead>Spec questions</TableHead>
                 <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
@@ -951,48 +951,13 @@ export default function ProductsPage() {
                       <span className="text-muted-foreground">On request</span>
                     )}
                   </TableCell>
-                  {/* Capped, or a product with eight spec questions widens the
-                      table until Category and Price scroll out of view. */}
-                  <TableCell className="max-w-88 min-w-0">
-                    <div className="flex flex-wrap gap-1">
-                      {product.requirementFields.length === 0 ? (
-                        <span className="text-xs text-muted-foreground">
-                          none — the agent will improvise
-                        </span>
-                      ) : (
-                        <>
-                          {/* Capped at four, so a product with eight questions
-                              does not make its row four times as tall as its
-                              neighbours. The editor shows the full list. */}
-                          {product.requirementFields.slice(0, 4).map((field) => (
-                            <Badge
-                              key={field.key}
-                              variant={field.required ? "outline" : "ghost"}
-                              className="font-mono text-xs"
-                            >
-                              {field.key}
-                              {field.required ? "*" : ""}
-                            </Badge>
-                          ))}
-                          {product.requirementFields.length > 4 ? (
-                            <Badge
-                              variant="ghost"
-                              className="text-xs text-muted-foreground"
-                            >
-                              +{product.requirementFields.length - 4} more
-                            </Badge>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
                       <ProductDialog
                         product={product}
                         trigger={
                           <Button
-                            size="icon-sm"
+                            size="icon-lg"
                             variant="ghost"
                             aria-label={`Edit ${product.name}`}
                           >
@@ -1001,7 +966,7 @@ export default function ProductsPage() {
                         }
                       />
                       <Button
-                        size="icon-sm"
+                        size="icon-lg"
                         variant="ghost"
                         aria-label={`Delete ${product.name}`}
                         onClick={async () => {

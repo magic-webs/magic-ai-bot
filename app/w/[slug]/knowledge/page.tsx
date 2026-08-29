@@ -10,7 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { SelectField } from "@/components/select-field";
 import {
@@ -31,16 +38,9 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  Item,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
+import { CardGridSkeleton } from "@/components/skeletons";
 import {
   Accordion,
   AccordionContent,
@@ -347,9 +347,11 @@ function AddSourceDialog() {
 function SourceDialog({
   sourceId,
   agents,
+  className,
 }: {
   sourceId: Id<"knowledgeSources">;
   agents: { _id: Id<"agents">; name: string }[] | undefined;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -424,8 +426,8 @@ function SourceDialog({
     >
       <DialogTrigger
         render={
-          <Button size="icon-sm" variant="ghost" aria-label="View and edit">
-            <PencilSimpleIcon />
+          <Button variant="outline" className={className}>
+            <PencilSimpleIcon /> View &amp; edit
           </Button>
         }
       />
@@ -605,9 +607,15 @@ export default function KnowledgePage() {
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Knowledge base
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {totalChunks} chunks across {(sources ?? []).length} sources.
-          </p>
+          {/* Not "0 chunks across 0 sources" while the query is in flight —
+              that is a wrong number, not a loading state. */}
+          {sources === undefined ? (
+            <Skeleton className="mt-1.5 h-3.5 w-44" />
+          ) : (
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              {totalChunks} chunks across {sources.length} sources.
+            </p>
+          )}
         </div>
         <AddSourceDialog />
       </header>
@@ -628,7 +636,7 @@ export default function KnowledgePage() {
       ) : null}
 
       {sources === undefined ? (
-        <Spinner />
+        <CardGridSkeleton count={6} />
       ) : sources.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -637,9 +645,8 @@ export default function KnowledgePage() {
             </EmptyMedia>
             <EmptyTitle>Nothing indexed yet</EmptyTitle>
             <EmptyDescription>
-              Add the documents your team actually answers from — delivery
-              policies, product guidance, pricing rules, tone examples. Without
-              them the agent can only work from the workspace description.
+              Add what your team answers from — policies, product guidance,
+              tone examples.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -647,70 +654,91 @@ export default function KnowledgePage() {
           </EmptyContent>
         </Empty>
       ) : (
-        <ItemGroup className="gap-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {sources.map((source) => {
             const Icon = KIND_ICONS[source.kind];
+            // What the source actually is, rather than a slice of its text: the
+            // title already says the subject, and the body is one click away.
+            const origin =
+              source.url ??
+              source.filename ??
+              `${source.charCount.toLocaleString()} characters`;
             return (
-              <Item key={source._id} variant="outline">
-                <ItemMedia variant="icon">
-                  <Icon />
-                </ItemMedia>
-                <ItemContent>
-                  <ItemTitle className="flex flex-wrap items-center gap-2">
-                    {source.title}
-                    <Badge variant={STATUS_VARIANT[source.status]}>
+              <Card key={source._id} className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="flex min-w-0 items-start gap-2">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="line-clamp-2 min-w-0 flex-1">
+                      {source.title}
+                    </span>
+                    <Badge
+                      variant={STATUS_VARIANT[source.status]}
+                      className="shrink-0"
+                    >
                       {source.status}
                     </Badge>
+                  </CardTitle>
+                </CardHeader>
+
+                <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
+                  <div className="flex flex-wrap gap-1">
                     <Badge variant="outline">{source.kind}</Badge>
                     {source.chunkCount > 0 ? (
                       <Badge variant="secondary">
                         {source.chunkCount} chunks
                       </Badge>
                     ) : null}
-                    {source.agentName ? (
-                      <Badge variant="secondary">
-                        only {source.agentName}
-                      </Badge>
-                    ) : null}
-                  </ItemTitle>
-                  <ItemDescription className="line-clamp-1">
-                    {source.status === "failed"
-                      ? source.failureReason
-                      : (source.preview ??
-                        source.url ??
-                        source.filename ??
-                        `${source.charCount.toLocaleString()} characters`)}
-                  </ItemDescription>
-                </ItemContent>
-                <div className="flex gap-1">
-                  <SourceDialog sourceId={source._id} agents={agents} />
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Reprocess"
-                    onClick={async () => {
-                      await reprocess({ sourceId: source._id });
-                      toast.add({ title: "Reprocessing", type: "info" });
-                    }}
-                  >
-                    <ArrowsClockwiseIcon />
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Delete source"
-                    onClick={async () => {
-                      await removeSource({ sourceId: source._id });
-                      toast.add({ title: "Source deleted", type: "success" });
-                    }}
-                  >
-                    <TrashIcon />
-                  </Button>
-                </div>
-              </Item>
+                    <Badge variant="secondary">
+                      {source.agentName ? `Only ${source.agentName}` : "Every agent"}
+                    </Badge>
+                  </div>
+
+                  {source.status === "failed" ? (
+                    <p className="line-clamp-2 text-sm text-destructive">
+                      {source.failureReason}
+                    </p>
+                  ) : (
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {origin}
+                    </p>
+                  )}
+
+                  <div className="mt-auto flex gap-1 pt-1">
+                    <SourceDialog
+                      sourceId={source._id}
+                      agents={agents}
+                      className="flex-1"
+                    />
+                    <Button
+                      size="icon-lg"
+                      variant="outline"
+                      aria-label="Reprocess"
+                      onClick={async () => {
+                        await reprocess({ sourceId: source._id });
+                        toast.add({ title: "Reprocessing", type: "info" });
+                      }}
+                    >
+                      <ArrowsClockwiseIcon />
+                    </Button>
+                    <Button
+                      size="icon-lg"
+                      variant="outline"
+                      aria-label="Delete source"
+                      onClick={async () => {
+                        await removeSource({ sourceId: source._id });
+                        toast.add({ title: "Source deleted", type: "success" });
+                      }}
+                    >
+                      <TrashIcon />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
-        </ItemGroup>
+        </div>
       )}
     </div>
   );

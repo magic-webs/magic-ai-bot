@@ -133,7 +133,7 @@ export default function LandingPage() {
             </a>
           </nav>
 
-          <Button size="sm" nativeButton={false} render={<Link href="/login" />}>
+          <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
             Sign in <ArrowRightIcon />
           </Button>
         </div>
@@ -356,7 +356,7 @@ export default function LandingPage() {
               Already have your sign-in details?
             </p>
             <Button
-              size="sm"
+              size="lg"
               className="ml-auto"
               nativeButton={false}
               render={<Link href="/login" />}

@@ -7,7 +7,6 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { SelectField } from "@/components/select-field";
@@ -37,6 +36,7 @@ import {
 } from "@/components/ui/empty";
 import { toast } from "@/components/ui/toast";
 import { ReceiptIcon, TrashIcon, EyeIcon } from "@phosphor-icons/react";
+import { TableSkeleton } from "@/components/skeletons";
 
 const STATUSES = [
   "new",
@@ -63,7 +63,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
       <DialogTrigger
         render={
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label={`View ${order.orderNumber}`}
           >
@@ -241,7 +241,7 @@ export default function OrdersPage() {
       <Separator />
 
       {orders === undefined ? (
-        <Spinner />
+        <TableSkeleton rows={6} columns={5} />
       ) : orders.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -331,7 +331,7 @@ export default function OrdersPage() {
                     <div className="flex justify-end gap-1">
                       <OrderDetail order={order} />
                       <Button
-                        size="icon-sm"
+                        size="icon-lg"
                         variant="ghost"
                         aria-label={`Delete ${order.orderNumber}`}
                         onClick={async () => {

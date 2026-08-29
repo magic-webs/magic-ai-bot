@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/item";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
+import { ListSkeleton } from "@/components/skeletons";
 import {
   WrenchIcon,
   PlusIcon,
@@ -127,7 +128,7 @@ function ParametersEditor({
               </span>
             </div>
             <Button
-              size="icon"
+              size="icon-lg"
               variant="ghost"
               aria-label="Remove parameter"
               className="ml-auto"
@@ -162,7 +163,7 @@ function ParametersEditor({
 
       <Button
         variant="outline"
-        size="sm"
+        size="lg"
         className="self-start"
         onClick={() =>
           onChange([
@@ -766,7 +767,7 @@ export default function ToolsPage() {
       <Separator />
 
       {tools === undefined ? (
-        <Spinner />
+        <ListSkeleton rows={4} />
       ) : tools.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -869,7 +870,7 @@ export default function ToolsPage() {
                   tool={tool}
                   trigger={
                     <Button
-                      size="icon-sm"
+                      size="icon-lg"
                       variant="ghost"
                       aria-label={`Edit ${tool.name}`}
                     >
@@ -878,7 +879,7 @@ export default function ToolsPage() {
                   }
                 />
                 <Button
-                  size="icon-sm"
+                  size="icon-lg"
                   variant="ghost"
                   aria-label={`Delete ${tool.name}`}
                   onClick={async () => {

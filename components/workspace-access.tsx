@@ -98,7 +98,7 @@ function IssuedPasswordDialog({
               <div className="flex gap-1">
                 <Input readOnly value={issued.slug} className="font-mono" />
                 <Button
-                  size="icon"
+                  size="icon-lg"
                   variant="outline"
                   aria-label="Copy workspace ID"
                   onClick={() => void copy(issued.slug, "Workspace ID")}
@@ -119,7 +119,7 @@ function IssuedPasswordDialog({
                   className="font-mono text-base tracking-wide"
                 />
                 <Button
-                  size="icon"
+                  size="icon-lg"
                   variant="outline"
                   aria-label="Copy password"
                   onClick={() => void copy(issued.password, "Password")}

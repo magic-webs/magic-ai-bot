@@ -52,7 +52,7 @@ export function StringListEditor({
               <span className="flex-1 text-sm leading-relaxed">{item}</span>
               <Button
                 type="button"
-                size="icon-sm"
+                size="icon-lg"
                 variant="ghost"
                 aria-label={`Remove ${item}`}
                 onClick={() => onChange(value.filter((_, i) => i !== index))}
@@ -164,7 +164,7 @@ export function ChipListEditor({
             <Button
               key={suggestion}
               type="button"
-              size="sm"
+              size="lg"
               variant="ghost"
               className="h-6 px-1.5 text-sm text-muted-foreground"
               onClick={() => add(suggestion)}
@@ -230,7 +230,7 @@ export function KeyValueEditor({
           />
           <Button
             type="button"
-            size="icon"
+            size="icon-lg"
             variant="ghost"
             aria-label="Remove row"
             onClick={() => onChange(value.filter((_, i) => i !== index))}
@@ -243,7 +243,7 @@ export function KeyValueEditor({
       <Button
         type="button"
         variant="outline"
-        size="sm"
+        size="lg"
         className="self-start"
         onClick={() => onChange([...value, { key: "", value: "" }])}
       >

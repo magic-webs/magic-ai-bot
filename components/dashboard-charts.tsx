@@ -218,14 +218,14 @@ export function ActivityChart({
         </p>
         <div className="flex gap-1">
           <Button
-            size="xs"
+            size="lg"
             variant={view === "chart" ? "secondary" : "ghost"}
             onClick={() => setView("chart")}
           >
             <ChartLineIcon /> Chart
           </Button>
           <Button
-            size="xs"
+            size="lg"
             variant={view === "table" ? "secondary" : "ghost"}
             onClick={() => setView("table")}
           >

@@ -334,7 +334,7 @@ export default function WorkspaceSettingsPage() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="lg"
                   disabled={testing || !workspace.webhookUrl}
                   onClick={async () => {
                     setTesting(true);
@@ -358,7 +358,7 @@ export default function WorkspaceSettingsPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="lg"
                   onClick={async () => {
                     await rotateSecret({ workspaceId: workspace._id });
                     toast.add({

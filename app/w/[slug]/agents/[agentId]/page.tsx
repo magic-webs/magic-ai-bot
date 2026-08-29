@@ -245,7 +245,7 @@ export default function AgentConfigPage({
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label="Back to agents"
             nativeButton={false}
@@ -625,7 +625,7 @@ export default function AgentConfigPage({
 
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="lg"
                   className="self-start"
                   nativeButton={false}
                   render={<Link href={`${base}/knowledge`} />}
@@ -683,7 +683,7 @@ export default function AgentConfigPage({
                       No custom tools yet.
                     </p>
                     <Button
-                      size="sm"
+                      size="lg"
                       variant="outline"
                       nativeButton={false}
                       render={<Link href={`${base}/tools`} />}
@@ -717,7 +717,7 @@ export default function AgentConfigPage({
                           </ItemDescription>
                         </ItemContent>
                         <Button
-                          size="sm"
+                          size="lg"
                           variant="ghost"
                           nativeButton={false}
                           render={<Link href={`${base}/tools`} />}

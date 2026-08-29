@@ -162,7 +162,7 @@ export default function AgentTestPage({
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <Button
-            size="icon-sm"
+            size="icon-lg"
             variant="ghost"
             aria-label="Back"
             nativeButton={false}
@@ -199,7 +199,7 @@ export default function AgentTestPage({
             </Label>
           </div>
           <Button
-            size="sm"
+            size="lg"
             variant="outline"
             disabled={!conversation}
             onClick={async () => {
@@ -212,7 +212,7 @@ export default function AgentTestPage({
             <ArrowsClockwiseIcon /> Reset
           </Button>
           <Button
-            size="sm"
+            size="lg"
             variant="ghost"
             nativeButton={false}
             render={<Link href={`${base}/agents/${agentId}`} />}
@@ -278,7 +278,7 @@ export default function AgentTestPage({
                     {STARTER_PROMPTS.map((prompt) => (
                       <Button
                         key={prompt}
-                        size="sm"
+                        size="lg"
                         variant="outline"
                         disabled={!sessionId || sending}
                         onClick={() => void send(prompt)}

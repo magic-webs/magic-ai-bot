@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/empty";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
+import { CardGridSkeleton } from "@/components/skeletons";
 import {
   WhatsappLogoIcon,
   PlusIcon,
@@ -60,7 +61,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
       <div className="flex gap-1">
         <Input readOnly value={value} className="font-mono text-xs" />
         <Button
-          size="icon"
+          size="icon-lg"
           variant="outline"
           aria-label={`Copy ${label}`}
           onClick={async () => {
@@ -405,7 +406,7 @@ export default function ChannelsPage() {
       ) : null}
 
       {channels === undefined ? (
-        <Spinner />
+        <CardGridSkeleton count={2} className="lg:grid-cols-2" />
       ) : channels.length === 0 ? (
         hasAgents ? (
           <Empty className="border border-dashed">
@@ -558,7 +559,7 @@ export default function ChannelsPage() {
 
                     <div className="flex gap-1">
                       <Button
-                        size="sm"
+                        size="lg"
                         variant="ghost"
                         onClick={async () => {
                           await rotateKeys({ channelId: channel._id });
@@ -590,13 +591,13 @@ export default function ChannelsPage() {
                           accessToken: "",
                         }}
                         trigger={
-                          <Button size="sm" variant="outline">
+                          <Button size="lg" variant="outline">
                             <PencilSimpleIcon /> Edit
                           </Button>
                         }
                       />
                       <Button
-                        size="icon-sm"
+                        size="icon-lg"
                         variant="ghost"
                         aria-label="Delete channel"
                         onClick={async () => {

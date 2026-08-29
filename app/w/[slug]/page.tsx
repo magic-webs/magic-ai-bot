@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { DashboardSkeleton } from "@/components/skeletons";
 import {
   Item,
   ItemContent,
@@ -165,9 +166,7 @@ export default function WorkspaceOverviewPage() {
       ) : null}
 
       {stats === undefined ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner /> Loading activity…
-        </div>
+        <DashboardSkeleton />
       ) : (
         <>
           {/* ------------------------------------------------------ KPI row */}
@@ -318,7 +317,7 @@ export default function WorkspaceOverviewPage() {
                           <ItemDescription>{step.description}</ItemDescription>
                         </ItemContent>
                         <Button
-                          size="sm"
+                          size="lg"
                           variant={step.done ? "ghost" : "outline"}
                           nativeButton={false}
                           render={<Link href={step.href} />}
@@ -348,7 +347,7 @@ export default function WorkspaceOverviewPage() {
                       No agents yet.
                     </p>
                     <Button
-                      size="sm"
+                      size="lg"
                       nativeButton={false}
                       render={<Link href={`${base}/agents`} />}
                     >
@@ -379,7 +378,7 @@ export default function WorkspaceOverviewPage() {
                         </ItemContent>
                         <div className="flex gap-1">
                           <Button
-                            size="sm"
+                            size="lg"
                             variant="outline"
                             nativeButton={false}
                             render={
@@ -389,7 +388,7 @@ export default function WorkspaceOverviewPage() {
                             <ChatsIcon /> Test
                           </Button>
                           <Button
-                            size="sm"
+                            size="lg"
                             variant="ghost"
                             nativeButton={false}
                             render={
@@ -413,7 +412,7 @@ export default function WorkspaceOverviewPage() {
               <CardTitle className="flex items-center gap-2">
                 Recent orders
                 <Button
-                  size="xs"
+                  size="lg"
                   variant="ghost"
                   className="ml-auto"
                   nativeButton={false}

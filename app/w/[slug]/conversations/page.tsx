@@ -42,6 +42,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/toast";
+import { ListSkeleton } from "@/components/skeletons";
 import {
   ChatsIcon,
   WhatsappLogoIcon,
@@ -216,7 +217,7 @@ function ConversationDetail({
             <AlertDialogTrigger
               render={
                 <Button
-                  size="icon-sm"
+                  size="icon-lg"
                   variant="ghost"
                   aria-label="Delete conversation"
                 >
@@ -367,7 +368,7 @@ export default function ConversationsPage() {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
             {conversations === undefined ? (
-              <Spinner />
+              <ListSkeleton rows={7} />
             ) : rows.length === 0 ? (
               <Empty className="border border-dashed">
                 <EmptyHeader>
@@ -396,7 +397,7 @@ export default function ConversationsPage() {
                       // A real button, so the list is keyboard navigable.
                       render={<button type="button" />}
                       variant="outline"
-                      size="xs"
+                      size="sm"
                       aria-current={isActive ? "true" : undefined}
                       className={cn(
                         "w-full cursor-pointer text-left hover:bg-muted/50",
