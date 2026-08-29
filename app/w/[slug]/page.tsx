@@ -122,12 +122,15 @@ export default function WorkspaceOverviewPage() {
       {/* ------------------------------------------------------------ header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             {workspace.name}
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {workspace.description ??
-              workspace.tagline ??
+          {/* Tagline first: it is one line by design, where the description
+              is a paragraph written for the agents' system prompt and ran to
+              six lines across the top of the dashboard. */}
+          <p className="mt-1 line-clamp-2 max-w-2xl text-sm text-muted-foreground">
+            {workspace.tagline ??
+              workspace.description ??
               "Add a description in Settings so agents know what this business does."}
           </p>
         </div>
@@ -215,8 +218,7 @@ export default function WorkspaceOverviewPage() {
               <CardHeader>
                 <CardTitle>Messages per day</CardTitle>
                 <CardDescription>
-                  Every inbound and outbound message across WhatsApp and the web
-                  playground.
+                  Inbound and outbound, every channel.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -247,7 +249,7 @@ export default function WorkspaceOverviewPage() {
               <CardHeader>
                 <CardTitle>Orders by status</CardTitle>
                 <CardDescription>
-                  Every order the agents have captured, all time.
+                  All time.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -266,7 +268,7 @@ export default function WorkspaceOverviewPage() {
               <CardHeader>
                 <CardTitle>Most-used tools</CardTitle>
                 <CardDescription>
-                  Custom tools your agents actually call.
+                  Calls your agents actually made.
                 </CardDescription>
               </CardHeader>
               <CardContent>
