@@ -11,6 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -30,14 +37,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  Item,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import {
@@ -259,60 +258,77 @@ export default function AgentsPage() {
           </EmptyContent>
         </Empty>
       ) : (
-        <ItemGroup className="gap-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {agents.map((agent) => (
-            <Item key={agent._id} variant="outline">
-              <ItemMedia variant="icon">
-                <RobotIcon />
-              </ItemMedia>
-              <ItemContent>
-                <ItemTitle className="flex flex-wrap items-center gap-2">
-                  {agent.botName}
-                  <span className="text-muted-foreground">· {agent.role}</span>
+            <Card key={agent._id} className="flex flex-col">
+              <CardHeader>
+                <CardTitle className="flex min-w-0 items-center gap-2">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <RobotIcon className="size-4" />
+                  </span>
+                  <span className="truncate">{agent.botName}</span>
                   <Badge
                     variant={agent.status === "active" ? "default" : "secondary"}
+                    className="ml-auto shrink-0"
                   >
                     {agent.status}
                   </Badge>
+                </CardTitle>
+                <CardDescription className="line-clamp-2">
+                  {agent.role}
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
+                <p className="line-clamp-3 text-sm text-muted-foreground">
+                  {agent.objective}
+                </p>
+
+                <div className="flex flex-wrap gap-1">
                   <Badge variant="outline" className="font-mono">
                     {agent.model}
                   </Badge>
-                </ItemTitle>
-                <ItemDescription className="line-clamp-1">
-                  {agent.objective}
-                </ItemDescription>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {agent.builtinTools.map((toolKey) => (
+                  {/* Capped: an agent with six tools would otherwise make its
+                      card twice the height of its neighbours in the grid. */}
+                  {agent.builtinTools.slice(0, 3).map((toolKey) => (
                     <Badge
                       key={toolKey}
                       variant="secondary"
-                      className="font-mono text-xs"
+                      className="font-mono"
                     >
                       {toolKey}
                     </Badge>
                   ))}
+                  {agent.builtinTools.length > 3 ? (
+                    <Badge variant="ghost" className="text-muted-foreground">
+                      +{agent.builtinTools.length - 3} more
+                    </Badge>
+                  ) : null}
                 </div>
-              </ItemContent>
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  nativeButton={false}
-                  render={<Link href={`${base}/agents/${agent._id}/test`} />}
-                >
-                  <ChatsIcon /> Test
-                </Button>
-                <Button
-                  size="sm"
-                  nativeButton={false}
-                  render={<Link href={`${base}/agents/${agent._id}`} />}
-                >
-                  <SlidersIcon /> Configure
-                </Button>
-              </div>
-            </Item>
+
+                <div className="mt-auto flex gap-1 pt-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    nativeButton={false}
+                    render={<Link href={`${base}/agents/${agent._id}/test`} />}
+                  >
+                    <ChatsIcon /> Test
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    nativeButton={false}
+                    render={<Link href={`${base}/agents/${agent._id}`} />}
+                  >
+                    <SlidersIcon /> Configure
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           ))}
-        </ItemGroup>
+        </div>
       )}
     </div>
   );
