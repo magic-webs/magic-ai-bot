@@ -31,15 +31,16 @@ import { ChartLineIcon, TableIcon } from "@phosphor-icons/react";
 // ---------------------------------------------------------------------------
 // Palette.
 //
-// The workspace design system ships one viz ramp (--chart-1…5), which is five
-// steps of a single teal hue — a sequential ramp, not a categorical palette.
-// So every chart here encodes magnitude with one hue and lets length or
-// position carry the comparison; nothing needs a second series colour.
+// The design system ships one viz ramp (--chart-1…5): five steps of a single
+// near-neutral stone hue — a sequential ramp, not a categorical palette. So
+// every chart here encodes magnitude with one hue and lets length or position
+// carry the comparison; nothing needs a second series colour.
 //
-// Steps are chosen per mode rather than flipped: on white, --chart-1 measures
-// 1.52:1 and fails the 2:1 ordinal floor, so light mode starts one step darker.
-// Validated with the dataviz palette validator in --ordinal mode against the
-// real card surfaces (#ffffff / #1d1d16) — all checks pass in both modes.
+// The ramp is identical in light and dark, so the step is SELECTED per mode
+// rather than used as shipped: its light end measures 1.49:1 on white, below
+// the 2:1 ordinal floor. Light takes the dark end (#57534d, 7.64:1 on white),
+// dark takes the light end (#79716b, 3.65:1 on the #1c1917 card). Validated
+// with the dataviz palette validator in --ordinal mode; both modes pass.
 //
 // The per-mode step lives in globals.css as --viz-series/--viz-series-alt, under
 // :root and .dark. Referencing the token (not a hex pair, and not CSS
@@ -47,8 +48,8 @@ import { ChartLineIcon, TableIcon } from "@phosphor-icons/react";
 // keeps the charts on the same class-based dark mode as the rest of the UI.
 // ---------------------------------------------------------------------------
 
-const SERIES = "var(--viz-series)"; // light --chart-2 / dark --chart-1
-const SERIES_ALT = "var(--viz-series-alt)"; // light --chart-4 / dark --chart-3
+const SERIES = "var(--viz-series)"; // light --chart-3 / dark --chart-1
+const SERIES_ALT = "var(--viz-series-alt)"; // light --chart-4 / dark --chart-2
 
 function formatDay(iso: string): string {
   const date = new Date(`${iso}T00:00:00Z`);
