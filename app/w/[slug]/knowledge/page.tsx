@@ -602,13 +602,11 @@ export default function KnowledgePage() {
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Knowledge base
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {totalChunks} embedded chunks across{" "}
-            {(sources ?? []).length} sources. Agents retrieve the closest
-            passages on every incoming message and can also search on demand.
+            {totalChunks} chunks across {(sources ?? []).length} sources.
           </p>
         </div>
         <AddSourceDialog />
@@ -675,7 +673,7 @@ export default function KnowledgePage() {
                       </Badge>
                     ) : null}
                   </ItemTitle>
-                  <ItemDescription className="line-clamp-2">
+                  <ItemDescription className="line-clamp-1">
                     {source.status === "failed"
                       ? source.failureReason
                       : (source.preview ??

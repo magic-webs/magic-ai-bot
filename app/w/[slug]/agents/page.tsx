@@ -228,12 +228,11 @@ export default function AgentsPage() {
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Agents
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Each agent has its own persona, job description, tone, knowledge
-            scope and tool permissions.
+            Persona, tone, knowledge scope and tools.
           </p>
         </div>
         <NewAgentDialog />
@@ -279,7 +278,7 @@ export default function AgentsPage() {
                     {agent.model}
                   </Badge>
                 </ItemTitle>
-                <ItemDescription className="line-clamp-2">
+                <ItemDescription className="line-clamp-1">
                   {agent.objective}
                 </ItemDescription>
                 <div className="mt-1 flex flex-wrap gap-1">
