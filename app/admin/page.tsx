@@ -349,8 +349,11 @@ export default function AdminWorkspacesPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+    <div className="flex min-h-svh min-w-0 flex-col">
+      {/* Full-bleed and sticky, so the console fills the screen the way the
+          workspace shell does instead of sitting in a centred column with the
+          tables squeezed into half the width. */}
+      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur">
         <Link href="/" className="flex items-center gap-2">
           <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <RobotIcon className="size-3.5" />
@@ -368,9 +371,10 @@ export default function AdminWorkspacesPage() {
             <SignOutIcon /> Sign out
           </Button>
         </div>
-      </div>
+      </header>
 
-      <Tabs defaultValue="workspaces" className="gap-5">
+      <main className="flex min-w-0 flex-1 flex-col p-6">
+        <Tabs defaultValue="workspaces" className="gap-5">
         <TabsList>
           <TabsTrigger value="workspaces">
             <BuildingsIcon /> Workspaces
@@ -383,15 +387,11 @@ export default function AdminWorkspacesPage() {
         <TabsContent value="workspaces" className="flex flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="font-mono text-sm uppercase tracking-widest text-muted-foreground">
-              Magic AI Bot
-            </p>
-            <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">
+            <h1 className="font-heading text-2xl font-semibold tracking-tight">
               Workspaces
             </h1>
-            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-              Each workspace is one company or project: its own agents, knowledge
-              base, catalogue, orders, custom tools and WhatsApp numbers.
+            <p className="mt-1 text-sm text-muted-foreground">
+              One company or project each, with its own agents and data.
             </p>
           </div>
           <CreateWorkspaceDialog />
@@ -435,7 +435,7 @@ export default function AdminWorkspacesPage() {
             </EmptyContent>
           </Empty>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {workspaces.map((workspace) => (
               <Card key={workspace._id} className="flex flex-col">
                 <CardHeader>
@@ -479,10 +479,11 @@ export default function AdminWorkspacesPage() {
         )}
         </TabsContent>
 
-        <TabsContent value="usage">
-          <UsagePanel />
-        </TabsContent>
-      </Tabs>
-    </main>
+          <TabsContent value="usage">
+            <UsagePanel />
+          </TabsContent>
+        </Tabs>
+      </main>
+    </div>
   );
 }
