@@ -92,7 +92,7 @@ function IssuedPasswordDialog({
         {issued ? (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <Label className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
                 Workspace ID
               </Label>
               <div className="flex gap-1">
@@ -109,14 +109,14 @@ function IssuedPasswordDialog({
             </div>
 
             <div className="flex flex-col gap-1">
-              <Label className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
                 Password
               </Label>
               <div className="flex gap-1">
                 <Input
                   readOnly
                   value={issued.password}
-                  className="font-mono text-sm tracking-wide"
+                  className="font-mono text-base tracking-wide"
                 />
                 <Button
                   size="icon"
@@ -186,7 +186,7 @@ export function WorkspaceAccessCard({
 
   if (access === undefined) {
     return (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Spinner /> Loading access…
       </div>
     );
@@ -278,7 +278,7 @@ export function WorkspaceAccessCard({
         ) : null}
       </div>
 
-      <div className="grid gap-2 text-[0.625rem] text-muted-foreground sm:grid-cols-3">
+      <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
         <div>
           <p className="uppercase tracking-wide">Workspace ID</p>
           <p className="font-mono text-foreground">{workspaceName}</p>
@@ -365,8 +365,8 @@ export function WorkspaceAccessCard({
           <Separator />
           <div className="flex flex-col gap-3">
             <div>
-              <Label className="text-xs font-medium">Change your password</Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <Label className="text-sm font-medium">Change your password</Label>
+              <p className="mt-0.5 text-sm text-muted-foreground">
                 Replace the password your administrator issued with one only you
                 know.
               </p>

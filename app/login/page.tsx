@@ -83,14 +83,14 @@ function LoginForm() {
         <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <RobotIcon className="size-4" />
         </span>
-        <span className="font-heading text-sm font-semibold tracking-tight">
+        <span className="font-heading text-base font-semibold tracking-tight">
           Magic AI Bot
         </span>
       </Link>
 
       <Card className="w-full max-w-sm">
         {needsSetup === undefined ? (
-          <CardContent className="flex items-center gap-2 py-10 text-xs text-muted-foreground">
+          <CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
             <Spinner /> Loading…
           </CardContent>
         ) : needsSetup ? (
@@ -221,7 +221,7 @@ function LoginForm() {
               </Button>
 
               <Separator />
-              <p className="text-[0.625rem] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Forgotten your password? Passwords are stored hashed and cannot
                 be recovered — ask for a new one to be issued.
               </p>
@@ -230,7 +230,7 @@ function LoginForm() {
         )}
       </Card>
 
-      <Link href="/" className="text-[0.625rem] text-muted-foreground underline">
+      <Link href="/" className="text-xs text-muted-foreground underline">
         Back to the website
       </Link>
     </main>
@@ -241,7 +241,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-svh items-center justify-center gap-2 bg-muted/30 text-xs text-muted-foreground">
+        <main className="flex min-h-svh items-center justify-center gap-2 bg-muted/30 text-sm text-muted-foreground">
           <Spinner /> Loading…
         </main>
       }

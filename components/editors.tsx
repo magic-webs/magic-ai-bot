@@ -36,9 +36,9 @@ export function StringListEditor({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <Label className="text-xs font-medium">{label}</Label>
+        <Label className="text-sm font-medium">{label}</Label>
         {description ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
         ) : null}
       </div>
 
@@ -49,7 +49,7 @@ export function StringListEditor({
               key={`${item}-${index}`}
               className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-2 py-1.5"
             >
-              <span className="flex-1 text-xs leading-relaxed">{item}</span>
+              <span className="flex-1 text-sm leading-relaxed">{item}</span>
               <Button
                 type="button"
                 size="icon-sm"
@@ -113,7 +113,7 @@ export function ChipListEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <Label className="text-xs font-medium">{label}</Label>
+      <Label className="text-sm font-medium">{label}</Label>
       <div className="flex flex-wrap gap-1.5">
         {value.map((item) => (
           <Badge key={item} variant="secondary" className="gap-1">
@@ -129,7 +129,7 @@ export function ChipListEditor({
           </Badge>
         ))}
         {value.length === 0 ? (
-          <span className="text-xs text-muted-foreground">None yet</span>
+          <span className="text-sm text-muted-foreground">None yet</span>
         ) : null}
       </div>
 
@@ -166,7 +166,7 @@ export function ChipListEditor({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-6 px-1.5 text-xs text-muted-foreground"
+              className="h-6 px-1.5 text-sm text-muted-foreground"
               onClick={() => add(suggestion)}
             >
               + {suggestion}
@@ -208,9 +208,9 @@ export function KeyValueEditor({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <Label className="text-xs font-medium">{label}</Label>
+        <Label className="text-sm font-medium">{label}</Label>
         {description ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
         ) : null}
       </div>
 

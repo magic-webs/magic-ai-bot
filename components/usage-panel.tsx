@@ -79,7 +79,7 @@ export function UsagePanel() {
 
   if (data === undefined) {
     return (
-      <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
         <Spinner /> Loading usage…
       </div>
     );
@@ -97,13 +97,13 @@ export function UsagePanel() {
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="max-w-xl text-xs text-muted-foreground">
+        <p className="max-w-xl text-sm text-muted-foreground">
           One row is recorded for every model call, priced from a per-model
           table. Figures are OpenAI list prices and exclude tax — treat them as
           an attribution of spend, not an invoice.
         </p>
         <div className="flex items-center gap-2">
-          <span className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
             Period
           </span>
           <SelectField
@@ -318,7 +318,7 @@ export function UsagePanel() {
                     <TableBody>
                       {data.byModel.map((row) => (
                         <TableRow key={row.key}>
-                          <TableCell className="font-mono text-[0.625rem]">
+                          <TableCell className="font-mono text-xs">
                             {row.key}
                             {!row.priced ? (
                               <Badge variant="destructive" className="ml-1">

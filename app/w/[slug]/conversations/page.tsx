@@ -97,14 +97,14 @@ function ConversationDetail({
 
   if (detail === undefined) {
     return (
-      <div className="flex flex-1 items-center gap-2 p-6 text-xs text-muted-foreground">
+      <div className="flex flex-1 items-center gap-2 p-6 text-sm text-muted-foreground">
         <Spinner /> Loading conversation…
       </div>
     );
   }
   if (detail === null) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-xs text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
         This conversation no longer exists.
       </div>
     );
@@ -121,7 +121,7 @@ function ConversationDetail({
     <>
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b px-4 py-2.5">
         <div className="min-w-0">
-          <p className="flex flex-wrap items-center gap-2 text-xs font-medium">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
             {conversation.channelType === "whatsapp" ? (
               <WhatsappLogoIcon className="size-3.5 shrink-0" />
             ) : (
@@ -143,7 +143,7 @@ function ConversationDetail({
           </p>
 
           {/* Everything the agent learned about this person. */}
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[0.625rem] text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             {contact?.phone ? (
               <span className="flex items-center gap-1">
                 <PhoneIcon className="size-3" />
@@ -179,7 +179,7 @@ function ConversationDetail({
                 <Badge
                   key={attribute.key}
                   variant="secondary"
-                  className="text-[0.625rem]"
+                  className="text-xs"
                 >
                   {attribute.key}: {attribute.value}
                 </Badge>
@@ -196,7 +196,7 @@ function ConversationDetail({
               checked={showTools}
               onCheckedChange={setShowTools}
             />
-            <Label htmlFor="conv-tools" className="text-[0.625rem]">
+            <Label htmlFor="conv-tools" className="text-xs">
               Tool trace
             </Label>
           </div>
@@ -263,7 +263,7 @@ function ConversationDetail({
         messages={messages}
         showTools={showTools}
         emptyState={
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             This conversation has no messages yet.
           </p>
         }
@@ -317,13 +317,13 @@ export default function ConversationsPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Conversations
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Every thread across WhatsApp and the web playground, with the tool
             calls each turn made.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Label htmlFor="conv-agent" className="text-xs">
+          <Label htmlFor="conv-agent" className="text-sm">
             Agent
           </Label>
           <SelectField
@@ -338,7 +338,7 @@ export default function ConversationsPage() {
               })),
             ]}
           />
-          <Label htmlFor="conv-status" className="text-xs">
+          <Label htmlFor="conv-status" className="text-sm">
             Status
           </Label>
           <SelectField
@@ -430,14 +430,14 @@ export default function ConversationsPage() {
                               {row.status}
                             </Badge>
                           ) : null}
-                          <span className="ml-auto shrink-0 text-[0.625rem] font-normal text-muted-foreground">
+                          <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">
                             {relative(row.lastMessageAt)}
                           </span>
                         </ItemTitle>
                         <ItemDescription className="line-clamp-2">
                           {row.lastMessagePreview ?? "No messages"}
                         </ItemDescription>
-                        <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           {row.agentName} · {row.messageCount} messages
                         </p>
                       </ItemContent>
@@ -452,7 +452,7 @@ export default function ConversationsPage() {
         {/* Detail */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {!active ? (
-            <div className="flex flex-1 items-center justify-center p-6 text-xs text-muted-foreground">
+            <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
               {conversations === undefined
                 ? null
                 : "Select a conversation to read the transcript."}

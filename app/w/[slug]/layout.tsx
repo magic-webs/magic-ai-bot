@@ -117,7 +117,7 @@ export default function WorkspaceLayout({
 
   if (workspace === undefined) {
     return (
-      <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
         <Spinner /> Loading workspace…
       </div>
     );
@@ -170,7 +170,7 @@ export default function WorkspaceLayout({
                     <span className="truncate font-medium">
                       {workspace.name}
                     </span>
-                    <span className="truncate text-[0.625rem] text-muted-foreground">
+                    <span className="truncate text-xs text-muted-foreground">
                       {workspace.industry ?? workspace.locale}
                     </span>
                   </div>
@@ -241,10 +241,10 @@ export default function WorkspaceLayout({
           <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
             <SidebarTrigger />
             <Separator orientation="vertical" className="h-4" />
-            <span className="truncate text-xs font-medium">
+            <span className="truncate text-sm font-medium">
               {workspace.name}
             </span>
-            <Badge variant="secondary" className="font-mono text-[0.625rem]">
+            <Badge variant="secondary" className="font-mono text-xs">
               {workspace.currency} · {workspace.locale}
             </Badge>
           </header>

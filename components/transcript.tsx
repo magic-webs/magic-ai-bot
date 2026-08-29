@@ -57,7 +57,7 @@ export function ToolTrace({ message }: { message: Doc<"messages"> }) {
             <span className="font-mono">{message.toolName}</span>
             <Badge
               variant={message.toolOk ? "secondary" : "destructive"}
-              className="text-[0.625rem]"
+              className="text-xs"
             >
               {message.toolOk ? "ok" : "failed"}
             </Badge>
@@ -66,17 +66,17 @@ export function ToolTrace({ message }: { message: Doc<"messages"> }) {
       />
       <CollapsibleContent>
         <div className="mt-1 flex flex-col gap-1 rounded-md border border-border bg-muted/40 p-2">
-          <p className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Input
           </p>
-          <pre className="overflow-x-auto font-mono text-[0.625rem] whitespace-pre-wrap">
+          <pre className="overflow-x-auto font-mono text-xs whitespace-pre-wrap">
             {message.toolInput}
           </pre>
           <Separator className="my-1" />
-          <p className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Output
           </p>
-          <pre className="max-h-52 overflow-auto font-mono text-[0.625rem] whitespace-pre-wrap">
+          <pre className="max-h-52 overflow-auto font-mono text-xs whitespace-pre-wrap">
             {message.toolOutput}
           </pre>
         </div>
@@ -129,7 +129,7 @@ export function TranscriptView({
 
             {messages === undefined ? (
               <MessageScrollerItem messageId="loading">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Spinner /> Loading messages…
                 </div>
               </MessageScrollerItem>
@@ -161,7 +161,7 @@ export function TranscriptView({
                     messageId={message._id}
                   >
                     <Bubble variant="destructive" align="start">
-                      <BubbleContent className="font-mono text-[0.625rem]">
+                      <BubbleContent className="font-mono text-xs">
                         {message.text}
                       </BubbleContent>
                     </Bubble>

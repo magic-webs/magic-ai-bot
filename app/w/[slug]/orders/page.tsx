@@ -80,9 +80,9 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 text-xs">
+        <div className="flex flex-col gap-4 text-sm">
           <section className="flex flex-col gap-1">
-            <h3 className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Customer
             </h3>
             <p className="font-medium">{order.customer.name}</p>
@@ -98,7 +98,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
           <Separator />
 
           <section className="flex flex-col gap-3">
-            <h3 className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Lines
             </h3>
             {order.items.map((item, index) => (
@@ -124,7 +124,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
                     ))}
                   </dl>
                 ) : (
-                  <p className="mt-1 text-[0.625rem] text-muted-foreground">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     No specifications recorded.
                   </p>
                 )}
@@ -136,7 +136,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
             <>
               <Separator />
               <section className="flex flex-col gap-0.5">
-                <h3 className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+                <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Delivery
                 </h3>
                 {order.delivery.address ? <p>{order.delivery.address}</p> : null}
@@ -158,7 +158,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
             <>
               <Separator />
               <section className="flex flex-col gap-0.5">
-                <h3 className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+                <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Notes
                 </h3>
                 <p>{order.notes}</p>
@@ -169,7 +169,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
           {order.total !== undefined ? (
             <>
               <Separator />
-              <p className="text-sm font-medium">
+              <p className="text-base font-medium">
                 Indicative total from catalogue prices: {order.currency}{" "}
                 {order.total.toFixed(2)}
               </p>
@@ -180,10 +180,10 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
             <>
               <Separator />
               <section className="flex flex-col gap-1">
-                <h3 className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+                <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Raw tool arguments
                 </h3>
-                <pre className="max-h-52 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[0.625rem] whitespace-pre-wrap">
+                <pre className="max-h-52 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
                   {JSON.stringify(JSON.parse(order.rawPayload), null, 2)}
                 </pre>
               </section>
@@ -214,14 +214,14 @@ export default function OrdersPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Orders
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Every order an agent captured with <code>create_order</code>, along
             with the full specification it collected. Each one also fired the
             workspace webhook.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Label htmlFor="order-status" className="text-xs">
+          <Label htmlFor="order-status" className="text-sm">
             Status
           </Label>
           <SelectField
@@ -279,7 +279,7 @@ export default function OrdersPage() {
                   <TableCell>
                     <div className="flex flex-col">
                       <span>{order.customer.name}</span>
-                      <span className="text-[0.625rem] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {order.customer.company ??
                           order.customer.phone ??
                           order.customer.email ??
@@ -299,7 +299,7 @@ export default function OrdersPage() {
                   <TableCell>
                     <Badge variant="secondary">{order.source}</Badge>
                   </TableCell>
-                  <TableCell className="text-[0.625rem] text-muted-foreground">
+                  <TableCell className="text-xs text-muted-foreground">
                     {new Date(order.createdAt).toLocaleString()}
                   </TableCell>
                   <TableCell>

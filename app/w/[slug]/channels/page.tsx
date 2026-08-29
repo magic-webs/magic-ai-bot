@@ -54,11 +54,11 @@ import {
 function CopyField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+      <Label className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </Label>
       <div className="flex gap-1">
-        <Input readOnly value={value} className="font-mono text-[0.625rem]" />
+        <Input readOnly value={value} className="font-mono text-xs" />
         <Button
           size="icon"
           variant="outline"
@@ -312,7 +312,7 @@ function ChannelDialog({
                 value={form.apiBaseUrl}
                 onChange={(event) => set("apiBaseUrl", event.target.value)}
               />
-              <p className="text-[0.625rem] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Change this if you send through a BSP proxy instead of Meta
                 directly.
               </p>
@@ -372,7 +372,7 @@ export default function ChannelsPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Channels
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Point a WhatsApp number at an agent. Inbound messages hit this
             app&apos;s webhook, run through the same engine as the web
             playground, and the reply is sent back with this channel&apos;s
@@ -473,7 +473,7 @@ export default function ChannelsPage() {
                     <Alert variant="destructive">
                       <WarningIcon />
                       <AlertTitle>Last delivery problem</AlertTitle>
-                      <AlertDescription className="font-mono text-[0.625rem]">
+                      <AlertDescription className="font-mono text-xs">
                         {channel.lastError}
                       </AlertDescription>
                     </Alert>
@@ -494,7 +494,7 @@ export default function ChannelsPage() {
                     </AlertDescription>
                   </Alert>
 
-                  <div className="grid gap-2 text-[0.625rem] sm:grid-cols-4">
+                  <div className="grid gap-2 text-xs sm:grid-cols-4">
                     <div>
                       <p className="uppercase tracking-wide text-muted-foreground">
                         Phone number ID
@@ -553,7 +553,7 @@ export default function ChannelsPage() {
                       />
                       <Label
                         htmlFor={`live-${channel._id}`}
-                        className="text-xs"
+                        className="text-sm"
                       >
                         Accept inbound messages
                       </Label>

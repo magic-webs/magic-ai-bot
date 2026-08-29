@@ -308,7 +308,7 @@ export default function AdminWorkspacesPage() {
 
   if (session.isLoading) {
     return (
-      <main className="flex min-h-svh items-center justify-center gap-2 text-xs text-muted-foreground">
+      <main className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
         <Spinner /> Loading…
       </main>
     );
@@ -355,13 +355,13 @@ export default function AdminWorkspacesPage() {
           <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <RobotIcon className="size-3.5" />
           </span>
-          <span className="font-heading text-xs font-semibold tracking-tight">
+          <span className="font-heading text-sm font-semibold tracking-tight">
             Magic AI Bot
           </span>
           <Badge variant="secondary">administrator</Badge>
         </Link>
         <div className="flex items-center gap-2">
-          <span className="text-[0.625rem] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {session.me?.label ?? ""}
           </span>
           <Button size="sm" variant="ghost" onClick={() => void session.signOut()}>
@@ -383,13 +383,13 @@ export default function AdminWorkspacesPage() {
         <TabsContent value="workspaces" className="flex flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            <p className="font-mono text-sm uppercase tracking-widest text-muted-foreground">
               Magic AI Bot
             </p>
             <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">
               Workspaces
             </h1>
-            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
               Each workspace is one company or project: its own agents, knowledge
               base, catalogue, orders, custom tools and WhatsApp numbers.
             </p>
@@ -398,7 +398,7 @@ export default function AdminWorkspacesPage() {
         </header>
 
         {workspaces === undefined ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner /> Loading workspaces…
           </div>
         ) : workspaces.length === 0 ? (
@@ -453,7 +453,7 @@ export default function AdminWorkspacesPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="mt-auto flex flex-col gap-2">
-                  <span className="font-mono text-[0.625rem] text-muted-foreground">
+                  <span className="font-mono text-xs text-muted-foreground">
                     /{workspace.slug}
                   </span>
                   <Separator />

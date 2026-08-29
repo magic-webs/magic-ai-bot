@@ -116,12 +116,12 @@ export default function LandingPage() {
             <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <RobotIcon className="size-4" />
             </span>
-            <span className="font-heading text-sm font-semibold tracking-tight">
+            <span className="font-heading text-base font-semibold tracking-tight">
               Magic AI Bot
             </span>
           </Link>
 
-          <nav className="hidden items-center gap-6 text-xs text-muted-foreground md:flex">
+          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
             <a href="#what-it-does" className="hover:text-foreground">
               What it does
             </a>
@@ -152,7 +152,7 @@ export default function LandingPage() {
               Your AI sales assistant, answering on WhatsApp.
             </h1>
 
-            <p className="max-w-xl text-sm/relaxed text-muted-foreground">
+            <p className="max-w-xl text-base/relaxed text-muted-foreground">
               Every enquiry gets a reply straight away — from your own policies
               and price list, in your own tone of voice. It asks the questions
               your team needs answered, then hands you a complete enquiry ready
@@ -173,7 +173,7 @@ export default function LandingPage() {
               </Button>
             </div>
 
-            <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
+            <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
               {[
                 "Your own WhatsApp number",
                 "Answers from your documents",
@@ -191,7 +191,7 @@ export default function LandingPage() {
               product uses. */}
           <Card className="overflow-hidden">
             <CardHeader className="border-b bg-muted/40">
-              <CardTitle className="flex items-center gap-2 text-xs">
+              <CardTitle className="flex items-center gap-2 text-sm">
                 <WhatsappLogoIcon className="size-4" />
                 Your business on WhatsApp
                 <Badge variant="secondary" className="ml-auto">
@@ -241,7 +241,7 @@ export default function LandingPage() {
                 </MessageContent>
               </Message>
 
-              <div className="flex items-center gap-1.5 pt-1 text-[0.625rem] text-muted-foreground">
+              <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
                 <BooksIcon className="size-3" />
                 Answered from your own delivery policy
               </div>
@@ -260,7 +260,7 @@ export default function LandingPage() {
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
               An assistant that actually knows your business
             </h2>
-            <p className="mt-2 text-sm/relaxed text-muted-foreground">
+            <p className="mt-2 text-base/relaxed text-muted-foreground">
               It is not a chatbot with a script. You give it your documents, your
               products and your rules, and it works from those.
             </p>
@@ -297,7 +297,7 @@ export default function LandingPage() {
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
               What it will never do
             </h2>
-            <p className="mt-2 text-sm/relaxed text-muted-foreground">
+            <p className="mt-2 text-base/relaxed text-muted-foreground">
               The risk with an assistant answering for you is that it says
               something you would not. These limits are built in, not optional.
             </p>
@@ -329,7 +329,7 @@ export default function LandingPage() {
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
               Up and running the same day
             </h2>
-            <p className="mt-2 text-sm/relaxed text-muted-foreground">
+            <p className="mt-2 text-base/relaxed text-muted-foreground">
               You do not write any prompts. Describe the job in a sentence and
               the assistant is drafted for you to review and adjust.
             </p>
@@ -352,7 +352,7 @@ export default function LandingPage() {
           </div>
 
           <div className="mt-8 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-5 py-4">
-            <p className="text-sm font-medium">
+            <p className="text-base font-medium">
               Already have your sign-in details?
             </p>
             <Button
@@ -369,7 +369,7 @@ export default function LandingPage() {
 
       {/* ------------------------------------------------------------- footer */}
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-[0.625rem] text-muted-foreground">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-xs text-muted-foreground">
           <span>Magic AI Bot</span>
           <Link href="/login" className="underline">
             Sign in

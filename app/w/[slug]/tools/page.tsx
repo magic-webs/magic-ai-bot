@@ -82,8 +82,8 @@ function ParametersEditor({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <Label className="text-xs font-medium">Parameters</Label>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <Label className="text-sm font-medium">Parameters</Label>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           These become the tool&apos;s input schema. The model reads each
           description to decide what to pass, so be unambiguous.
         </p>
@@ -122,7 +122,7 @@ function ParametersEditor({
                   patch(index, { required: checked })
                 }
               />
-              <span className="text-[0.625rem] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 required
               </span>
             </div>
@@ -285,7 +285,7 @@ function DraftToolDialog() {
               placeholder={`GET https://api.example.com/v1/delivery?postcode={postcode}\nHeader: Authorization: Bearer <token>`}
               onChange={(event) => setApiHint(event.target.value)}
             />
-            <p className="text-[0.625rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Paste an endpoint, a curl command or the docs. Without this the
               model will either query workspace data or leave a placeholder URL
               for you to fill in.
@@ -316,7 +316,7 @@ function DraftToolDialog() {
                   checked={autoEnable}
                   onCheckedChange={setAutoEnable}
                 />
-                <Label htmlFor="t-auto" className="text-xs">
+                <Label htmlFor="t-auto" className="text-sm">
                   Enable immediately
                 </Label>
               </div>
@@ -639,7 +639,7 @@ function ToolDialog({
                   onChange={(event) => set("urlTemplate", event.target.value)}
                 />
               </div>
-              <p className="text-[0.625rem] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Use <code>{"{{parameter_name}}"}</code> placeholders. Any
                 parameter not referenced in the URL or body is appended as a
                 query parameter.
@@ -667,7 +667,7 @@ function ToolDialog({
                       set("bodyTemplate", event.target.value)
                     }
                   />
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Leave empty to send the model&apos;s arguments as JSON.
                   </p>
                 </div>
@@ -746,7 +746,7 @@ export default function ToolsPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Custom tools
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Beyond the builtin tools, agents can call anything you define here —
             an external API or a read-only query over this workspace&apos;s own
             data. Only <strong>enabled</strong> tools reach the model.
@@ -830,26 +830,26 @@ export default function ToolsPage() {
                     <Badge
                       key={parameter.name}
                       variant="outline"
-                      className="font-mono text-[0.625rem]"
+                      className="font-mono text-xs"
                     >
                       {parameter.name}
                       {parameter.required ? "*" : ""}: {parameter.type}
                     </Badge>
                   ))}
                   {tool.kind === "http" && tool.http ? (
-                    <span className="ml-1 truncate font-mono text-[0.625rem] text-muted-foreground">
+                    <span className="ml-1 truncate font-mono text-xs text-muted-foreground">
                       {tool.http.method} {tool.http.urlTemplate}
                     </span>
                   ) : null}
                   {tool.kind === "db_query" && tool.dbQuery ? (
-                    <span className="ml-1 font-mono text-[0.625rem] text-muted-foreground">
+                    <span className="ml-1 font-mono text-xs text-muted-foreground">
                       SELECT … FROM {tool.dbQuery.table} LIMIT{" "}
                       {tool.dbQuery.limit}
                     </span>
                   ) : null}
                 </div>
                 {tool.sourceTask ? (
-                  <p className="mt-1 text-[0.625rem] text-muted-foreground">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Drafted from: &ldquo;{tool.sourceTask}&rdquo;
                   </p>
                 ) : null}

@@ -152,7 +152,7 @@ function NewAgentDialog() {
                 placeholder="Qualify inbound printing enquiries on WhatsApp. Find out the product, quantity and specs, never quote a price, collect delivery details, then hand a complete enquiry to the sales team."
                 onChange={(event) => setBrief(event.target.value)}
               />
-              <p className="text-[0.625rem] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 The draft uses this workspace&apos;s description, facts and
                 catalogue as context.
               </p>
@@ -231,7 +231,7 @@ export default function AgentsPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Agents
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Each agent has its own persona, job description, tone, knowledge
             scope and tool permissions.
           </p>
@@ -287,7 +287,7 @@ export default function AgentsPage() {
                     <Badge
                       key={toolKey}
                       variant="secondary"
-                      className="font-mono text-[0.625rem]"
+                      className="font-mono text-xs"
                     >
                       {toolKey}
                     </Badge>

@@ -138,7 +138,7 @@ export default function AgentTestPage({
 
   if (agent === undefined) {
     return (
-      <div className="flex flex-1 items-center gap-2 p-6 text-xs text-muted-foreground">
+      <div className="flex flex-1 items-center gap-2 p-6 text-sm text-muted-foreground">
         <Spinner /> Loading agent…
       </div>
     );
@@ -146,7 +146,7 @@ export default function AgentTestPage({
 
   if (agent === null) {
     return (
-      <div className="p-6 text-xs text-muted-foreground">
+      <div className="p-6 text-sm text-muted-foreground">
         This agent no longer exists.{" "}
         <Link href={`${base}/agents`} className="underline">
           Back to agents
@@ -171,11 +171,11 @@ export default function AgentTestPage({
             <ArrowLeftIcon />
           </Button>
           <div className="min-w-0">
-            <h1 className="truncate text-xs font-medium">
+            <h1 className="truncate text-sm font-medium">
               {agent.botName}{" "}
               <span className="text-muted-foreground">· {agent.role}</span>
             </h1>
-            <p className="truncate text-[0.625rem] text-muted-foreground">
+            <p className="truncate text-xs text-muted-foreground">
               Web playground — same engine that serves WhatsApp
             </p>
           </div>
@@ -194,7 +194,7 @@ export default function AgentTestPage({
               checked={showTools}
               onCheckedChange={setShowTools}
             />
-            <Label htmlFor="show-tools" className="text-[0.625rem]">
+            <Label htmlFor="show-tools" className="text-xs">
               Tool trace
             </Label>
           </div>
@@ -240,7 +240,7 @@ export default function AgentTestPage({
           <Alert variant="destructive">
             <WarningIcon />
             <AlertTitle>Last turn reported an error</AlertTitle>
-            <AlertDescription className="font-mono text-[0.625rem]">
+            <AlertDescription className="font-mono text-xs">
               {lastError}
             </AlertDescription>
           </Alert>
@@ -271,7 +271,7 @@ export default function AgentTestPage({
             {isEmpty && messages !== undefined ? (
               <TranscriptItem messageId="starters">
                 <div className="flex flex-col gap-2">
-                  <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
                     Try one
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -338,7 +338,7 @@ export default function AgentTestPage({
             {sending ? <Spinner /> : <PaperPlaneRightIcon />}
           </Button>
         </div>
-        <p className="mx-auto mt-1.5 w-full max-w-3xl text-[0.625rem] text-muted-foreground">
+        <p className="mx-auto mt-1.5 w-full max-w-3xl text-xs text-muted-foreground">
           Enter to send · Shift+Enter for a new line. This conversation is stored
           against a web contact, so orders and escalations it triggers are real.
         </p>

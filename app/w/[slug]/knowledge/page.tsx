@@ -286,7 +286,7 @@ function AddSourceDialog() {
               }
               onChange={(event) => setText(event.target.value)}
             />
-            <p className="text-[0.625rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Separate each Q/A pair with a blank line so they chunk cleanly.
             </p>
             <Button onClick={() => submitText("faq")} disabled={busy}>
@@ -300,7 +300,7 @@ function AddSourceDialog() {
               placeholder="https://example.com/delivery-policy"
               onChange={(event) => setUrl(event.target.value)}
             />
-            <p className="text-[0.625rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               The page is fetched once and its text extracted. Re-run
               &ldquo;Reprocess&rdquo; later to pick up changes.
             </p>
@@ -316,7 +316,7 @@ function AddSourceDialog() {
               accept=".pdf,.txt,.md,.markdown,.csv,.json,.html"
               className="h-auto py-1.5"
             />
-            <p className="text-[0.625rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               PDF, plain text, Markdown, CSV, JSON and HTML. Scanned
               image-only PDFs have no extractable text — paste the content
               instead.
@@ -469,7 +469,7 @@ function SourceDialog({
               <Alert variant="destructive">
                 <WarningIcon />
                 <AlertTitle>Processing failed</AlertTitle>
-                <AlertDescription className="font-mono text-[0.625rem]">
+                <AlertDescription className="font-mono text-xs">
                   {source.failureReason}
                 </AlertDescription>
               </Alert>
@@ -512,7 +512,7 @@ function SourceDialog({
             ) : null}
 
             {source.kind === "file" ? (
-              <p className="text-[0.625rem] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 File: <span className="font-mono">{source.filename}</span>
                 {source.size
                   ? ` · ${Math.round(source.size / 1024).toLocaleString()} KB`
@@ -535,13 +535,13 @@ function SourceDialog({
 
             <Accordion>
               <AccordionItem value="chunks">
-                <AccordionTrigger className="text-xs">
+                <AccordionTrigger className="text-sm">
                   What the agents retrieve — {detail.chunks.length}{" "}
                   {detail.chunks.length === 1 ? "chunk" : "chunks"}
                 </AccordionTrigger>
                 <AccordionContent>
                   {detail.chunks.length === 0 ? (
-                    <p className="text-[0.625rem] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Nothing embedded yet.
                       {source.status === "pending" || source.status === "processing"
                         ? " Processing is still running."
@@ -552,7 +552,7 @@ function SourceDialog({
                       {detail.chunks.map((chunk) => (
                         <div
                           key={chunk._id}
-                          className="rounded-md border p-2 text-[0.625rem]"
+                          className="rounded-md border p-2 text-xs"
                         >
                           <p className="mb-1 font-mono text-muted-foreground">
                             #{chunk.order + 1} · {chunk.text.length} chars
@@ -605,7 +605,7 @@ export default function KnowledgePage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Knowledge base
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             {totalChunks} embedded chunks across{" "}
             {(sources ?? []).length} sources. Agents retrieve the closest
             passages on every incoming message and can also search on demand.

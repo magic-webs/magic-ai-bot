@@ -125,7 +125,7 @@ export default function WorkspaceOverviewPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             {workspace.name}
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             {workspace.description ??
               workspace.tagline ??
               "Add a description in Settings so agents know what this business does."}
@@ -134,7 +134,7 @@ export default function WorkspaceOverviewPage() {
 
         {/* One filter row, above everything it scopes. */}
         <div className="flex items-center gap-2">
-          <Label htmlFor="range" className="text-xs">
+          <Label htmlFor="range" className="text-sm">
             Period
           </Label>
           <SelectField
@@ -162,7 +162,7 @@ export default function WorkspaceOverviewPage() {
       ) : null}
 
       {stats === undefined ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner /> Loading activity…
         </div>
       ) : (
@@ -342,7 +342,7 @@ export default function WorkspaceOverviewPage() {
                   <Spinner />
                 ) : agents.length === 0 ? (
                   <div className="flex flex-col items-start gap-2">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       No agents yet.
                     </p>
                     <Button
@@ -428,7 +428,7 @@ export default function WorkspaceOverviewPage() {
               {orders === undefined ? (
                 <Spinner />
               ) : orders.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   No orders captured yet. Once an agent calls{" "}
                   <code>create_order</code>, they appear here and fire the
                   workspace webhook.
@@ -455,7 +455,7 @@ export default function WorkspaceOverviewPage() {
                             .join(", ")}
                         </ItemDescription>
                       </ItemContent>
-                      <span className="text-[0.625rem] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {new Date(order.createdAt).toLocaleDateString()}
                       </span>
                     </Item>

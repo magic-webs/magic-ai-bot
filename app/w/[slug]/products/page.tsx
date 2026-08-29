@@ -96,8 +96,8 @@ function RequirementFieldsEditor({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <Label className="text-xs font-medium">Specification questions</Label>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <Label className="text-sm font-medium">Specification questions</Label>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           The agent is handed this checklist by{" "}
           <code>get_product_requirements</code> and must collect every required
           field before it can create an order.
@@ -166,7 +166,7 @@ function RequirementFieldsEditor({
                   patch(index, { required: checked })
                 }
               />
-              <span className="text-[0.625rem] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 required
               </span>
             </div>
@@ -420,7 +420,7 @@ function ProductDialog({
               placeholder="55 × 85mm, 4 colour on 450gsm silk, matt laminated both sides"
               onChange={(event) => set("exampleSpec", event.target.value)}
             />
-            <p className="text-[0.625rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Given to the agent so it can offer a typical spec instead of asking
               blind.
             </p>
@@ -628,11 +628,11 @@ function ImportDialog() {
 
             <Accordion>
               <AccordionItem value="columns">
-                <AccordionTrigger className="text-xs">
+                <AccordionTrigger className="text-sm">
                   Columns, and how spec questions are written
                 </AccordionTrigger>
                 <AccordionContent>
-                  <p className="mb-2 text-[0.625rem] text-muted-foreground">
+                  <p className="mb-2 text-xs text-muted-foreground">
                     One row per spec question. Leave <code>name</code> blank to
                     add another question to the product on the row above; a
                     product with no questions is a single row. Column order does
@@ -649,13 +649,13 @@ function ImportDialog() {
                       <TableBody>
                         {CSV_COLUMNS.map((column) => (
                           <TableRow key={column.name}>
-                            <TableCell className="align-top font-mono text-[0.625rem]">
+                            <TableCell className="align-top font-mono text-xs">
                               {column.name}
                               {column.required ? (
                                 <span className="text-destructive"> *</span>
                               ) : null}
                             </TableCell>
-                            <TableCell className="text-[0.625rem] text-muted-foreground">
+                            <TableCell className="text-xs text-muted-foreground">
                               {column.detail}
                             </TableCell>
                           </TableRow>
@@ -699,7 +699,7 @@ function ImportDialog() {
                 )}
 
                 {parsed.unknownColumns.length > 0 ? (
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Ignored{" "}
                     {parsed.unknownColumns.length === 1 ? "column" : "columns"}:{" "}
                     <span className="font-mono">
@@ -726,10 +726,10 @@ function ImportDialog() {
                             <TableCell className="font-mono tabular-nums">
                               {issue.line}
                             </TableCell>
-                            <TableCell className="font-mono text-[0.625rem]">
+                            <TableCell className="font-mono text-xs">
                               {issue.column}
                             </TableCell>
-                            <TableCell className="text-[0.625rem]">
+                            <TableCell className="text-xs">
                               {issue.message}
                             </TableCell>
                           </TableRow>
@@ -773,12 +773,12 @@ function ImportDialog() {
                 </div>
 
                 {parsed.issues.length > 50 ? (
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Showing the first 50 of {parsed.issues.length}.
                   </p>
                 ) : null}
                 {parsed.issues.length === 0 && parsed.products.length > 25 ? (
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Showing the first 25 of {parsed.products.length}.
                   </p>
                 ) : null}
@@ -830,7 +830,7 @@ export default function ProductsPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Catalogue
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             What the agents are allowed to talk about, and the exact
             specifications they must collect for each product.
           </p>
@@ -926,7 +926,7 @@ export default function ProductsPage() {
                       <span className="truncate font-medium">
                         {product.name}
                       </span>
-                      <span className="truncate text-[0.625rem] text-muted-foreground">
+                      <span className="truncate text-xs text-muted-foreground">
                         {product.description || "No description"}
                       </span>
                     </div>
@@ -957,7 +957,7 @@ export default function ProductsPage() {
                   <TableCell className="max-w-88 min-w-0">
                     <div className="flex flex-wrap gap-1">
                       {product.requirementFields.length === 0 ? (
-                        <span className="text-[0.625rem] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           none — the agent will improvise
                         </span>
                       ) : (
@@ -969,7 +969,7 @@ export default function ProductsPage() {
                             <Badge
                               key={field.key}
                               variant={field.required ? "outline" : "ghost"}
-                              className="font-mono text-[0.625rem]"
+                              className="font-mono text-xs"
                             >
                               {field.key}
                               {field.required ? "*" : ""}
@@ -978,7 +978,7 @@ export default function ProductsPage() {
                           {product.requirementFields.length > 4 ? (
                             <Badge
                               variant="ghost"
-                              className="text-[0.625rem] text-muted-foreground"
+                              className="text-xs text-muted-foreground"
                             >
                               +{product.requirementFields.length - 4} more
                             </Badge>

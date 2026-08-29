@@ -27,7 +27,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AuthLoading>
-        <div className="flex min-h-svh items-center justify-center gap-2 text-xs text-muted-foreground">
+        <div className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
           <Spinner /> Checking your session…
         </div>
       </AuthLoading>

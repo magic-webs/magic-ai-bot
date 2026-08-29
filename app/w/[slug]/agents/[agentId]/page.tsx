@@ -162,7 +162,7 @@ export default function AgentConfigPage({
 
   if (agent === undefined || !draft) {
     return (
-      <div className="flex flex-1 items-center gap-2 p-6 text-xs text-muted-foreground">
+      <div className="flex flex-1 items-center gap-2 p-6 text-sm text-muted-foreground">
         <Spinner /> Loading agent…
       </div>
     );
@@ -170,7 +170,7 @@ export default function AgentConfigPage({
 
   if (agent === null) {
     return (
-      <div className="p-6 text-xs text-muted-foreground">
+      <div className="p-6 text-sm text-muted-foreground">
         This agent no longer exists.{" "}
         <Link href={`${base}/agents`} className="underline">
           Back to agents
@@ -254,10 +254,10 @@ export default function AgentConfigPage({
             <ArrowLeftIcon />
           </Button>
           <div className="min-w-0">
-            <h1 className="truncate font-heading text-base font-semibold tracking-tight">
+            <h1 className="truncate font-heading text-lg font-semibold tracking-tight">
               {draft.botName || draft.name}
             </h1>
-            <p className="truncate text-[0.625rem] text-muted-foreground">
+            <p className="truncate text-xs text-muted-foreground">
               {draft.role}
             </p>
           </div>
@@ -350,7 +350,7 @@ export default function AgentConfigPage({
                     value={draft.objective}
                     onChange={(event) => set("objective", event.target.value)}
                   />
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     What a successful conversation achieves.
                   </p>
                 </div>
@@ -365,7 +365,7 @@ export default function AgentConfigPage({
                       set("jobDescription", event.target.value)
                     }
                   />
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     The step-by-step work: how to open, what to qualify, what to
                     collect, how to close.
                   </p>
@@ -485,10 +485,10 @@ export default function AgentConfigPage({
 
                 <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
                   <div>
-                    <Label className="text-xs font-medium">
+                    <Label className="text-sm font-medium">
                       Mirror the customer&apos;s language
                     </Label>
-                    <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       Reply in whatever language and register they write in,
                       including mixed languages like Hinglish.
                     </p>
@@ -572,7 +572,7 @@ export default function AgentConfigPage({
                       set("promptOverride", event.target.value)
                     }
                   />
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     An escape hatch for anything the structured fields
                     can&apos;t express.
                   </p>
@@ -594,10 +594,10 @@ export default function AgentConfigPage({
               <CardContent className="flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
                   <div>
-                    <Label className="text-xs font-medium">
+                    <Label className="text-sm font-medium">
                       Retrieve knowledge automatically
                     </Label>
-                    <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       Off means the agent can only reach the knowledge base via
                       the <code>search_knowledge</code> tool.
                     </p>
@@ -611,7 +611,7 @@ export default function AgentConfigPage({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <Label className="text-xs font-medium">
+                  <Label className="text-sm font-medium">
                     Passages per lookup — {draft.knowledgeTopK}
                   </Label>
                   <Slider
@@ -679,7 +679,7 @@ export default function AgentConfigPage({
                   <Spinner />
                 ) : scopedCustomTools.length === 0 ? (
                   <div className="flex flex-col items-start gap-2">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       No custom tools yet.
                     </p>
                     <Button
@@ -754,7 +754,7 @@ export default function AgentConfigPage({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <Label className="text-xs font-medium">
+                  <Label className="text-sm font-medium">
                     Temperature — {draft.temperature.toFixed(2)}
                   </Label>
                   <Slider
@@ -764,14 +764,14 @@ export default function AgentConfigPage({
                     step={0.05}
                     onValueChange={(value) => set("temperature", firstNumber(value))}
                   />
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Lower is more consistent. 0.3–0.5 suits qualification bots.
                   </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-2">
-                    <Label className="text-xs font-medium">
+                    <Label className="text-sm font-medium">
                       Tool-loop budget — {draft.maxSteps} steps
                     </Label>
                     <Slider
@@ -783,7 +783,7 @@ export default function AgentConfigPage({
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label className="text-xs font-medium">
+                    <Label className="text-sm font-medium">
                       History replayed — {draft.historyLimit} messages
                     </Label>
                     <Slider
@@ -865,7 +865,7 @@ export default function AgentConfigPage({
                 {promptPreview === undefined ? (
                   <Spinner />
                 ) : promptPreview === null ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Unavailable.
                   </p>
                 ) : (
@@ -875,13 +875,13 @@ export default function AgentConfigPage({
                         <Badge
                           key={name}
                           variant="secondary"
-                          className="font-mono text-[0.625rem]"
+                          className="font-mono text-xs"
                         >
                           {name}
                         </Badge>
                       ))}
                       {promptPreview.toolNames.length === 0 ? (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-sm text-muted-foreground">
                           No tools enabled
                         </span>
                       ) : null}

@@ -145,7 +145,7 @@ export default function WorkspaceSettingsPage() {
           <h1 className="font-heading text-xl font-semibold tracking-tight">
             Workspace settings
           </h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Everything here is injected into every agent&apos;s system prompt, so
             it is worth being specific.
           </p>
@@ -254,7 +254,7 @@ export default function WorkspaceSettingsPage() {
                     value={form.locale}
                     onChange={(event) => set("locale", event.target.value)}
                   />
-                  <p className="text-[0.625rem] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Drives spelling conventions, e.g. en-GB gives &ldquo;colour&rdquo;.
                   </p>
                 </div>
@@ -377,11 +377,11 @@ export default function WorkspaceSettingsPage() {
               <Separator />
 
               <div>
-                <h3 className="mb-2 text-xs font-medium">Recent deliveries</h3>
+                <h3 className="mb-2 text-sm font-medium">Recent deliveries</h3>
                 {events === undefined ? (
                   <Spinner />
                 ) : events.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Nothing sent yet.
                   </p>
                 ) : (
@@ -417,10 +417,10 @@ export default function WorkspaceSettingsPage() {
                                   : ""}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-[0.625rem] text-muted-foreground">
+                            <TableCell className="text-xs text-muted-foreground">
                               {new Date(event.createdAt).toLocaleString()}
                             </TableCell>
-                            <TableCell className="max-w-xs truncate text-[0.625rem] text-muted-foreground">
+                            <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
                               {event.error ?? "—"}
                             </TableCell>
                           </TableRow>
