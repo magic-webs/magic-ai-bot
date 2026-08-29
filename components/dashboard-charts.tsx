@@ -210,7 +210,7 @@ export function ActivityChart({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[0.625rem] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {series.format ? series.format(total) : total.toLocaleString()}{" "}
           {noun} over {windowDays} days
           {truncated ? " · earliest days may be partial" : ""}
@@ -266,7 +266,7 @@ export function ActivityChart({
               tickLine={false}
               axisLine={false}
               minTickGap={24}
-              tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+              tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
             />
             <YAxis
               allowDecimals={series.fractional ?? false}
@@ -279,7 +279,7 @@ export function ActivityChart({
               }
               tickLine={false}
               axisLine={false}
-              tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+              tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
             />
             <ChartTooltip
               content={<ChartTooltipContent labelFormatter={(l) => formatDay(String(l))} />}
@@ -379,7 +379,7 @@ export function RankedBars({
   const max = Math.max(...rows.map((row) => row.value));
 
   return (
-    <table className="w-full border-separate border-spacing-y-1.5 text-xs">
+    <table className="w-full border-separate border-spacing-y-1.5 text-sm">
       <caption className="sr-only">
         {valueLabel} by {categoryKey}
       </caption>
@@ -388,7 +388,7 @@ export function RankedBars({
           <tr key={row.category}>
             <th
               scope="row"
-              className="w-[38%] pr-3 text-right align-middle font-normal text-muted-foreground"
+              className="w-[44%] pr-3 text-right align-middle leading-tight font-normal text-muted-foreground"
             >
               {formatCategory ? formatCategory(row.category) : row.category}
             </th>
@@ -468,7 +468,7 @@ export function ChannelSplit({
       {/* Legend doubles as the value table — identity is never colour-alone. */}
       <ul className="flex flex-col gap-1.5">
         {rows.map((row) => (
-          <li key={row.key} className="flex items-center gap-2 text-xs">
+          <li key={row.key} className="flex items-center gap-2 text-sm">
             <span
               aria-hidden="true"
               className="size-2 shrink-0 rounded-full"
@@ -522,7 +522,7 @@ export function StatTile({
 
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3">
-      <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
       <div className="flex items-end gap-2">
@@ -530,7 +530,7 @@ export function StatTile({
         <span className="font-heading text-2xl font-semibold leading-none">
           {value === null ? "—" : format ? format(value) : value.toLocaleString()}
           {value !== null && suffix ? (
-            <span className="ml-0.5 text-sm font-normal text-muted-foreground">
+            <span className="ml-0.5 text-base font-normal text-muted-foreground">
               {suffix}
             </span>
           ) : null}
@@ -538,7 +538,7 @@ export function StatTile({
         {hasDelta ? (
           <span
             className={cn(
-              "text-[0.625rem] leading-none",
+              "text-xs leading-none",
               improved ? "text-primary" : "text-muted-foreground"
             )}
           >
