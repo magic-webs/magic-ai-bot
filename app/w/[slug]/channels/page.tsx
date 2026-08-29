@@ -369,14 +369,11 @@ export default function ChannelsPage() {
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Channels
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Point a WhatsApp number at an agent. Inbound messages hit this
-            app&apos;s webhook, run through the same engine as the web
-            playground, and the reply is sent back with this channel&apos;s
-            credentials.
+            WhatsApp numbers, each pointed at an agent.
           </p>
         </div>
         {hasAgents ? (

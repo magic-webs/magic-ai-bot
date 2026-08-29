@@ -142,12 +142,11 @@ export default function WorkspaceSettingsPage() {
       {/* Sticky so Save stays reachable however far down the form you are. */}
       <header className="sticky top-0 z-20 flex flex-wrap items-end justify-between gap-3 border-b bg-background/95 px-6 py-4 backdrop-blur">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Workspace settings
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Everything here is injected into every agent&apos;s system prompt, so
-            it is worth being specific.
+            Injected into every agent&apos;s system prompt.
           </p>
         </div>
         <Button onClick={save} disabled={saving}>

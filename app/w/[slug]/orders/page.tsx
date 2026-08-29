@@ -211,12 +211,11 @@ export default function OrdersPage() {
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Orders
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Every order an agent captured with <code>create_order</code>, along
-            with the full specification it collected. Each one also fired the
+            Enquiries agents captured, with their specifications. Each one also fired the
             workspace webhook.
           </p>
         </div>

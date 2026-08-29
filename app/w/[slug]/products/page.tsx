@@ -827,12 +827,11 @@ export default function ProductsPage() {
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Catalogue
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            What the agents are allowed to talk about, and the exact
-            specifications they must collect for each product.
+            What agents may discuss, and what they must collect.
           </p>
         </div>
         <div className="flex gap-2">

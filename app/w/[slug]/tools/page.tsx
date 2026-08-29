@@ -743,13 +743,12 @@ export default function ToolsPage() {
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Custom tools
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Beyond the builtin tools, agents can call anything you define here —
-            an external API or a read-only query over this workspace&apos;s own
-            data. Only <strong>enabled</strong> tools reach the model.
+            APIs and data queries your agents can call. Only{" "}
+            <strong>enabled</strong> tools reach the model.
           </p>
         </div>
         <div className="flex gap-2">
