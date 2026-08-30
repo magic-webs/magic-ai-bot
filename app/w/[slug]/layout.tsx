@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { WorkspaceProvider } from "@/components/workspace-provider";
+import { WorkspaceTheme } from "@/components/workspace-theme";
 import { useSession } from "@/components/use-session";
 import {
   Sidebar,
@@ -149,6 +150,7 @@ export default function WorkspaceLayout({
 
   return (
     <WorkspaceProvider workspace={workspace}>
+      <WorkspaceTheme theme={workspace.theme} />
       {/* The shell is pinned to the viewport so pages can own their own
           scrolling — without a hard height here, `flex-1` has nothing to
           resolve against and the chat playground's message list grows

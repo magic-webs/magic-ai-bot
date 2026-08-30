@@ -137,6 +137,8 @@ export default defineSchema({
     locale: v.string(), // e.g. "en-GB"
     timezone: v.string(), // e.g. "Europe/London"
     currency: v.string(), // e.g. "GBP"
+    // Which palette the console renders in. Absent = the default.
+    theme: v.optional(v.string()),
     // Where order_created / escalation events are POSTed
     webhookUrl: v.optional(v.string()),
     webhookSecret: v.optional(v.string()),

@@ -25,6 +25,7 @@ const workspaceFields = {
   locale: v.optional(v.string()),
   timezone: v.optional(v.string()),
   currency: v.optional(v.string()),
+  theme: v.optional(v.string()),
   webhookUrl: v.optional(v.string()),
   facts: v.optional(v.array(kvPair)),
 };
@@ -130,6 +131,7 @@ export const create = mutation({
       locale: args.locale ?? "en-GB",
       timezone: args.timezone ?? "Europe/London",
       currency: args.currency ?? "GBP",
+      theme: args.theme,
       webhookUrl: args.webhookUrl,
       webhookSecret: randomKey(32),
       facts: args.facts ?? [],
@@ -157,6 +159,10 @@ export const update = mutation({
     for (const [key, value] of Object.entries(rest)) {
       if (value !== undefined) patch[key] = value;
     }
+    // An omitted field means "leave it alone", so there is no way to clear one
+    // by omission. `theme: ""` is how the picker says "back to the default",
+    // and that has to become an actual unset or the choice is one-way.
+    if (rest.theme === "") patch.theme = undefined;
     await ctx.db.patch(workspaceId, patch);
     return { success: true };
   },
