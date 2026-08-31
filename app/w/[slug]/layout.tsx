@@ -42,6 +42,7 @@ import {
   WrenchIcon,
   WhatsappLogoIcon,
   ChatsIcon,
+  UsersIcon,
   GearIcon,
   ArrowLeftIcon,
   WarningIcon,
@@ -63,6 +64,7 @@ const NAV = [
     items: [
       { href: "/products", label: "Catalogue", icon: PackageIcon },
       { href: "/orders", label: "Orders", icon: ReceiptIcon },
+      { href: "/contacts", label: "Contacts", icon: UsersIcon },
     ],
   },
   {

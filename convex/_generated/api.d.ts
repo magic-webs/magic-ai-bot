@@ -14,6 +14,7 @@ import type * as analytics from "../analytics.js";
 import type * as auth from "../auth.js";
 import type * as authDb from "../authDb.js";
 import type * as channels from "../channels.js";
+import type * as contacts from "../contacts.js";
 import type * as conversations from "../conversations.js";
 import type * as engine from "../engine.js";
 import type * as http from "../http.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authDb: typeof authDb;
   channels: typeof channels;
+  contacts: typeof contacts;
   conversations: typeof conversations;
   engine: typeof engine;
   http: typeof http;

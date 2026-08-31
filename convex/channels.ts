@@ -236,3 +236,31 @@ export const touchInbound = internalMutation({
     });
   },
 });
+
+export const getWidgetData = query({
+  args: { channelKey: v.string() },
+  handler: async (ctx, args) => {
+    const channel = await ctx.db
+      .query("channels")
+      .withIndex("by_channelKey", (q) => q.eq("channelKey", args.channelKey))
+      .unique();
+    if (!channel || channel.type !== "web" || channel.status !== "active") return null;
+
+    const agent = await ctx.db.get("agents", channel.agentId);
+    const workspace = await ctx.db.get("workspaces", channel.workspaceId);
+    if (!agent || !workspace) return null;
+
+    return {
+      channelId: channel._id,
+      workspaceId: workspace._id,
+      workspaceName: workspace.name,
+      agent: {
+        _id: agent._id,
+        botName: agent.botName,
+        role: agent.role,
+        greeting: agent.greeting,
+        tone: agent.tone,
+      },
+    };
+  },
+});

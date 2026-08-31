@@ -50,6 +50,8 @@ import {
   PencilSimpleIcon,
   WarningIcon,
   InfoIcon,
+  GlobeIcon,
+  CodeIcon,
 } from "@phosphor-icons/react";
 
 function CopyField({ label, value }: { label: string; value: string }) {
@@ -344,6 +346,137 @@ function ChannelDialog({
   );
 }
 
+type WebChannelForm = {
+  name: string;
+  agentId: string;
+};
+
+const emptyWebForm: WebChannelForm = {
+  name: "Website Widget",
+  agentId: "",
+};
+
+function WebChannelDialog({
+  channelId,
+  initial,
+  trigger,
+}: {
+  channelId?: Id<"channels">;
+  initial?: WebChannelForm;
+  trigger: React.ReactElement;
+}) {
+  const workspace = useWorkspace();
+  const agents = useQuery(api.agents.listByWorkspace, {
+    workspaceId: workspace._id,
+  });
+  const createChannel = useMutation(api.channels.create);
+  const updateChannel = useMutation(api.channels.update);
+
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<WebChannelForm>(initial ?? emptyWebForm);
+
+  const selectedAgentId = form.agentId || agents?.[0]?._id || "";
+
+  const set = <K extends keyof WebChannelForm>(key: K, value: WebChannelForm[K]) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  const submit = async () => {
+    if (!selectedAgentId) {
+      toast.add({ title: "Pick the agent that answers here", type: "error" });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      if (channelId) {
+        await updateChannel({
+          channelId,
+          name: form.name,
+          agentId: selectedAgentId as Id<"agents">,
+        });
+        toast.add({ title: "Channel updated", type: "success" });
+      } else {
+        await createChannel({
+          workspaceId: workspace._id,
+          agentId: selectedAgentId as Id<"agents">,
+          type: "web",
+          name: form.name,
+        });
+        toast.add({
+          title: "Channel created",
+          description: "Your web widget is ready to be embedded.",
+          type: "success",
+        });
+        setForm(emptyWebForm);
+      }
+      setOpen(false);
+    } catch (error) {
+      toast.add({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={trigger} />
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {channelId ? "Edit Web Widget" : "Create a Web Widget"}
+          </DialogTitle>
+          <DialogDescription>
+            A web widget lets you embed your agent directly into your website.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="w-name">Widget name</Label>
+              <Input
+                id="w-name"
+                value={form.name}
+                placeholder="Homepage Chat"
+                onChange={(event) => set("name", event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="w-agent">Agent that answers</Label>
+              <SelectField
+                id="w-agent"
+                className="w-full"
+                value={selectedAgentId}
+                placeholder="No agents yet"
+                onValueChange={(next) => set("agentId", next)}
+                options={(agents ?? []).map((agent) => ({
+                  value: agent._id as string,
+                  label: `${agent.botName} — ${agent.name}`,
+                }))}
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? <Spinner /> : <PlusIcon />}{" "}
+            {channelId ? "Save changes" : "Create widget"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ChannelsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
@@ -377,15 +510,22 @@ export default function ChannelsPage() {
             WhatsApp numbers, each pointed at an agent.
           </p>
         </div>
-        {hasAgents ? (
-          <ChannelDialog
-            trigger={
-              <Button>
-                <PlusIcon /> Connect WhatsApp
-              </Button>
-            }
-          />
-        ) : null}
+          <div className="flex gap-2">
+            <ChannelDialog
+              trigger={
+                <Button variant="outline">
+                  <WhatsappLogoIcon /> Connect WhatsApp
+                </Button>
+              }
+            />
+            <WebChannelDialog
+              trigger={
+                <Button>
+                  <GlobeIcon /> Create Web Widget
+                </Button>
+              }
+            />
+          </div>
       </header>
 
       <Separator />
@@ -420,26 +560,38 @@ export default function ChannelsPage() {
                 token from your WhatsApp Business Platform app.
               </EmptyDescription>
             </EmptyHeader>
-            <EmptyContent>
-              <ChannelDialog
-                trigger={
-                  <Button>
-                    <PlusIcon /> Connect WhatsApp
-                  </Button>
-                }
-              />
-            </EmptyContent>
+              <div className="flex flex-wrap justify-center gap-2">
+                <ChannelDialog
+                  trigger={
+                    <Button variant="outline">
+                      <WhatsappLogoIcon /> Connect WhatsApp
+                    </Button>
+                  }
+                />
+                <WebChannelDialog
+                  trigger={
+                    <Button>
+                      <GlobeIcon /> Create Web Widget
+                    </Button>
+                  }
+                />
+              </div>
           </Empty>
         ) : null
       ) : (
         <div className="flex flex-col gap-4">
           {channels.map((channel) => {
             const webhookUrl = `${convexSite}/whatsapp/${channel.channelKey}`;
+            const isWeb = channel.type === "web";
+            // For the iframe src, we point to the upcoming widget route
+            const widgetUrl = `${window.location.origin}/widget/${channel.channelKey}`;
+            const iframeCode = `<iframe src="${widgetUrl}" width="400" height="600" frameborder="0" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);"></iframe>`;
+
             return (
               <Card key={channel._id}>
                 <CardHeader>
                   <CardTitle className="flex flex-wrap items-center gap-2">
-                    <WhatsappLogoIcon className="size-4" />
+                    {isWeb ? <GlobeIcon className="size-4" /> : <WhatsappLogoIcon className="size-4" />}
                     {channel.name}
                     <Badge
                       variant={
@@ -477,57 +629,73 @@ export default function ChannelsPage() {
                     </Alert>
                   ) : null}
 
-                  <CopyField label="Callback URL" value={webhookUrl} />
+                  {isWeb ? (
+                    <>
+                      <CopyField label="Embed Code" value={iframeCode} />
+                      <CopyField label="Direct Widget Link" value={widgetUrl} />
+                      <Alert>
+                        <InfoIcon />
+                        <AlertTitle>Adding to your website</AlertTitle>
+                        <AlertDescription>
+                          Paste the embed code into your website's HTML, right before the closing <span className="font-mono">&lt;/body&gt;</span> tag. It will place a floating chat widget in the bottom right corner of your page. You can customize the iframe's styling as needed.
+                        </AlertDescription>
+                      </Alert>
+                    </>
+                  ) : (
+                    <>
+                      <CopyField label="Callback URL" value={webhookUrl} />
 
-                  <Alert>
-                    <InfoIcon />
-                    <AlertTitle>Wiring this up in Meta</AlertTitle>
-                    <AlertDescription>
-                      In your app&apos;s WhatsApp → Configuration, set the
-                      callback URL above, then subscribe to the{" "}
-                      <span className="font-mono">messages</span> field. Meta
-                      insists on a verify token — type anything you like, it is
-                      not checked. The URL must be publicly reachable, so use a
-                      tunnel while developing locally.
-                    </AlertDescription>
-                  </Alert>
+                      <Alert>
+                        <InfoIcon />
+                        <AlertTitle>Wiring this up in Meta</AlertTitle>
+                        <AlertDescription>
+                          In your app&apos;s WhatsApp → Configuration, set the
+                          callback URL above, then subscribe to the{" "}
+                          <span className="font-mono">messages</span> field. Meta
+                          insists on a verify token — type anything you like, it is
+                          not checked. The URL must be publicly reachable, so use a
+                          tunnel while developing locally.
+                        </AlertDescription>
+                      </Alert>
 
-                  <div className="grid gap-2 text-xs sm:grid-cols-4">
-                    <div>
-                      <p className="uppercase tracking-wide text-muted-foreground">
-                        Phone number ID
-                      </p>
-                      <p className="font-mono">
-                        {channel.whatsapp?.phoneNumberId ?? "—"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-wide text-muted-foreground">
-                        WABA ID
-                      </p>
-                      <p className="font-mono">
-                        {channel.whatsapp?.wabaId ?? "—"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-wide text-muted-foreground">
-                        Business ID
-                      </p>
-                      <p className="font-mono">
-                        {channel.whatsapp?.businessId ?? "—"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-wide text-muted-foreground">
-                        Access token
-                      </p>
-                      <p className="font-mono">
-                        {channel.hasAccessToken
-                          ? channel.whatsapp?.accessToken
-                          : "not set"}
-                      </p>
-                    </div>
-                  </div>
+                      <div className="grid gap-2 text-xs sm:grid-cols-4">
+                        <div>
+                          <p className="uppercase tracking-wide text-muted-foreground">
+                            Phone number ID
+                          </p>
+                          <p className="font-mono">
+                            {channel.whatsapp?.phoneNumberId ?? "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-wide text-muted-foreground">
+                            WABA ID
+                          </p>
+                          <p className="font-mono">
+                            {channel.whatsapp?.wabaId ?? "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-wide text-muted-foreground">
+                            Business ID
+                          </p>
+                          <p className="font-mono">
+                            {channel.whatsapp?.businessId ?? "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-wide text-muted-foreground">
+                            Access token
+                          </p>
+                          <p className="font-mono">
+                            {channel.hasAccessToken
+                              ? channel.whatsapp?.accessToken
+                              : "not set"}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <Separator />
 
@@ -573,29 +741,45 @@ export default function ChannelsPage() {
                       >
                         <ArrowsClockwiseIcon /> Rotate
                       </Button>
-                      <ChannelDialog
-                        channelId={channel._id}
-                        initial={{
-                          name: channel.name,
-                          agentId: channel.agentId,
-                          apiBaseUrl:
-                            channel.whatsapp?.apiBaseUrl ??
-                            "https://graph.facebook.com",
-                          apiVersion: channel.whatsapp?.apiVersion ?? "v23.0",
-                          phoneNumberId:
-                            channel.whatsapp?.phoneNumberId ?? "",
-                          wabaId: channel.whatsapp?.wabaId ?? "",
-                          businessId: channel.whatsapp?.businessId ?? "",
-                          displayPhoneNumber:
-                            channel.whatsapp?.displayPhoneNumber ?? "",
-                          accessToken: "",
-                        }}
-                        trigger={
-                          <Button size="lg" variant="outline">
-                            <PencilSimpleIcon /> Edit
-                          </Button>
-                        }
-                      />
+                      
+                      {isWeb ? (
+                        <WebChannelDialog
+                          channelId={channel._id}
+                          initial={{
+                            name: channel.name,
+                            agentId: channel.agentId,
+                          }}
+                          trigger={
+                            <Button size="lg" variant="outline">
+                              <PencilSimpleIcon /> Edit
+                            </Button>
+                          }
+                        />
+                      ) : (
+                        <ChannelDialog
+                          channelId={channel._id}
+                          initial={{
+                            name: channel.name,
+                            agentId: channel.agentId,
+                            apiBaseUrl:
+                              channel.whatsapp?.apiBaseUrl ??
+                              "https://graph.facebook.com",
+                            apiVersion: channel.whatsapp?.apiVersion ?? "v23.0",
+                            phoneNumberId:
+                              channel.whatsapp?.phoneNumberId ?? "",
+                            wabaId: channel.whatsapp?.wabaId ?? "",
+                            businessId: channel.whatsapp?.businessId ?? "",
+                            displayPhoneNumber:
+                              channel.whatsapp?.displayPhoneNumber ?? "",
+                            accessToken: "",
+                          }}
+                          trigger={
+                            <Button size="lg" variant="outline">
+                              <PencilSimpleIcon /> Edit
+                            </Button>
+                          }
+                        />
+                      )}
                       <Button
                         size="icon-lg"
                         variant="ghost"
