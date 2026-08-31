@@ -33,7 +33,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -86,22 +86,35 @@ const CONVEX_URL = setting(
 const USERNAME = setting("MAGIC_AI_BOT_USERNAME", "ADMIN_EMAIL");
 const PASSWORD = setting("MAGIC_AI_BOT_PASSWORD", "ADMIN_PASSWORD");
 const DEFAULT_WORKSPACE = setting("MAGIC_AI_BOT_WORKSPACE");
+// Only used to print widget embed snippets. On Vercel the deployment already
+// knows its own hostname, so a correct snippet needs no extra configuration.
+const vercelHost = setting(
+  "VERCEL_PROJECT_PRODUCTION_URL",
+  "NEXT_PUBLIC_VERCEL_URL",
+  "VERCEL_URL"
+);
 const APP_URL = (
-  setting("MAGIC_AI_BOT_APP_URL") ?? "http://localhost:3000"
+  setting("MAGIC_AI_BOT_APP_URL") ??
+  (vercelHost ? `https://${vercelHost.replace(/^https?:\/\//, "")}` : null) ??
+  "http://localhost:3000"
 ).replace(/\/$/, "");
 
-if (!CONVEX_URL || !USERNAME || !PASSWORD) {
-  // stderr, not stdout: stdout is the JSON-RPC channel.
-  console.error(
+/**
+ * Checked on first use rather than at import, because this module is also
+ * imported by app/api/mcp/[token]/route.ts — a serverless bundle must not be
+ * able to kill the process just by loading a file.
+ */
+function assertConfigured() {
+  if (CONVEX_URL && USERNAME && PASSWORD) return;
+  throw new Error(
     [
-      "[magic-ai-bot mcp] Missing configuration.",
+      "Magic AI Bot MCP is not configured.",
       `  Convex URL: ${CONVEX_URL ? "ok" : "MISSING (MAGIC_AI_BOT_CONVEX_URL or NEXT_PUBLIC_CONVEX_URL)"}`,
       `  Username:   ${USERNAME ? "ok" : "MISSING (MAGIC_AI_BOT_USERNAME or ADMIN_EMAIL)"}`,
       `  Password:   ${PASSWORD ? "ok" : "MISSING (MAGIC_AI_BOT_PASSWORD or ADMIN_PASSWORD)"}`,
       "See mcp/README.md.",
     ].join("\n")
   );
-  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,55 +125,69 @@ if (!CONVEX_URL || !USERNAME || !PASSWORD) {
 // rather than being sent as a credential itself.
 // ---------------------------------------------------------------------------
 
-const client = new ConvexHttpClient(CONVEX_URL);
 const REFRESH_MARGIN_MS = 60_000;
 
+let client = null;
 let session = null; // { sessionToken, role, label, workspaceSlug }
 let access = null; // { token, expiresAt }
 
+function convex() {
+  if (!client) {
+    assertConfigured();
+    client = new ConvexHttpClient(CONVEX_URL);
+  }
+  return client;
+}
+
 async function signIn() {
-  session = await client.action(api.auth.login, {
+  session = await convex().action(api.auth.login, {
     username: USERNAME,
     password: PASSWORD,
   });
   access = null;
 }
 
-async function authorize() {
+export async function authorize() {
+  assertConfigured();
   if (!session) await signIn();
   if (access && access.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
-    client.setAuth(access.token);
+    convex().setAuth(access.token);
     return;
   }
 
-  let minted = await client.action(api.auth.mintAccessToken, {
+  let minted = await convex().action(api.auth.mintAccessToken, {
     sessionToken: session.sessionToken,
   });
   if (!minted) {
     // The session was revoked or expired — sign in again before giving up.
     await signIn();
-    minted = await client.action(api.auth.mintAccessToken, {
+    minted = await convex().action(api.auth.mintAccessToken, {
       sessionToken: session.sessionToken,
     });
   }
   if (!minted) throw new Error("Could not authenticate with Magic AI Bot.");
 
   access = { token: minted.token, expiresAt: minted.expiresAt };
-  client.setAuth(access.token);
+  convex().setAuth(access.token);
+}
+
+/** Who this server is signed in as, for a startup log line. */
+export function describeSession() {
+  return session ? `${session.label} (${session.role})` : "not signed in";
 }
 
 const call = {
   query: async (ref, args) => {
     await authorize();
-    return client.query(ref, args);
+    return convex().query(ref, args);
   },
   mutation: async (ref, args) => {
     await authorize();
-    return client.mutation(ref, args);
+    return convex().mutation(ref, args);
   },
   action: async (ref, args) => {
     await authorize();
-    return client.action(ref, args);
+    return convex().action(ref, args);
   },
 };
 
@@ -443,7 +470,7 @@ const kvArg = z.object({ key: z.string(), value: z.string() });
  * Authentication and the Convex client are module-level, so a new instance
  * costs nothing but the registrations.
  */
-function buildServer() {
+export function buildServer() {
   const server = new McpServer(
     { name: "magic-ai-bot", version: "1.0.0" },
     {
@@ -1925,7 +1952,18 @@ async function main() {
   else await serveStdio();
 }
 
-main().catch((error) => {
-  console.error("[magic-ai-bot mcp] failed to start:", error?.message ?? error);
-  process.exit(1);
-});
+// Only when this file is the process entry point. Imported — by the Next route
+// handler — it must define the tools and nothing else.
+const invokedDirectly =
+  Boolean(process.argv[1]) &&
+  resolvePath(process.argv[1]) === resolvePath(fileURLToPath(import.meta.url));
+
+if (invokedDirectly) {
+  main().catch((error) => {
+    console.error(
+      "[magic-ai-bot mcp] failed to start:",
+      error?.message ?? error
+    );
+    process.exit(1);
+  });
+}

@@ -35,16 +35,18 @@ no configuration at all — **as platform admin**, with access to every
 workspace. For anything shared, set `MAGIC_AI_BOT_USERNAME` and
 `MAGIC_AI_BOT_PASSWORD` to a workspace account instead.
 
-## Two transports
+## Three ways to serve it
 
-| Transport | Command | Used by |
+| Where | How | Used by |
 | --- | --- | --- |
-| stdio | `bun run mcp` | Claude Code, Claude Desktop — the client launches the server as a child process |
-| Streamable HTTP | `bun run mcp:http` | **claude.ai** — Anthropic's servers call your URL |
+| Child process | `bun run mcp` (stdio) | Claude Code, Claude Desktop |
+| **The deployed app** | `app/api/mcp/[token]/route.ts` | **claude.ai** — nothing extra to run |
+| Standalone HTTP | `bun run mcp:http` | claude.ai, when the app is not deployed |
 
-Either way it exits immediately with a readable message if it cannot sign in, so
-a bad config shows up when the client connects rather than on the first tool
-call.
+All three register the same tools from `mcp/server.mjs`; only the transport
+differs. The two local modes exit immediately with a readable message if they
+cannot sign in, so a bad config shows up when the client connects rather than on
+the first tool call.
 
 ## Claude Code
 
@@ -72,12 +74,67 @@ Absolute paths for both, including the Node binary: Claude Desktop launches the
 command with a minimal PATH, so a bare `node` often fails even when it works in
 a terminal. Restart the app afterwards.
 
-## claude.ai (browser)
+## claude.ai — from the deployed app (recommended)
 
 claude.ai does not launch local processes. Its custom connectors are *remote*
 MCP servers: Anthropic's servers make the request, so the URL has to be
 reachable over the public internet — a `localhost` address will not work, and
 nor will anything behind a VPN or firewall.
+
+If the app is already deployed, that is the public HTTPS URL. The route at
+`app/api/mcp/[token]/route.ts` serves MCP from it, so there is no second process
+to host and no tunnel to keep alive, and the URL never changes.
+
+### 1. Generate a token
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+### 2. Set four environment variables on the host
+
+| Variable | Value |
+| --- | --- |
+| `MAGIC_AI_BOT_MCP_TOKEN` | the token from step 1 |
+| `MAGIC_AI_BOT_USERNAME` | a **workspace slug** (not the platform admin) |
+| `MAGIC_AI_BOT_PASSWORD` | that workspace's password |
+| `MAGIC_AI_BOT_CONVEX_URL` | only if it differs from `NEXT_PUBLIC_CONVEX_URL` |
+
+On Vercel: Project → Settings → Environment Variables, then **redeploy** —
+environment changes do not reach a running deployment.
+
+`MAGIC_AI_BOT_APP_URL` is not needed on Vercel: the deployment's own hostname is
+used for the widget embed snippets that `list_channels` prints.
+
+Note that the credentials must be valid on **the deployment's own Convex
+database**, which is a different database from local development, with its own
+workspaces and passwords. Its functions also need to be up to date
+(`npx convex deploy`), or the newer tools will fail.
+
+### 3. Add the connector
+
+In claude.ai: **Customize → Connectors → "+" → Add custom connector**, and paste
+
+```
+https://<your-domain>/api/mcp/<the token>
+```
+
+Then **Add**. Leave the OAuth fields under Advanced settings empty — the token
+in the path is what authenticates. On Team and Enterprise plans an Owner adds it
+under **Organization settings → Connectors** first, and members then enable it
+individually.
+
+### 4. Check it
+
+Open a new chat, confirm the connector is enabled in the tools menu, and ask
+something that needs it — "list my agents", or "what's in the catalogue?".
+
+With `MAGIC_AI_BOT_MCP_TOKEN` unset the route answers `404`, so a deployment
+that has not opted in has no MCP surface at all.
+
+## claude.ai — standalone, without deploying
+
+Only worth it when the app is not deployed anywhere public.
 
 ### 1. Generate a token
 
@@ -141,7 +198,7 @@ individually.
 Open a new chat, confirm the connector is enabled in the tools menu, and ask
 something that needs it — "list my agents", or "what's in the catalogue?".
 
-## Security, for the HTTP transport
+## Security, whenever it is reachable over HTTP
 
 **The URL is the credential.** claude.ai's connector form has a URL field and
 OAuth fields, and nowhere to put a custom header, so the shared secret lives in
@@ -152,17 +209,20 @@ Consequences worth acting on:
 
 - **Sign in as a workspace, not as the platform admin.** A workspace account
   reaches one company's data; an admin account reaches every tenant and can
-  create and delete workspaces. Do not let the fallback to
-  `ADMIN_EMAIL`/`ADMIN_PASSWORD` happen by accident on a public deployment.
-- **The server refuses to serve HTTP without a token of at least 24
-  characters**, and answers an identical `404` for a wrong path and a wrong
-  token, so the URL shape cannot be probed.
-- **It binds to loopback unless told otherwise**, so exposing it is always a
-  deliberate act.
-- **Rotate by restarting with a new token** and re-pasting the URL.
+  create and delete workspaces. On a public deployment, set
+  `MAGIC_AI_BOT_USERNAME` explicitly — do not let it fall back to
+  `ADMIN_EMAIL`/`ADMIN_PASSWORD`.
+- **No token, no endpoint.** Both HTTP paths refuse a token under 24 characters,
+  and answer an identical `404` for a wrong token and for MCP being switched
+  off, so neither the URL shape nor the feature's existence can be probed.
+- **The standalone server binds to loopback unless told otherwise**, so exposing
+  that one is always a deliberate act.
+- **Rotate** by changing the token and re-pasting the URL into claude.ai. On a
+  hosted deployment that means a redeploy.
 - OAuth is the better answer for anything shared with a team, and is what the
   connector's Advanced settings are for. It is not implemented here — the token
-  guard is deliberately the smaller thing.
+  guard is deliberately the smaller thing, and it swaps out without touching any
+  tool.
 
 Additional environment variables for this mode:
 
