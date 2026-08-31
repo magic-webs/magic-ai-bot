@@ -35,40 +35,143 @@ no configuration at all — **as platform admin**, with access to every
 workspace. For anything shared, set `MAGIC_AI_BOT_USERNAME` and
 `MAGIC_AI_BOT_PASSWORD` to a workspace account instead.
 
-## Running it
+## Two transports
 
-```bash
-bun run mcp          # or: node mcp/server.mjs
-```
+| Transport | Command | Used by |
+| --- | --- | --- |
+| stdio | `bun run mcp` | Claude Code, Claude Desktop — the client launches the server as a child process |
+| Streamable HTTP | `bun run mcp:http` | **claude.ai** — Anthropic's servers call your URL |
 
-It exits immediately with a readable message if it cannot sign in, so a bad
-config shows up when the client connects rather than on the first tool call.
+Either way it exits immediately with a readable message if it cannot sign in, so
+a bad config shows up when the client connects rather than on the first tool
+call.
 
-### Claude Code
+## Claude Code
 
-`.mcp.json` in the repo root already registers it for this project — no
-secrets in it, because the server reads `.env.local` itself. Run
-`claude mcp list` to confirm it connected.
+`.mcp.json` in the repo root already registers it for this project — no secrets
+in it, because the server reads `.env.local` itself. Run `claude mcp list` to
+confirm it connected.
 
-### Claude Desktop / other clients
+## Claude Desktop
+
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS:
 
 ```json
 {
   "mcpServers": {
     "magic-ai-bot": {
-      "command": "node",
-      "args": ["C:/development/magic-ai-bot/mcp/server.mjs"],
-      "env": {
-        "MAGIC_AI_BOT_CONVEX_URL": "https://your-deployment.convex.cloud",
-        "MAGIC_AI_BOT_USERNAME": "your-workspace-slug",
-        "MAGIC_AI_BOT_PASSWORD": "…"
-      }
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": ["C:\\development\\magic-ai-bot\\mcp\\server.mjs"]
     }
   }
 }
 ```
 
-Use an absolute path — clients do not run from the repo directory.
+Absolute paths for both, including the Node binary: Claude Desktop launches the
+command with a minimal PATH, so a bare `node` often fails even when it works in
+a terminal. Restart the app afterwards.
+
+## claude.ai (browser)
+
+claude.ai does not launch local processes. Its custom connectors are *remote*
+MCP servers: Anthropic's servers make the request, so the URL has to be
+reachable over the public internet — a `localhost` address will not work, and
+nor will anything behind a VPN or firewall.
+
+### 1. Generate a token
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+### 2. Start the HTTP server
+
+```bash
+MAGIC_AI_BOT_MCP_TOKEN=<the token> \
+MAGIC_AI_BOT_USERNAME=<workspace slug> \
+MAGIC_AI_BOT_PASSWORD=<that workspace's password> \
+bun run mcp:http
+```
+
+PowerShell:
+
+```powershell
+$env:MAGIC_AI_BOT_MCP_TOKEN="<the token>"
+$env:MAGIC_AI_BOT_USERNAME="<workspace slug>"
+$env:MAGIC_AI_BOT_PASSWORD="<that workspace's password>"
+bun run mcp:http
+```
+
+It binds to `127.0.0.1:8787` by default. Check it:
+
+```bash
+curl http://127.0.0.1:8787/health     # {"ok":true,"server":"magic-ai-bot"}
+```
+
+### 3. Put it on a public HTTPS URL
+
+For a quick trial, a tunnel is enough:
+
+```bash
+cloudflared tunnel --url http://localhost:8787
+# → https://something-random.trycloudflare.com
+```
+
+For anything lasting, host it properly behind HTTPS on a domain you control and
+set `MAGIC_AI_BOT_MCP_HOST=0.0.0.0` so it listens beyond loopback. A free tunnel
+URL changes every restart, and you would have to re-paste it into claude.ai each
+time.
+
+### 4. Add the connector
+
+In claude.ai: **Customize → Connectors → "+" → Add custom connector**, and paste
+
+```
+https://<your-public-host>/mcp/<the token>
+```
+
+Then **Add**. Leave the OAuth fields under Advanced settings empty — the token
+in the path is what authenticates. On Team and Enterprise plans an Owner adds it
+under **Organization settings → Connectors** first, and members then enable it
+individually.
+
+### 5. Check it
+
+Open a new chat, confirm the connector is enabled in the tools menu, and ask
+something that needs it — "list my agents", or "what's in the catalogue?".
+
+## Security, for the HTTP transport
+
+**The URL is the credential.** claude.ai's connector form has a URL field and
+OAuth fields, and nowhere to put a custom header, so the shared secret lives in
+the path. Anyone holding that URL has whatever the account in
+`MAGIC_AI_BOT_USERNAME` has.
+
+Consequences worth acting on:
+
+- **Sign in as a workspace, not as the platform admin.** A workspace account
+  reaches one company's data; an admin account reaches every tenant and can
+  create and delete workspaces. Do not let the fallback to
+  `ADMIN_EMAIL`/`ADMIN_PASSWORD` happen by accident on a public deployment.
+- **The server refuses to serve HTTP without a token of at least 24
+  characters**, and answers an identical `404` for a wrong path and a wrong
+  token, so the URL shape cannot be probed.
+- **It binds to loopback unless told otherwise**, so exposing it is always a
+  deliberate act.
+- **Rotate by restarting with a new token** and re-pasting the URL.
+- OAuth is the better answer for anything shared with a team, and is what the
+  connector's Advanced settings are for. It is not implemented here — the token
+  guard is deliberately the smaller thing.
+
+Additional environment variables for this mode:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MAGIC_AI_BOT_MCP_TOKEN` | — | Required. The shared secret in the URL path. |
+| `MAGIC_AI_BOT_MCP_PORT` | `8787` | |
+| `MAGIC_AI_BOT_MCP_HOST` | `127.0.0.1` | Set `0.0.0.0` to listen beyond loopback. |
+| `MAGIC_AI_BOT_MCP_HTTP` | — | `1` to serve HTTP without passing `--http`. |
 
 ## Tools
 

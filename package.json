@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "provision:admin": "node scripts/provision-admin.mjs",
-    "mcp": "node mcp/server.mjs"
+    "mcp": "node mcp/server.mjs",
+    "mcp:http": "node mcp/server.mjs --http"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4",
