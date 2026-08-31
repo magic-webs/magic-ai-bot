@@ -231,6 +231,19 @@ export const remove = mutation({
       await ctx.db.delete(source._id);
     }
 
+    // Uploaded product images live in storage, not in the row, so the bulk
+    // table sweep below would leave the files behind.
+    const products = await ctx.db
+      .query("products")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const product of products) {
+      for (const image of product.images ?? []) {
+        if (!image.storageId) continue;
+        await ctx.storage.delete(image.storageId).catch(() => undefined);
+      }
+    }
+
     const tables = [
       "agents",
       "channels",

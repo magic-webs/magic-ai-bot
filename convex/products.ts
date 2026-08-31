@@ -7,10 +7,11 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { kvPair, requirementField } from "./schema";
+import { kvPair, requirementField, productImage } from "./schema";
 import { slugify, buildSearchBlob, randomKey } from "./lib/shared";
 import {
   requireProduct,
+  requireSignedIn,
   requireWorkspace,
 } from "./lib/auth";
 
@@ -23,6 +24,7 @@ const productInput = {
   currency: v.optional(v.string()),
   unit: v.optional(v.string()),
   requirementFields: v.optional(v.array(requirementField)),
+  images: v.optional(v.array(productImage)),
   attributes: v.optional(v.array(kvPair)),
   exampleSpec: v.optional(v.string()),
   notes: v.optional(v.string()),
@@ -65,6 +67,81 @@ async function uniqueProductSlug(
   return `${base}-${randomKey(6)}`;
 }
 
+type StoredImage = {
+  storageId?: Id<"_storage">;
+  externalUrl?: string;
+  alt?: string;
+};
+
+/**
+ * Turns the stored image list into something a browser can render.
+ *
+ * An uploaded file is only reachable through a signed storage URL, which has to
+ * be minted per read, so the resolved list travels alongside the raw one rather
+ * than replacing it: the editor still needs the storage ids to know what it is
+ * editing.
+ */
+async function resolveImages(
+  ctx: QueryCtx,
+  images: StoredImage[] | undefined
+): Promise<Array<{ url: string; alt: string | null }>> {
+  const out: Array<{ url: string; alt: string | null }> = [];
+  for (const image of images ?? []) {
+    const url = image.storageId
+      ? await ctx.storage.getUrl(image.storageId)
+      : image.externalUrl;
+    // A file deleted out from under the row resolves to null. Skipping it beats
+    // rendering a broken thumbnail.
+    if (url) out.push({ url, alt: image.alt ?? null });
+  }
+  return out;
+}
+
+async function withImages(ctx: QueryCtx, products: Doc<"products">[]) {
+  return await Promise.all(
+    products.map(async (product) => ({
+      ...product,
+      resolvedImages: await resolveImages(ctx, product.images),
+    }))
+  );
+}
+
+/** The catalogue image an agent can point a customer at, if there is one. */
+async function primaryImageUrl(
+  ctx: QueryCtx,
+  product: Doc<"products">
+): Promise<string | null> {
+  const resolved = await resolveImages(ctx, product.images?.slice(0, 1));
+  return resolved[0]?.url ?? null;
+}
+
+// Storage files are not owned by the product row, so removing an image from the
+// list has to delete the file too — otherwise every edit leaks one.
+async function deleteOrphanedImages(
+  ctx: MutationCtx,
+  before: StoredImage[] | undefined,
+  after: StoredImage[] | undefined
+): Promise<void> {
+  const kept = new Set(
+    (after ?? [])
+      .map((image) => image.storageId)
+      .filter((id): id is Id<"_storage"> => Boolean(id))
+  );
+  for (const image of before ?? []) {
+    if (!image.storageId || kept.has(image.storageId)) continue;
+    // A file already gone is not an error worth failing the save over.
+    await ctx.storage.delete(image.storageId).catch(() => undefined);
+  }
+}
+
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireSignedIn(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
 export const listByWorkspace = query({
   args: {
     workspaceId: v.id("workspaces"),
@@ -75,31 +152,40 @@ export const listByWorkspace = query({
     await requireWorkspace(ctx, args.workspaceId);
     const term = args.search?.trim();
     if (term) {
-      return await ctx.db
-        .query("products")
-        .withSearchIndex("search_products", (q) =>
-          q
-            .search("searchBlob", term.toLowerCase())
-            .eq("workspaceId", args.workspaceId)
-        )
-        .take(100);
+      return await withImages(
+        ctx,
+        await ctx.db
+          .query("products")
+          .withSearchIndex("search_products", (q) =>
+            q
+              .search("searchBlob", term.toLowerCase())
+              .eq("workspaceId", args.workspaceId)
+          )
+          .take(100)
+      );
     }
 
     if (args.category) {
-      return await ctx.db
-        .query("products")
-        .withIndex("by_workspace_category", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("category", args.category!)
-        )
-        .order("desc")
-        .take(200);
+      return await withImages(
+        ctx,
+        await ctx.db
+          .query("products")
+          .withIndex("by_workspace_category", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("category", args.category!)
+          )
+          .order("desc")
+          .take(200)
+      );
     }
 
-    return await ctx.db
-      .query("products")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(200);
+    return await withImages(
+      ctx,
+      await ctx.db
+        .query("products")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .take(200)
+    );
   },
 });
 
@@ -119,7 +205,12 @@ export const get = query({
   args: { productId: v.id("products") },
   handler: async (ctx, args) => {
     await requireProduct(ctx, args.productId);
-    return await ctx.db.get("products", args.productId);
+    const product = await ctx.db.get("products", args.productId);
+    if (!product) return null;
+    return {
+      ...product,
+      resolvedImages: await resolveImages(ctx, product.images),
+    };
   },
 });
 
@@ -140,6 +231,7 @@ export const create = mutation({
       currency: args.currency,
       unit: args.unit,
       requirementFields: args.requirementFields ?? [],
+      images: args.images ?? [],
       attributes: args.attributes ?? [],
       exampleSpec: args.exampleSpec,
       notes: args.notes,
@@ -169,6 +261,11 @@ export const update = mutation({
     for (const [key, value] of Object.entries(rest)) {
       if (value !== undefined) patch[key] = value;
     }
+
+    if (args.images !== undefined) {
+      await deleteOrphanedImages(ctx, existing.images, args.images);
+    }
+
     patch.searchBlob = blobFor({
       name: (patch.name as string) ?? existing.name,
       category: (patch.category as string) ?? existing.category,
@@ -185,7 +282,8 @@ export const update = mutation({
 export const remove = mutation({
   args: { productId: v.id("products") },
   handler: async (ctx, args) => {
-    await requireProduct(ctx, args.productId);
+    const product = await requireProduct(ctx, args.productId);
+    await deleteOrphanedImages(ctx, product.images, []);
     await ctx.db.delete(args.productId);
     return { success: true };
   },
@@ -205,6 +303,9 @@ export const bulkImport = mutation({
         currency: v.optional(v.string()),
         unit: v.optional(v.string()),
         requirementFields: v.optional(v.array(requirementField)),
+        // Import carries URLs only: a spreadsheet cannot hold a file, and a
+        // company importing a catalogue already hosts its product shots.
+        imageUrls: v.optional(v.array(v.string())),
         attributes: v.optional(v.array(kvPair)),
         exampleSpec: v.optional(v.string()),
         notes: v.optional(v.string()),
@@ -228,6 +329,11 @@ export const bulkImport = mutation({
         )
         .unique();
 
+      const images = input.imageUrls
+        ?.map((url) => url.trim())
+        .filter(Boolean)
+        .map((url) => ({ externalUrl: url }));
+
       const shared = {
         sku: input.sku,
         name: input.name.trim(),
@@ -246,7 +352,15 @@ export const bulkImport = mutation({
       };
 
       if (existing) {
-        await ctx.db.patch(existing._id, shared);
+        // A file with no image column must not wipe pictures somebody uploaded
+        // by hand, so images are only written when the import supplies them.
+        if (images?.length) {
+          await deleteOrphanedImages(ctx, existing.images, images);
+        }
+        await ctx.db.patch(existing._id, {
+          ...shared,
+          ...(images?.length ? { images } : {}),
+        });
         updated++;
       } else {
         await ctx.db.insert("products", {
@@ -254,6 +368,7 @@ export const bulkImport = mutation({
           slug: slug || `product-${randomKey(6)}`,
           status: "active",
           createdAt: now,
+          images: images ?? [],
           ...shared,
         });
         created++;
@@ -354,16 +469,21 @@ export const searchForTool = internalQuery({
       args.query,
       args.limit ?? 8
     );
-    return products.map((p) => ({
-      slug: p.slug,
-      name: p.name,
-      category: p.category,
-      description: p.description,
-      price: p.price ?? null,
-      currency: p.currency ?? null,
-      unit: p.unit ?? null,
-      requiredFieldCount: p.requirementFields.filter((f) => f.required).length,
-    }));
+    return await Promise.all(
+      products.map(async (p) => ({
+        slug: p.slug,
+        name: p.name,
+        category: p.category,
+        description: p.description,
+        price: p.price ?? null,
+        currency: p.currency ?? null,
+        unit: p.unit ?? null,
+        // So the agent knows a picture exists and can offer it, rather than
+        // telling a customer there is nothing to look at.
+        imageUrl: await primaryImageUrl(ctx, p),
+        requiredFieldCount: p.requirementFields.filter((f) => f.required).length,
+      }))
+    );
   },
 });
 
@@ -387,7 +507,10 @@ export const requirementsForTool = internalQuery({
     }
     return {
       found: true,
-      product: toToolShape(matches[0]),
+      product: {
+        ...toToolShape(matches[0]),
+        images: await resolveImages(ctx, matches[0].images),
+      },
       alternatives: matches.slice(1).map((p) => p.name),
     };
   },

@@ -49,7 +49,8 @@ export type BuiltinToolKey =
   | "create_order"
   | "lookup_orders"
   | "save_contact_detail"
-  | "escalate_to_human";
+  | "escalate_to_human"
+  | "transfer_to_agent";
 
 export const BUILTIN_TOOLS: Array<{
   key: BuiltinToolKey;
@@ -111,6 +112,13 @@ export const BUILTIN_TOOLS: Array<{
     description:
       "Hand the conversation to a human when the customer asks for a person, makes a complaint, or needs something you cannot do. This notifies the team and marks the conversation as escalated.",
   },
+  {
+    key: "transfer_to_agent",
+    label: "Transfer to another agent",
+    summary: "Hand the conversation to a colleague agent in this workspace.",
+    description:
+      "Hand this conversation to another AI colleague who is better suited to it. The customer never sees the transfer — the colleague answers the current message directly. Only ever transfer to one of the agents named in your team roster.",
+  },
 ];
 
 export const DEFAULT_BUILTIN_TOOLS: BuiltinToolKey[] = [
@@ -120,7 +128,56 @@ export const DEFAULT_BUILTIN_TOOLS: BuiltinToolKey[] = [
   "create_order",
   "save_contact_detail",
   "escalate_to_human",
+  "transfer_to_agent",
 ];
+
+// ---------------------------------------------------------------------------
+// The default bot. Every workspace gets exactly one router agent: it owns the
+// front of every conversation, works out what the customer actually wants, and
+// hands the turn to the specialist that should answer it. Specialists can hand
+// off to each other the same way, so the routing decision is never final.
+// ---------------------------------------------------------------------------
+
+export const ROUTER_TOOLS: BuiltinToolKey[] = [
+  "transfer_to_agent",
+  "search_knowledge",
+  "save_contact_detail",
+  "escalate_to_human",
+];
+
+// How many times one inbound message may be handed on before the engine stops
+// and makes whoever is holding it answer.
+//
+// One, deliberately. A second hop in the same message is nearly always a
+// specialist second-guessing a correct routing decision rather than fixing a
+// wrong one, and it doubles the latency and the token cost of a single reply.
+// An agent that really has the wrong conversation hands it on when the customer
+// writes again, which is the case that matters.
+export const MAX_HANDOFFS_PER_TURN = 1;
+
+export const ROUTER_DEFAULTS = {
+  name: "Front desk",
+  role: "Front desk assistant",
+  objective:
+    "Work out what the customer needs in as few questions as possible, then hand the conversation to the colleague who can actually deal with it.",
+  jobDescription: [
+    "You are the first bot every new conversation reaches.",
+    "Greet the customer once, briefly, and find out what they are here for.",
+    "As soon as you can tell which colleague on your team should deal with it, transfer the conversation to them — do not try to answer specialist questions yourself.",
+    "If the request is a simple factual one that the knowledge base answers outright, answer it yourself rather than transferring.",
+    "If nobody on the team fits, keep helping as best you can and escalate to a human if the customer needs one.",
+  ].join(" "),
+  rules: [
+    "Ask at most one short question before deciding where the conversation belongs.",
+    "Transfer as soon as the right colleague is obvious — a fast handover beats a thorough interrogation.",
+  ],
+  guardrails: [
+    "Never quote prices, lead times or stock — that is a specialist's job.",
+    "Never tell the customer they are being transferred, put on hold, or passed around. The handover is silent and instant.",
+  ],
+  escalationPolicy:
+    "Escalate to a human if the customer asks for a person, is complaining, or no colleague on the team covers what they need.",
+} as const;
 
 export const CHAT_MODELS = [
   { id: "gpt-4.1-mini", label: "gpt-4.1-mini — fast, cheap, tool-capable" },
@@ -131,3 +188,7 @@ export const CHAT_MODELS = [
 
 // Must stay in step with the `dimensions` on the knowledgeChunks vector index.
 export const EMBEDDING_MODEL = "text-embedding-3-small";
+
+// The most an anonymous website visitor may send in one message. Generous for a
+// chat box, small enough that nobody can bill a workspace for an essay.
+export const MAX_WIDGET_MESSAGE_CHARS = 2000;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQuery } from "convex/react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -281,10 +282,17 @@ export default function ConversationsPage() {
     workspaceId: workspace._id,
   });
 
+  // ?c=<id> opens straight onto one thread — the Contacts table links here.
+  // Read once, as the initial selection: after that the list owns the choice, so
+  // clicking another thread is not fighting the URL.
+  const requested = useSearchParams().get("c");
+
   const [agentFilter, setAgentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Id<"conversations"> | null>(null);
+  const [selected, setSelected] = useState<Id<"conversations"> | null>(
+    requested ? (requested as Id<"conversations">) : null
+  );
 
   const conversations = useQuery(api.conversations.listByWorkspace, {
     workspaceId: workspace._id,
@@ -300,6 +308,7 @@ export default function ConversationsPage() {
       row.contactLabel,
       row.contactExternalId ?? "",
       row.agentName,
+      row.activeAgentName,
       row.lastMessagePreview ?? "",
     ]
       .join(" ")
@@ -438,7 +447,12 @@ export default function ConversationsPage() {
                           {row.lastMessagePreview ?? "No messages"}
                         </ItemDescription>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {row.agentName} · {row.messageCount} messages
+                          {/* Two names once the front desk has routed it on:
+                              where it arrived, and who has it now. */}
+                          {row.handedOff
+                            ? `${row.agentName} → ${row.activeAgentName}`
+                            : row.agentName}{" "}
+                          · {row.messageCount} messages
                         </p>
                       </ItemContent>
                     </Item>

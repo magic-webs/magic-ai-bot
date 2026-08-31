@@ -23,14 +23,20 @@ export const THEMES: ThemeOption[] = [
     // Read from the live tokens rather than hardcoded hexes, so this swatch
     // stays correct if the base palette is ever re-generated.
     id: null,
-    name: "Default",
-    description: "The palette this console ships with.",
+    name: "Green",
+    description: "The default — the same green the website widget uses.",
     swatches: [
       "var(--primary)",
       "var(--chart-2)",
       "var(--chart-3)",
       "var(--chart-4)",
     ],
+  },
+  {
+    id: "amber",
+    name: "Amber",
+    description: "The warm palette this console shipped with.",
+    swatches: ["#f5c211", "#8a8578", "#6b6659", "#585345"],
   },
   {
     id: "emerald",

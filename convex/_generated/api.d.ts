@@ -31,6 +31,7 @@ import type * as tools from "../tools.js";
 import type * as usage from "../usage.js";
 import type * as webhooks from "../webhooks.js";
 import type * as whatsapp from "../whatsapp.js";
+import type * as widget from "../widget.js";
 import type * as workspaces from "../workspaces.js";
 
 import type {
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   usage: typeof usage;
   webhooks: typeof webhooks;
   whatsapp: typeof whatsapp;
+  widget: typeof widget;
   workspaces: typeof workspaces;
 }>;
 

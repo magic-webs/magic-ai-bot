@@ -31,6 +31,7 @@ import {
   UserIcon,
   WrenchIcon,
   CaretRightIcon,
+  ArrowsSplitIcon,
 } from "@phosphor-icons/react";
 
 function timeOf(createdAt: number): string {
@@ -82,6 +83,37 @@ export function ToolTrace({ message }: { message: Doc<"messages"> }) {
         </div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// An internal handover, mid-conversation. The customer never saw this; it is
+// here so a company reading the transcript can tell why the voice changed.
+// ---------------------------------------------------------------------------
+
+function HandoffMarker({ message }: { message: Doc<"messages"> }) {
+  let summary: string | null = null;
+  try {
+    const parsed = JSON.parse(message.toolInput ?? "{}") as {
+      summary?: string;
+    };
+    summary = parsed.summary?.trim() || null;
+  } catch {
+    /* older rows, or a truncated payload */
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1 py-1">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <ArrowsSplitIcon className="size-3.5" />
+        <span>{message.text}</span>
+      </div>
+      {summary ? (
+        <p className="max-w-md text-center text-xs text-muted-foreground/80">
+          Handed over: {summary}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -150,6 +182,18 @@ export function TranscriptView({
                     className="mx-auto w-full"
                   >
                     <ToolTrace message={message} />
+                  </MessageScrollerItem>
+                );
+              }
+
+              if (message.kind === "handoff") {
+                return (
+                  <MessageScrollerItem
+                    key={message._id}
+                    messageId={message._id}
+                    className="mx-auto w-full"
+                  >
+                    <HandoffMarker message={message} />
                   </MessageScrollerItem>
                 );
               }

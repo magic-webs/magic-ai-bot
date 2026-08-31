@@ -46,12 +46,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   FloppyDiskIcon,
   ChatsIcon,
   TrashIcon,
   ArrowLeftIcon,
   WrenchIcon,
+  SignpostIcon,
+  WarningIcon,
 } from "@phosphor-icons/react";
 
 // Slider reports either a scalar or a tuple depending on how it is driven.
@@ -82,6 +85,8 @@ type Draft = {
   name: string;
   botName: string;
   role: string;
+  routingDescription: string;
+  acceptsHandoff: boolean;
   objective: string;
   jobDescription: string;
   greeting: string;
@@ -141,6 +146,10 @@ export default function AgentConfigPage({
       name: agent.name,
       botName: agent.botName,
       role: agent.role,
+      routingDescription: agent.routingDescription ?? "",
+      // Absent means "yes": every agent is a handoff target unless it has been
+      // taken out of the roster.
+      acceptsHandoff: agent.acceptsHandoff !== false,
       objective: agent.objective,
       jobDescription: agent.jobDescription,
       greeting: agent.greeting ?? "",
@@ -198,6 +207,8 @@ export default function AgentConfigPage({
         name: draft.name,
         botName: draft.botName,
         role: draft.role,
+        routingDescription: draft.routingDescription || undefined,
+        acceptsHandoff: draft.acceptsHandoff,
         objective: draft.objective,
         jobDescription: draft.jobDescription,
         greeting: draft.greeting || undefined,
@@ -240,6 +251,11 @@ export default function AgentConfigPage({
     (tool) => tool.agentId === undefined || tool.agentId === typedAgentId
   );
 
+  const isRouter = agent.kind === "router";
+  // The roster the prompt preview was compiled against, so the Routing tab and
+  // the compiled prompt can never disagree.
+  const team = promptPreview?.team ?? [];
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-3">
@@ -266,6 +282,7 @@ export default function AgentConfigPage({
           >
             {draft.status}
           </Badge>
+          {isRouter ? <Badge variant="secondary">Front desk</Badge> : null}
         </div>
 
         <div className="flex items-center gap-2">
@@ -274,11 +291,18 @@ export default function AgentConfigPage({
             value={draft.status}
             aria-label="Agent status"
             onValueChange={(next) => set("status", next as Draft["status"])}
-            options={[
-              { value: "draft", label: "Draft" },
-              { value: "active", label: "Active" },
-              { value: "paused", label: "Paused" },
-            ]}
+            options={
+              isRouter
+                ? [
+                    { value: "active", label: "Active" },
+                    { value: "paused", label: "Paused" },
+                  ]
+                : [
+                    { value: "draft", label: "Draft" },
+                    { value: "active", label: "Active" },
+                    { value: "paused", label: "Paused" },
+                  ]
+            }
           />
           <Button
             variant="outline"
@@ -297,6 +321,7 @@ export default function AgentConfigPage({
         <Tabs defaultValue="identity" className="gap-4">
           <TabsList>
             <TabsTrigger value="identity">Identity</TabsTrigger>
+            <TabsTrigger value="routing">Routing</TabsTrigger>
             <TabsTrigger value="tone">Tone</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="capabilities">Knowledge & tools</TabsTrigger>
@@ -382,6 +407,164 @@ export default function AgentConfigPage({
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ----------------------------------------------------- Routing */}
+          <TabsContent value="routing" className="flex flex-col gap-4">
+            {isRouter ? (
+              <>
+                <Alert>
+                  <SignpostIcon />
+                  <AlertTitle>This is the front desk</AlertTitle>
+                  <AlertDescription>
+                    It answers first on every channel pointed at it, then hands
+                    the conversation to one of the agents below. It cannot be
+                    handed a conversation itself, and it stays active — a paused
+                    front desk would silently drop every inbound message.
+                  </AlertDescription>
+                </Alert>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Who it can hand over to</CardTitle>
+                    <CardDescription>
+                      Exactly what the model is shown when it decides. An agent
+                      appears here only while it is active and in the roster;
+                      each one&apos;s handover rule is edited on its own Routing
+                      tab.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {team.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No agent is available to take a conversation, so the
+                        front desk will answer everything itself. Set an agent to
+                        active to give it somewhere to route.
+                      </p>
+                    ) : (
+                      <ItemGroup>
+                        {team.map((mate) => (
+                          <Item key={mate.key} variant="outline">
+                            <ItemContent>
+                              <ItemTitle className="flex flex-wrap items-center gap-2">
+                                {mate.botName}
+                                <Badge variant="secondary" className="font-mono">
+                                  {mate.key}
+                                </Badge>
+                              </ItemTitle>
+                              <ItemDescription>
+                                {mate.role}
+                                {mate.whenToUse?.trim()
+                                  ? ` · Hand over when: ${mate.whenToUse}`
+                                  : " · No handover rule set — only the role above to go on."}
+                              </ItemDescription>
+                            </ItemContent>
+                          </Item>
+                        ))}
+                      </ItemGroup>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>When this agent takes over</CardTitle>
+                    <CardDescription>
+                      The one line the front desk reads when choosing who deals
+                      with a conversation. Write it as a condition, not a
+                      description of the job.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="f-routing">Hand over to this agent when…</Label>
+                      <Textarea
+                        id="f-routing"
+                        rows={3}
+                        value={draft.routingDescription}
+                        placeholder="the customer asks about a price, a quote, or wants to place an order"
+                        onChange={(event) =>
+                          set("routingDescription", event.target.value)
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Leave it blank and the front desk has only the role to go
+                        on, which routes badly once you have more than one agent.
+                      </p>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                      <div className="min-w-0">
+                        <Label htmlFor="f-accepts" className="text-sm">
+                          Available for routing
+                        </Label>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Off takes this agent out of every roster. It keeps
+                          working on any channel pointed straight at it, but
+                          nobody will hand it a conversation.
+                        </p>
+                      </div>
+                      <Switch
+                        id="f-accepts"
+                        checked={draft.acceptsHandoff}
+                        onCheckedChange={(checked) =>
+                          set("acceptsHandoff", checked)
+                        }
+                      />
+                    </div>
+
+                    {draft.status !== "active" ? (
+                      <Alert>
+                        <WarningIcon />
+                        <AlertTitle>Draft and paused agents get no traffic</AlertTitle>
+                        <AlertDescription>
+                          Only active agents appear in the front desk&apos;s
+                          roster. Set the status to Active when it is ready.
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Who this agent can hand on to</CardTitle>
+                    <CardDescription>
+                      An agent that finds itself with the wrong conversation can
+                      pass it on once, as long as{" "}
+                      <span className="font-mono text-xs">
+                        transfer_to_agent
+                      </span>{" "}
+                      is enabled under Knowledge &amp; tools. A conversation is
+                      never handed back to an agent that already had it in the
+                      same message.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {!draft.builtinTools.includes("transfer_to_agent") ? (
+                      <p className="text-sm text-muted-foreground">
+                        Handover is switched off for this agent — it will answer
+                        everything it is given.
+                      </p>
+                    ) : team.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No other agent is available to take a conversation.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {team.map((mate) => (
+                          <Badge key={mate.key} variant="secondary">
+                            {mate.botName}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
 
           {/* -------------------------------------------------------- Tone */}

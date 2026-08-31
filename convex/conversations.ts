@@ -49,9 +49,14 @@ export const listByWorkspace = query({
     const out = [];
     for (const row of rows) {
       const contact = await ctx.db.get("contacts", row.contactId);
+      const holderId = row.activeAgentId ?? row.agentId;
       out.push({
         ...row,
         agentName: agentNames.get(row.agentId) ?? "—",
+        // Who answered last. Differs from agentName once the front desk has
+        // routed the conversation on.
+        activeAgentName: agentNames.get(holderId) ?? "—",
+        handedOff: holderId !== row.agentId,
         contactLabel:
           contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown",
         contactExternalId: contact?.externalId,
@@ -235,6 +240,10 @@ export const startTurn = internalMutation({
       const conversationId = await ctx.db.insert("conversations", {
         workspaceId: args.workspaceId,
         agentId: args.agentId,
+        // A brand new conversation is held by whoever the channel points at —
+        // normally the front desk, until it routes the turn onwards.
+        activeAgentId: args.agentId,
+        handoffCount: 0,
         contactId: contact._id,
         channelId: args.channelId,
         channelType: args.channelType,
@@ -284,6 +293,9 @@ export const startTurn = internalMutation({
     return {
       contactId: contact._id,
       conversationId: conversation._id,
+      // Whoever the last handoff left in charge. The engine runs this agent,
+      // not necessarily the one the channel points at.
+      activeAgentId: conversation.activeAgentId ?? conversation.agentId,
       contact: {
         name: contact.name,
         phone: contact.phone,
@@ -302,6 +314,9 @@ export const finishTurn = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     conversationId: v.id("conversations"),
+    // Which agent ended up answering. Recorded on the message so a routed
+    // conversation reads correctly weeks later.
+    agentId: v.optional(v.id("agents")),
     replyText: v.optional(v.string()),
     errorText: v.optional(v.string()),
     latencyMs: v.optional(v.number()),
@@ -349,6 +364,7 @@ export const finishTurn = internalMutation({
         role: "assistant",
         kind: "text",
         text: args.replyText,
+        agentId: args.agentId,
         latencyMs: args.latencyMs,
         createdAt: now,
       });
@@ -365,6 +381,55 @@ export const finishTurn = internalMutation({
         });
       }
     }
+
+    return { success: true };
+  },
+});
+
+/**
+ * Moves the conversation to another agent and leaves a trace of why.
+ *
+ * The conversation's `agentId` deliberately does not move: it is the channel's
+ * entry point and the key the next inbound message is looked up by. Only
+ * `activeAgentId` follows the handoff.
+ */
+export const recordHandoff = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    fromAgentId: v.id("agents"),
+    toAgentId: v.id("agents"),
+    fromBotName: v.string(),
+    toBotName: v.string(),
+    reason: v.string(),
+    summary: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (!conversation) return { success: false };
+
+    await ctx.db.patch(args.conversationId, {
+      activeAgentId: args.toAgentId,
+      handoffCount: (conversation.handoffCount ?? 0) + 1,
+    });
+
+    await ctx.db.insert("messages", {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      role: "system",
+      kind: "handoff",
+      agentId: args.toAgentId,
+      text: `${args.fromBotName} → ${args.toBotName}: ${args.reason}`,
+      toolName: "transfer_to_agent",
+      toolInput: JSON.stringify({
+        from: args.fromBotName,
+        to: args.toBotName,
+        reason: args.reason,
+        summary: args.summary,
+      }),
+      toolOk: true,
+      createdAt: Date.now(),
+    });
 
     return { success: true };
   },

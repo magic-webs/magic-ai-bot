@@ -40,12 +40,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { CardGridSkeleton } from "@/components/skeletons";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   RobotIcon,
   PlusIcon,
   SparkleIcon,
   ChatsIcon,
   SlidersIcon,
+  SignpostIcon,
+  ArrowsSplitIcon,
+  WarningIcon,
 } from "@phosphor-icons/react";
 
 function NewAgentDialog() {
@@ -56,7 +60,12 @@ function NewAgentDialog() {
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [manual, setManual] = useState({ name: "", botName: "", role: "" });
+  const [manual, setManual] = useState({
+    name: "",
+    botName: "",
+    role: "",
+    routingDescription: "",
+  });
   const [brief, setBrief] = useState("");
 
   const base = `/w/${workspace.slug}`;
@@ -73,6 +82,7 @@ function NewAgentDialog() {
         name: manual.name,
         botName: manual.botName || undefined,
         role: manual.role || undefined,
+        routingDescription: manual.routingDescription || undefined,
       });
       setOpen(false);
       router.push(`${base}/agents/${agentId}`);
@@ -201,6 +211,25 @@ function NewAgentDialog() {
                 />
               </div>
             </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="agent-routing">Front desk hands over when…</Label>
+              <Textarea
+                id="agent-routing"
+                rows={2}
+                value={manual.routingDescription}
+                placeholder="the customer wants a quote, a price, or to place an order"
+                onChange={(event) =>
+                  setManual((prev) => ({
+                    ...prev,
+                    routingDescription: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                This is the only thing the front desk reads when choosing who
+                takes a conversation. You can change it later.
+              </p>
+            </div>
             <Button onClick={createManual} disabled={busy}>
               {busy ? <Spinner /> : <PlusIcon />} Create agent
             </Button>
@@ -217,12 +246,106 @@ function NewAgentDialog() {
   );
 }
 
+function FrontDeskCard({
+  router,
+  specialistCount,
+  base,
+}: {
+  router: {
+    _id: string;
+    botName: string;
+    role: string;
+    status: string;
+  };
+  specialistCount: number;
+  base: string;
+}) {
+  return (
+    <Card className="border-primary/40 bg-primary/[0.03]">
+      <CardHeader>
+        <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <SignpostIcon className="size-4" />
+          </span>
+          <span className="truncate">{router.botName}</span>
+          <Badge variant="secondary">Front desk</Badge>
+          <Badge
+            variant={router.status === "active" ? "default" : "secondary"}
+            className="ml-auto shrink-0"
+          >
+            {router.status}
+          </Badge>
+        </CardTitle>
+        <CardDescription>
+          Answers first on every channel, works out what the customer needs, then
+          hands the conversation to one of your{" "}
+          {specialistCount === 1 ? "agent" : `${specialistCount} agents`}. Your
+          agents can hand it on to each other from there.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-1 pt-0">
+        <Button
+          size="lg"
+          variant="outline"
+          nativeButton={false}
+          render={<Link href={`${base}/agents/${router._id}/test`} />}
+        >
+          <ChatsIcon /> Test routing
+        </Button>
+        <Button
+          size="lg"
+          variant="outline"
+          nativeButton={false}
+          render={<Link href={`${base}/agents/${router._id}`} />}
+        >
+          <SlidersIcon /> Configure
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AgentsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
   const agents = useQuery(api.agents.listByWorkspace, {
     workspaceId: workspace._id,
   });
+  const ensureRouter = useMutation(api.agents.ensureDefaultRouter);
+  const [provisioning, setProvisioning] = useState(false);
+
+  const router = (agents ?? []).find((agent) => agent.kind === "router");
+  const specialists = (agents ?? []).filter((agent) => agent.kind !== "router");
+  const routable = specialists.filter(
+    (agent) => agent.status === "active" && agent.acceptsHandoff !== false
+  );
+
+  const provision = async () => {
+    setProvisioning(true);
+    try {
+      const result = await ensureRouter({
+        workspaceId: workspace._id,
+        // The point of a front desk is that everything arrives there, so the
+        // existing channels are moved over as part of creating it.
+        repointChannels: true,
+      });
+      toast.add({
+        title: "Front desk created",
+        description: result.repointed
+          ? `${result.repointed} channel(s) now arrive at the front desk, which routes each conversation on.`
+          : "Point a channel at it and it will route every new conversation.",
+        type: "success",
+      });
+    } catch (error) {
+      toast.add({
+        title: "Could not create the front desk",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    } finally {
+      setProvisioning(false);
+    }
+  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
@@ -232,7 +355,8 @@ export default function AgentsPage() {
             Agents
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Persona, tone, knowledge scope and tools.
+            Persona, tone, knowledge scope and tools. The front desk takes every
+            new conversation and routes it to the right agent.
           </p>
         </div>
         <NewAgentDialog />
@@ -240,9 +364,47 @@ export default function AgentsPage() {
 
       <Separator />
 
+      {router ? (
+        <FrontDeskCard
+          router={router}
+          specialistCount={routable.length}
+          base={base}
+        />
+      ) : specialists.length > 0 ? (
+        <Alert>
+          <ArrowsSplitIcon />
+          <AlertTitle>No front desk yet</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span>
+              A front desk answers first on every channel and routes each
+              conversation to the agent that should handle it. Without one, each
+              channel is stuck with a single agent. Creating it moves your
+              existing channels over — you can point any of them back at a
+              single agent from the Channels page.
+            </span>
+            <Button size="lg" onClick={provision} disabled={provisioning}>
+              {provisioning ? <Spinner /> : <SignpostIcon />} Create the front
+              desk and route my channels
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {router && routable.length === 0 && specialists.length > 0 ? (
+        <Alert>
+          <WarningIcon />
+          <AlertTitle>Nothing to route to</AlertTitle>
+          <AlertDescription>
+            The front desk only hands over to agents that are <em>active</em>.
+            Set at least one agent to active, or it will try to answer everything
+            itself.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {agents === undefined ? (
         <CardGridSkeleton count={3} />
-      ) : agents.length === 0 ? (
+      ) : specialists.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -260,7 +422,7 @@ export default function AgentsPage() {
         </Empty>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {agents.map((agent) => (
+          {specialists.map((agent) => (
             <Card key={agent._id} className="flex flex-col">
               <CardHeader>
                 <CardTitle className="flex min-w-0 items-center gap-2">
@@ -281,6 +443,27 @@ export default function AgentsPage() {
               </CardHeader>
 
               <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
+                <p className="line-clamp-2 text-xs text-muted-foreground">
+                  {agent.acceptsHandoff === false ? (
+                    <span className="italic">
+                      Out of routing — only reachable by pointing a channel
+                      straight at it.
+                    </span>
+                  ) : agent.routingDescription?.trim() ? (
+                    <>
+                      <span className="font-medium text-foreground">
+                        Handed over when:{" "}
+                      </span>
+                      {agent.routingDescription}
+                    </>
+                  ) : (
+                    <span className="italic">
+                      No handover rule yet — the front desk has only the role
+                      above to go on.
+                    </span>
+                  )}
+                </p>
+
                 <div className="flex flex-wrap gap-1">
                   {/* Capped: an agent with six tools would otherwise make its
                       card twice the height of its neighbours in the grid. */}

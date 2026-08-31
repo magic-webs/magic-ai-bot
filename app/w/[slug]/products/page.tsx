@@ -6,6 +6,13 @@ import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { KeyValueEditor, ChipListEditor, type KeyValue } from "@/components/editors";
+import {
+  ProductImagesEditor,
+  ProductThumbnail,
+  draftsFromProduct,
+  uploadDrafts,
+  type ImageDraft,
+} from "@/components/product-images";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -70,6 +77,11 @@ import {
   PencilSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
+
+/** A catalogue row: the product document plus browser-ready image URLs. */
+type CatalogueProduct = Doc<"products"> & {
+  resolvedImages: Array<{ url: string; alt: string | null }>;
+};
 
 type RequirementField = {
   key: string;
@@ -231,6 +243,7 @@ type ProductForm = {
   tags: string[];
   attributes: KeyValue[];
   requirementFields: RequirementField[];
+  images: ImageDraft[];
 };
 
 const emptyForm: ProductForm = {
@@ -245,18 +258,20 @@ const emptyForm: ProductForm = {
   tags: [],
   attributes: [],
   requirementFields: [],
+  images: [],
 };
 
 function ProductDialog({
   product,
   trigger,
 }: {
-  product?: Doc<"products">;
+  product?: CatalogueProduct;
   trigger: React.ReactElement;
 }) {
   const workspace = useWorkspace();
   const createProduct = useMutation(api.products.create);
   const updateProduct = useMutation(api.products.update);
+  const generateUploadUrl = useMutation(api.products.generateUploadUrl);
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -274,6 +289,10 @@ function ProductDialog({
           tags: product.tags,
           attributes: product.attributes,
           requirementFields: product.requirementFields,
+          images: draftsFromProduct(
+            product.images ?? [],
+            product.resolvedImages
+          ),
         }
       : emptyForm
   );
@@ -292,23 +311,30 @@ function ProductDialog({
       return;
     }
 
-    const payload = {
-      name: form.name,
-      sku: form.sku || undefined,
-      category: form.category || undefined,
-      description: form.description || undefined,
-      price: parsedPrice,
-      currency: parsedPrice !== undefined ? workspace.currency : undefined,
-      unit: form.unit || undefined,
-      exampleSpec: form.exampleSpec || undefined,
-      notes: form.notes || undefined,
-      tags: form.tags,
-      attributes: form.attributes.filter((a) => a.key.trim()),
-      requirementFields: form.requirementFields.filter((f) => f.key.trim()),
-    };
-
     setBusy(true);
     try {
+      // Files chosen in this dialog are uploaded now rather than on selection,
+      // so cancelling out of the dialog leaves nothing behind in storage.
+      const images = await uploadDrafts(form.images, () =>
+        generateUploadUrl({})
+      );
+
+      const payload = {
+        name: form.name,
+        sku: form.sku || undefined,
+        category: form.category || undefined,
+        description: form.description || undefined,
+        price: parsedPrice,
+        currency: parsedPrice !== undefined ? workspace.currency : undefined,
+        unit: form.unit || undefined,
+        exampleSpec: form.exampleSpec || undefined,
+        notes: form.notes || undefined,
+        tags: form.tags,
+        attributes: form.attributes.filter((a) => a.key.trim()),
+        requirementFields: form.requirementFields.filter((f) => f.key.trim()),
+        images,
+      };
+
       if (product) {
         await updateProduct({ productId: product._id, ...payload });
         toast.add({ title: "Product updated", type: "success" });
@@ -403,6 +429,13 @@ function ProductDialog({
               />
             </div>
           </div>
+
+          <Separator />
+
+          <ProductImagesEditor
+            value={form.images}
+            onChange={(next) => set("images", next)}
+          />
 
           <Separator />
 
@@ -744,6 +777,7 @@ function ImportDialog() {
                           <TableHead>Product</TableHead>
                           <TableHead>Category</TableHead>
                           <TableHead className="text-right">Price</TableHead>
+                          <TableHead className="text-right">Images</TableHead>
                           <TableHead className="text-right">
                             Questions
                           </TableHead>
@@ -762,6 +796,9 @@ function ImportDialog() {
                               {product.price === undefined
                                 ? "—"
                                 : `${product.currency ?? ""} ${product.price}`}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {product.imageUrls?.length ?? 0}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               {product.requirementFields?.length ?? 0}
@@ -921,13 +958,19 @@ export default function ProductsPage() {
                       an unbounded cell sizes to the description's full single
                       line and pushes every later column off-screen. */}
                   <TableCell className="max-w-md min-w-0">
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">
-                        {product.name}
-                      </span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {product.description || "No description"}
-                      </span>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <ProductThumbnail
+                        url={product.resolvedImages[0]?.url}
+                        alt={product.resolvedImages[0]?.alt ?? product.name}
+                      />
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate font-medium">
+                          {product.name}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {product.description || "No description"}
+                        </span>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>

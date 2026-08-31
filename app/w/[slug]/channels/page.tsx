@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -32,7 +33,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -51,17 +51,35 @@ import {
   WarningIcon,
   InfoIcon,
   GlobeIcon,
-  CodeIcon,
 } from "@phosphor-icons/react";
 
-function CopyField({ label, value }: { label: string; value: string }) {
+function CopyField({
+  label,
+  value,
+  hint,
+  multiline,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  multiline?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-1">
       <Label className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </Label>
       <div className="flex gap-1">
-        <Input readOnly value={value} className="font-mono text-xs" />
+        {multiline ? (
+          <Textarea
+            readOnly
+            rows={2}
+            value={value}
+            className="resize-none font-mono text-xs"
+          />
+        ) : (
+          <Input readOnly value={value} className="font-mono text-xs" />
+        )}
         <Button
           size="icon-lg"
           variant="outline"
@@ -82,8 +100,40 @@ function CopyField({ label, value }: { label: string; value: string }) {
           <CopyIcon />
         </Button>
       </div>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
+}
+
+// The list of agents a channel may point at. The front desk comes first and is
+// labelled, because pointing a channel anywhere else deliberately bypasses
+// routing — the chosen agent then answers every message itself.
+type AgentOption = {
+  _id: string;
+  botName: string;
+  name: string;
+  kind?: "router" | "specialist";
+};
+
+function defaultChannelAgentId(
+  agents: AgentOption[] | undefined
+): string | undefined {
+  if (!agents?.length) return undefined;
+  const router = agents.find((agent) => agent.kind === "router");
+  return (router ?? agents[0])._id;
+}
+
+function agentOptions(agents: AgentOption[] | undefined) {
+  const sorted = [...(agents ?? [])].sort((a, b) =>
+    a.kind === "router" ? -1 : b.kind === "router" ? 1 : 0
+  );
+  return sorted.map((agent) => ({
+    value: agent._id,
+    label:
+      agent.kind === "router"
+        ? `${agent.botName} — front desk (routes to your agents)`
+        : `${agent.botName} — ${agent.name}`,
+  }));
 }
 
 type ChannelForm = {
@@ -131,8 +181,10 @@ function ChannelDialog({
   const [form, setForm] = useState<ChannelForm>(initial ?? emptyForm);
 
   // Derived, not stored, so no effect is needed to backfill it once the agent
-  // list arrives.
-  const selectedAgentId = form.agentId || agents?.[0]?._id || "";
+  // list arrives. A new channel defaults to the front desk, which is what
+  // "route every incoming message" means in practice.
+  const selectedAgentId =
+    form.agentId || defaultChannelAgentId(agents) || "";
 
   const set = <K extends keyof ChannelForm>(key: K, value: ChannelForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -233,10 +285,7 @@ function ChannelDialog({
                 value={selectedAgentId}
                 placeholder="No agents yet"
                 onValueChange={(next) => set("agentId", next)}
-                options={(agents ?? []).map((agent) => ({
-                  value: agent._id as string,
-                  label: `${agent.botName} — ${agent.name}`,
-                }))}
+                options={agentOptions(agents)}
               />
             </div>
           </div>
@@ -376,7 +425,8 @@ function WebChannelDialog({
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<WebChannelForm>(initial ?? emptyWebForm);
 
-  const selectedAgentId = form.agentId || agents?.[0]?._id || "";
+  const selectedAgentId =
+    form.agentId || defaultChannelAgentId(agents) || "";
 
   const set = <K extends keyof WebChannelForm>(key: K, value: WebChannelForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -454,11 +504,12 @@ function WebChannelDialog({
                 value={selectedAgentId}
                 placeholder="No agents yet"
                 onValueChange={(next) => set("agentId", next)}
-                options={(agents ?? []).map((agent) => ({
-                  value: agent._id as string,
-                  label: `${agent.botName} — ${agent.name}`,
-                }))}
+                options={agentOptions(agents)}
               />
+              <p className="text-xs text-muted-foreground">
+                Leave this on the front desk unless you want one agent to handle
+                every message on this widget without routing.
+              </p>
             </div>
           </div>
         </div>
@@ -490,6 +541,11 @@ export default function ChannelsPage() {
   const rotateKeys = useMutation(api.channels.rotateKeys);
   const removeChannel = useMutation(api.channels.remove);
 
+  // Read on the client only: this component pre-renders on the server, where
+  // there is no window to ask.
+  const appOrigin =
+    typeof window === "undefined" ? "" : window.location.origin;
+
   // The webhook is served by the Convex deployment, not the Next app, so the
   // URL is public without a tunnel and the access token stays inside Convex.
   const convexSite =
@@ -507,7 +563,9 @@ export default function ChannelsPage() {
             Channels
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            WhatsApp numbers, each pointed at an agent.
+            WhatsApp numbers and website widgets. Each one points at an agent —
+            normally the front desk, which routes each conversation on to
+            whichever agent should handle it.
           </p>
         </div>
           <div className="flex gap-2">
@@ -583,9 +641,10 @@ export default function ChannelsPage() {
           {channels.map((channel) => {
             const webhookUrl = `${convexSite}/whatsapp/${channel.channelKey}`;
             const isWeb = channel.type === "web";
-            // For the iframe src, we point to the upcoming widget route
-            const widgetUrl = `${window.location.origin}/widget/${channel.channelKey}`;
-            const iframeCode = `<iframe src="${widgetUrl}" width="400" height="600" frameborder="0" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);"></iframe>`;
+            const widgetUrl = `${appOrigin}/widget/${channel.channelKey}`;
+            // A script, not a bare iframe: the launcher button has to live in
+            // the host page, because an iframe cannot resize itself there.
+            const embedCode = `<script src="${appOrigin}/widget/${channel.channelKey}/embed.js" async></script>`;
 
             return (
               <Card key={channel._id}>
@@ -631,13 +690,48 @@ export default function ChannelsPage() {
 
                   {isWeb ? (
                     <>
-                      <CopyField label="Embed Code" value={iframeCode} />
-                      <CopyField label="Direct Widget Link" value={widgetUrl} />
+                      <CopyField
+                        label="Embed code"
+                        value={embedCode}
+                        multiline
+                        hint="Paste it once, anywhere before the closing </body> tag."
+                      />
+                      <CopyField
+                        label="Direct link"
+                        value={widgetUrl}
+                        hint="The chat on its own page — handy for testing, or for a link in an email."
+                      />
                       <Alert>
                         <InfoIcon />
-                        <AlertTitle>Adding to your website</AlertTitle>
+                        <AlertTitle>What your visitors see</AlertTitle>
                         <AlertDescription>
-                          Paste the embed code into your website's HTML, right before the closing <span className="font-mono">&lt;/body&gt;</span> tag. It will place a floating chat widget in the bottom right corner of your page. You can customize the iframe's styling as needed.
+                          A round green WhatsApp button in the bottom-right
+                          corner. Clicking it slides the chat open; clicking
+                          again closes it. On a phone the chat fills the screen.
+                          The chat is green to match — set{" "}
+                          <span className="font-mono text-xs">data-color</span>{" "}
+                          to recolour the button and the chat together. Options
+                          go on the script tag:{" "}
+                          <span className="font-mono text-xs">
+                            data-position=&quot;left&quot;
+                          </span>
+                          ,{" "}
+                          <span className="font-mono text-xs">
+                            data-color=&quot;#25D366&quot;
+                          </span>
+                          ,{" "}
+                          <span className="font-mono text-xs">
+                            data-icon=&quot;chat&quot;
+                          </span>
+                          ,{" "}
+                          <span className="font-mono text-xs">
+                            data-teaser=&quot;Need a hand?&quot;
+                          </span>
+                          ,{" "}
+                          <span className="font-mono text-xs">
+                            data-auto-open=&quot;5000&quot;
+                          </span>
+                          .
                         </AlertDescription>
                       </Alert>
                     </>
@@ -732,9 +826,12 @@ export default function ChannelsPage() {
                         onClick={async () => {
                           await rotateKeys({ channelId: channel._id });
                           toast.add({
-                            title: "New callback URL generated",
-                            description:
-                              "Update the configuration in Meta or inbound messages will stop.",
+                            title: isWeb
+                              ? "New embed code generated"
+                              : "New callback URL generated",
+                            description: isWeb
+                              ? "Replace the script tag on your website or the widget will stop loading."
+                              : "Update the configuration in Meta or inbound messages will stop.",
                             type: "warning",
                           });
                         }}

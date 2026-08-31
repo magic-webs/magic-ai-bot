@@ -45,6 +45,7 @@ export type ProductImportInput = {
   currency?: string;
   unit?: string;
   requirementFields?: RequirementFieldInput[];
+  imageUrls?: string[];
   attributes?: { key: string; value: string }[];
   exampleSpec?: string;
   notes?: string;
@@ -87,6 +88,11 @@ export const CSV_COLUMNS: {
   { name: "currency", detail: "ISO code, e.g. GBP." },
   { name: "unit", detail: 'What the price is per, e.g. "per 1000".' },
   { name: "tags", detail: "Separated by | (pipe)." },
+  {
+    name: "images",
+    detail:
+      "Image URLs separated by | (pipe). The first is the catalogue thumbnail. Leave blank to keep images already uploaded in the dashboard.",
+  },
   { name: "attributes", detail: "key=value pairs separated by | — e.g. finish=Matt|sides=Double." },
   { name: "example_spec", detail: "A filled-in example the agent can pattern-match." },
   { name: "notes", detail: "Internal notes. Never shown to customers." },
@@ -114,6 +120,11 @@ const ALIASES: Record<string, string> = {
   descriptions: "description",
   example: "example_spec",
   spec_example: "example_spec",
+  image: "images",
+  image_url: "images",
+  image_urls: "images",
+  photo: "images",
+  photos: "images",
   label: "field_label",
   key: "field_key",
   type: "field_type",
@@ -257,6 +268,24 @@ export function parseProductCsv(text: string): ParseResult {
       const tags = cell("tags");
       if (tags) current.tags = splitList(tags);
 
+      const images = cell("images");
+      if (images) {
+        const urls: string[] = [];
+        for (const candidate of splitList(images)) {
+          // Only absolute http(s) URLs: anything else renders as a broken
+          // thumbnail on every page that shows the catalogue.
+          if (!/^https?:\/\/\S+$/i.test(candidate)) {
+            fail(
+              "images",
+              `"${candidate}" is not an image URL. Use a full address starting http:// or https://, and separate several with |.`
+            );
+            continue;
+          }
+          urls.push(candidate);
+        }
+        if (urls.length) current.imageUrls = urls;
+      }
+
       const attributes = cell("attributes");
       if (attributes) {
         const pairs: { key: string; value: string }[] = [];
@@ -373,74 +402,89 @@ export function parseProductCsv(text: string): ParseResult {
 
 // --- the downloadable sample -----------------------------------------------
 
-const SAMPLE: string[][] = [
-  HEADERS,
-  [
-    "Business cards",
-    "BC-450-DS",
-    "Stationery",
-    "Printed both sides on 450gsm silk with optional matt lamination.",
-    "45.00",
-    "GBP",
-    "per 1000",
-    "stationery|litho",
-    "sides=Double|stock=450gsm silk",
-    "1000, double sided, matt laminated, standard 85x55mm",
-    "Our best seller — quote from the litho grid, not the digital one.",
-    "Quantity",
-    "quantity",
-    "number",
-    "yes",
-    "",
-    "1000",
-  ],
+// Keyed by column name rather than by position: the columns are defined in one
+// place above, and a sample written positionally silently shifts every value
+// one column left the day a column is inserted.
+const SAMPLE: Record<string, string>[] = [
+  {
+    name: "Business cards",
+    sku: "BC-450-DS",
+    category: "Stationery",
+    description:
+      "Printed both sides on 450gsm silk with optional matt lamination.",
+    price: "45.00",
+    currency: "GBP",
+    unit: "per 1000",
+    tags: "stationery|litho",
+    images:
+      "https://example.com/images/business-cards-front.jpg|https://example.com/images/business-cards-stack.jpg",
+    attributes: "sides=Double|stock=450gsm silk",
+    example_spec: "1000, double sided, matt laminated, standard 85x55mm",
+    notes: "Our best seller — quote from the litho grid, not the digital one.",
+    field_label: "Quantity",
+    field_key: "quantity",
+    field_type: "number",
+    field_required: "yes",
+    field_example: "1000",
+  },
   // Continuation rows: blank name, so these questions attach to the product
   // above. This is the pattern the format is built around.
-  ["", "", "", "", "", "", "", "", "", "", "", "Finish", "finish", "select", "yes", "Matt laminate|Gloss laminate|Uncoated", "Matt laminate"],
-  ["", "", "", "", "", "", "", "", "", "", "", "Artwork supplied", "artwork_supplied", "boolean", "no", "", "yes"],
-  [
-    "Roller banners",
-    "RB-850",
-    "Large format",
-    "850mm pull-up banner, printed on 510gsm blockout PVC, cassette included.",
-    "89.00",
-    "GBP",
-    "each",
-    "large-format|exhibition",
-    "width=850mm|hardware=Cassette",
-    "2 banners, 850mm, artwork supplied as PDF",
-    "",
-    "Quantity",
-    "quantity",
-    "number",
-    "yes",
-    "",
-    "2",
-  ],
-  ["", "", "", "", "", "", "", "", "", "", "", "Deadline", "deadline", "date", "no", "", "2026-09-14"],
-  // A product with no spec questions at all — one row, field_* blank.
-  [
-    "Presentation folders",
-    "",
-    "Packaging",
-    "A4 capacity folders, glued and creased, 350gsm board.",
-    "",
-    "",
-    "",
-    "packaging",
-    "",
-    "",
-    "Price on application — always hand to the sales team.",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-  ],
+  {
+    field_label: "Finish",
+    field_key: "finish",
+    field_type: "select",
+    field_required: "yes",
+    field_options: "Matt laminate|Gloss laminate|Uncoated",
+    field_example: "Matt laminate",
+  },
+  {
+    field_label: "Artwork supplied",
+    field_key: "artwork_supplied",
+    field_type: "boolean",
+    field_required: "no",
+    field_example: "yes",
+  },
+  {
+    name: "Roller banners",
+    sku: "RB-850",
+    category: "Large format",
+    description:
+      "850mm pull-up banner, printed on 510gsm blockout PVC, cassette included.",
+    price: "89.00",
+    currency: "GBP",
+    unit: "each",
+    tags: "large-format|exhibition",
+    images: "https://example.com/images/roller-banner.jpg",
+    attributes: "width=850mm|hardware=Cassette",
+    example_spec: "2 banners, 850mm, artwork supplied as PDF",
+    field_label: "Quantity",
+    field_key: "quantity",
+    field_type: "number",
+    field_required: "yes",
+    field_example: "2",
+  },
+  {
+    field_label: "Deadline",
+    field_key: "deadline",
+    field_type: "date",
+    field_required: "no",
+    field_example: "2026-09-14",
+  },
+  // A product with no spec questions at all, and no picture — one row, field_*
+  // and images blank.
+  {
+    name: "Presentation folders",
+    category: "Packaging",
+    description: "A4 capacity folders, glued and creased, 350gsm board.",
+    tags: "packaging",
+    notes: "Price on application — always hand to the sales team.",
+  },
 ];
 
 /** The sample file offered in the import dialog. */
 export function sampleProductCsv(): string {
-  return toCsv(SAMPLE);
+  return toCsv([
+    HEADERS,
+    ...SAMPLE.map((row) => HEADERS.map((column) => row[column] ?? "")),
+  ]);
 }

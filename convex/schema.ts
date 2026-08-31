@@ -65,6 +65,17 @@ export const toolParameter = v.object({
   enumValues: v.optional(v.array(v.string())),
 });
 
+// One catalogue image. Either an uploaded file or a URL somewhere else: a
+// company that already has a product feed with images on its own site should
+// point at it rather than re-uploading everything. Exactly one of the two is
+// set; the resolver picks whichever is present.
+export const productImage = v.object({
+  storageId: v.optional(v.id("_storage")),
+  externalUrl: v.optional(v.string()),
+  // Doubles as the caption an agent can use when describing the picture.
+  alt: v.optional(v.string()),
+});
+
 export const orderStatus = v.union(
   v.literal("new"),
   v.literal("quoted"),
@@ -154,6 +165,17 @@ export default defineSchema({
   // -------------------------------------------------------------------------
   agents: defineTable({
     workspaceId: v.id("workspaces"),
+    // "router" is the workspace's single default bot: it takes every new
+    // conversation and hands the turn to a specialist. Absent == "specialist",
+    // so every agent that existed before routing keeps working unchanged.
+    kind: v.optional(v.union(v.literal("router"), v.literal("specialist"))),
+    // Model-facing "hand this conversation to me when…". This is the whole
+    // routing table: the router and every specialist are shown these lines and
+    // pick a colleague from them.
+    routingDescription: v.optional(v.string()),
+    // False takes the agent out of the roster entirely — it can still be
+    // reached directly by a channel, but nobody will transfer to it.
+    acceptsHandoff: v.optional(v.boolean()),
     name: v.string(), // internal name, e.g. "Sales qualifier"
     botName: v.string(), // the name the customer sees, e.g. "John"
     role: v.string(), // e.g. "AI Sales Consultant"
@@ -185,7 +207,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_status", ["workspaceId", "status"]),
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_workspace_kind", ["workspaceId", "kind"]),
 
   // -------------------------------------------------------------------------
   // Knowledge base — sources and their embedded chunks.
@@ -300,6 +323,10 @@ export default defineSchema({
     unit: v.optional(v.string()), // e.g. "per 1000"
     // The spec questions the agent must collect for this product
     requirementFields: v.array(requirementField),
+    // First image is the primary one — the catalogue thumbnail, and the one an
+    // agent offers when a customer asks what it looks like. Optional so every
+    // product that predates images keeps validating.
+    images: v.optional(v.array(productImage)),
     attributes: v.array(kvPair),
     exampleSpec: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -330,6 +357,11 @@ export default defineSchema({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     company: v.optional(v.string()),
+    // Ownership, as a person would write it on a whiteboard. Free text because
+    // there are no staff accounts to reference.
+    assignedBy: v.optional(v.string()),
+    assignedTo: v.optional(v.string()),
+    remark: v.optional(v.string()),
     attributes: v.array(kvPair),
     lastSeenAt: v.number(),
     createdAt: v.number(),
@@ -339,7 +371,13 @@ export default defineSchema({
 
   conversations: defineTable({
     workspaceId: v.id("workspaces"),
+    // The agent the channel points at — the entry point. It never changes, so
+    // an inbound message always finds the same conversation row.
     agentId: v.id("agents"),
+    // Who is actually holding the conversation right now. Set on the first
+    // turn and moved by every internal handoff. Absent == still `agentId`.
+    activeAgentId: v.optional(v.id("agents")),
+    handoffCount: v.optional(v.number()),
     contactId: v.id("contacts"),
     channelId: v.optional(v.id("channels")),
     channelType: v.union(v.literal("whatsapp"), v.literal("web")),
@@ -369,9 +407,14 @@ export default defineSchema({
       v.literal("text"),
       v.literal("tool"),
       v.literal("note"),
-      v.literal("error")
+      v.literal("error"),
+      // An internal agent-to-agent handover. Never shown to the customer.
+      v.literal("handoff")
     ),
     text: v.optional(v.string()),
+    // Which agent produced an assistant message, or took over on a handoff.
+    // Optional because messages written before routing existed have no answer.
+    agentId: v.optional(v.id("agents")),
     // Populated on kind === "tool" so the playground can show the tool trace
     toolName: v.optional(v.string()),
     toolInput: v.optional(v.string()), // JSON

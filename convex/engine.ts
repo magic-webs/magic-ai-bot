@@ -16,11 +16,21 @@ import {
   dynamicTool,
   jsonSchema,
   stepCountIs,
+  hasToolCall,
   type ToolSet,
 } from "ai";
 import { z } from "zod";
-import { compileSystemPrompt } from "./lib/prompt";
-import { EMBEDDING_MODEL, truncate } from "./lib/shared";
+import {
+  compileSystemPrompt,
+  type HandoffShape,
+  type TeammateShape,
+} from "./lib/prompt";
+import {
+  EMBEDDING_MODEL,
+  MAX_HANDOFFS_PER_TURN,
+  MAX_WIDGET_MESSAGE_CHARS,
+  truncate,
+} from "./lib/shared";
 import {
   parametersToJsonSchema,
   renderTemplate,
@@ -37,8 +47,20 @@ type ToolTrace = {
   toolOk: boolean;
 };
 
+// A handover the acting agent has asked for. Set by the transfer_to_agent
+// tool and consumed by the turn loop once generation stops — the tool itself
+// cannot swap the model out from under the call it is running inside.
+type PendingTransfer = {
+  agentId: Id<"agents">;
+  botName: string;
+  reason: string;
+  summary: string;
+};
+
 type TurnContext = {
   workspace: Doc<"workspaces">;
+  // The agent currently holding the turn. Reassigned on every handoff, so the
+  // toolset and prompt are rebuilt against whoever is answering.
   agent: Doc<"agents">;
   conversationId: Id<"conversations">;
   contactId: Id<"contacts">;
@@ -51,6 +73,7 @@ type TurnContext = {
     attributes: Array<{ key: string; value: string }>;
   };
   trace: ToolTrace[];
+  pendingTransfer: PendingTransfer | null;
 };
 
 function record(
@@ -163,11 +186,22 @@ function formatKnowledge(
 function buildBuiltinTools(
   ctx: ActionCtx,
   turn: TurnContext,
-  apiKey: string
+  apiKey: string,
+  routing: {
+    /** Colleagues this agent may hand the conversation to, if any. */
+    team: TeammateShape[];
+    /** False once the hop budget is spent, or when nobody is available. */
+    allowTransfer: boolean;
+    /** Agents that have already held this turn — never hand back. */
+    alreadyHeld: Id<"agents">[];
+  }
 ): ToolSet {
   const { workspace, agent, trace } = turn;
   const registry: ToolSet = {};
   const enabled = new Set(agent.builtinTools);
+  // The front desk exists only to route, so it always has the tool whatever
+  // its saved configuration says.
+  if (agent.kind === "router") enabled.add("transfer_to_agent");
 
   if (enabled.has("search_knowledge")) {
     registry.search_knowledge = tool({
@@ -431,6 +465,71 @@ function buildBuiltinTools(
     });
   }
 
+  if (enabled.has("transfer_to_agent") && routing.allowTransfer) {
+    const roster = routing.team.map((mate) => mate.key);
+    registry.transfer_to_agent = tool({
+      description:
+        "Hand this conversation to the AI colleague best suited to it. They answer the customer's current message directly — the customer never learns a transfer happened. Call this instead of offering to connect, transfer or put the customer through to anyone, and instead of asking whether they would like that. After calling it, stop: write nothing else. " +
+        `Colleagues you may transfer to: ${roster.join(", ")}.`,
+      inputSchema: z.object({
+        agent: z
+          .string()
+          .describe(
+            `Which colleague takes over. One of: ${roster.join(", ")}.`
+          ),
+        reason: z
+          .string()
+          .describe("Why they are the right colleague, in one sentence"),
+        summary: z
+          .string()
+          .describe(
+            "Everything you have learned from the customer so far, as compact facts: what they want, quantities, names, dates, anything already answered."
+          ),
+      }),
+      execute: async (input) => {
+        const resolved = await ctx.runQuery(
+          internal.agents.resolveHandoffTarget,
+          {
+            workspaceId: workspace._id,
+            agentId: agent._id,
+            target: input.agent,
+            excludeAgentIds: routing.alreadyHeld,
+          }
+        );
+
+        if (!resolved.found) {
+          // A value error, not a thrown failure: the model can pick again from
+          // the list, or decide to answer the customer itself.
+          const failure = {
+            ok: false,
+            error: `There is no colleague called "${input.agent}".`,
+            available: resolved.available,
+            note:
+              resolved.available.length > 0
+                ? "Use one of the keys in `available`, exactly as written, or answer the customer yourself."
+                : "Nobody is available to take this. Answer the customer yourself, or escalate to a human.",
+          };
+          record(trace, "transfer_to_agent", input, failure, false);
+          return failure;
+        }
+
+        turn.pendingTransfer = {
+          agentId: resolved.agentId,
+          botName: resolved.botName,
+          reason: input.reason.trim() || "no reason given",
+          summary: input.summary.trim(),
+        };
+
+        return {
+          ok: true,
+          transferredTo: resolved.key,
+          message:
+            "Handed over. Stop now and write nothing further — your colleague replies to the customer.",
+        };
+      },
+    });
+  }
+
   return registry;
 }
 
@@ -592,11 +691,21 @@ export type TurnResult = {
   text: string | null;
   conversationId: Id<"conversations"> | null;
   toolCalls: string[];
+  /** Which agent actually produced `text`. */
+  agentId?: Id<"agents">;
+  agentBotName?: string;
+  /** Every hop this message took, oldest first, e.g. ["Front desk", "Priya"]. */
+  handoffPath?: string[];
   error?: string;
 };
 
 // The turn itself. Shared so the authorized dashboard path and the WhatsApp
 // webhook path cannot drift apart.
+//
+// One inbound message produces exactly one reply, but not necessarily from the
+// agent the channel points at: the entry agent is normally the workspace's
+// front desk, which reads the message and hands the turn to a specialist. The
+// specialist can hand it on again. The customer sees only the final reply.
 async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
     const startedAt = Date.now();
 
@@ -623,9 +732,10 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         error: "Agent not found",
       };
     }
-    const { agent, workspace } = loaded;
+    const { workspace } = loaded;
+    const entryAgent = loaded.agent;
 
-    if (agent.status === "paused") {
+    if (entryAgent.status === "paused") {
       return {
         ok: false,
         text: null,
@@ -647,18 +757,31 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       };
     }
 
-    // Persist the inbound message and read back the replay history.
+    // Persist the inbound message and read back the replay history. The entry
+    // agent's historyLimit governs the replay: it is the one agent guaranteed
+    // to exist before the conversation is read.
     const session = await ctx.runMutation(internal.conversations.startTurn, {
       workspaceId: workspace._id,
-      agentId: agent._id,
+      agentId: entryAgent._id,
       channelId: args.channelId,
       channelType: args.channelType,
       externalId: args.externalId,
       contactName: args.contactName,
       contactPhone: args.contactPhone,
       text: message,
-      historyLimit: agent.historyLimit,
+      historyLimit: entryAgent.historyLimit,
     });
+
+    // A previous turn may have left a specialist in charge. Pick the
+    // conversation up where it was left, falling back to the entry agent if
+    // that specialist has since been deleted or paused.
+    let agent = entryAgent;
+    if (session.activeAgentId && session.activeAgentId !== entryAgent._id) {
+      const active = await ctx.runQuery(internal.agents.getInternal, {
+        agentId: session.activeAgentId,
+      });
+      if (active && active.agent.status !== "paused") agent = active.agent;
+    }
 
     const turn: TurnContext = {
       workspace,
@@ -674,95 +797,175 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         attributes: session.contact.attributes,
       },
       trace: [],
+      pendingTransfer: null,
     };
 
-    // Pre-retrieve knowledge for the incoming message so the model has context
-    // on the very first step, in addition to the search_knowledge tool.
-    let knowledgeContext = "";
-    if (agent.knowledgeEnabled) {
-      try {
-        const passages = await retrieveKnowledge(ctx, {
-          apiKey,
-          workspaceId: workspace._id,
-          agentId: agent._id,
-          queryText: message,
-          topK: agent.knowledgeTopK,
-          channelType: turn.channelType,
-          conversationId: turn.conversationId,
-        });
-        knowledgeContext = formatKnowledge(passages);
-      } catch (error) {
-        console.error("[engine] knowledge retrieval failed", error);
-      }
-    }
-
-    const customTools = await ctx.runQuery(internal.tools.resolveForAgent, {
-      workspaceId: workspace._id,
-      agentId: agent._id,
-    });
-
-    const toolset: ToolSet = {
-      ...buildBuiltinTools(ctx, turn, apiKey),
-      ...buildCustomTools(ctx, turn, customTools),
-    };
-
-    const system = compileSystemPrompt({
-      workspace,
-      agent,
-      contact: turn.contact,
-      knowledgeContext,
-      toolNames: Object.keys(toolset),
-      now: new Date().toISOString(),
-    });
+    const conversationMessages = [
+      ...session.history,
+      { role: "user" as const, content: message },
+    ];
 
     const openai = createOpenAI({ apiKey });
 
+    // Agents that have already held this message. Used both to keep the roster
+    // honest and to make a hand-back impossible.
+    const alreadyHeld: Id<"agents">[] = [agent._id];
+    const handoffPath: string[] = [agent.botName];
+
     let replyText = "";
     let generationError: string | undefined;
+    let handoff: HandoffShape | undefined;
+    let hops = 0;
 
-    try {
-      const result = await generateText({
-        model: openai(agent.model),
-        system,
-        messages: [
-          ...session.history,
-          { role: "user" as const, content: message },
-        ],
-        tools: toolset,
-        stopWhen: stepCountIs(Math.max(1, Math.min(agent.maxSteps, 12))),
-        temperature: agent.temperature,
-      });
+    // Each pass is one agent answering. A pass that ends in a transfer hands
+    // over to the next and its own draft text is discarded, so the customer
+    // never sees "let me pass you to a colleague".
+    for (;;) {
+      const team: TeammateShape[] = await ctx.runQuery(
+        internal.agents.rosterForAgent,
+        {
+          workspaceId: workspace._id,
+          agentId: agent._id,
+          excludeAgentIds: alreadyHeld,
+        }
+      );
+      const allowTransfer = hops < MAX_HANDOFFS_PER_TURN && team.length > 0;
 
-      replyText = result.text?.trim() ?? "";
-
-      // totalUsage, not usage: the agent loop can run several steps and only
-      // the total covers all of them.
-      await ctx.runMutation(internal.usage.record, {
-        workspaceId: workspace._id,
-        agentId: agent._id,
-        conversationId: turn.conversationId,
-        source: "chat",
-        channelType: args.channelType,
-        model: agent.model,
-        kind: "chat",
-        inputTokens: result.totalUsage?.inputTokens ?? 0,
-        outputTokens: result.totalUsage?.outputTokens ?? 0,
-      });
-
-      // When the loop stops on a tool call the final text can be empty —
-      // fall back to the last step that produced any.
-      if (!replyText && Array.isArray(result.steps)) {
-        for (let i = result.steps.length - 1; i >= 0; i--) {
-          const stepText = result.steps[i]?.text?.trim();
-          if (stepText) {
-            replyText = stepText;
-            break;
-          }
+      // Pre-retrieve knowledge for the incoming message so the model has
+      // context on the very first step, in addition to the search_knowledge
+      // tool. Scoped to the acting agent, so it is redone after a handoff.
+      let knowledgeContext = "";
+      if (agent.knowledgeEnabled) {
+        try {
+          const passages = await retrieveKnowledge(ctx, {
+            apiKey,
+            workspaceId: workspace._id,
+            agentId: agent._id,
+            queryText: message,
+            topK: agent.knowledgeTopK,
+            channelType: turn.channelType,
+            conversationId: turn.conversationId,
+          });
+          knowledgeContext = formatKnowledge(passages);
+        } catch (error) {
+          console.error("[engine] knowledge retrieval failed", error);
         }
       }
-    } catch (error) {
-      generationError = error instanceof Error ? error.message : String(error);
-      console.error("[engine] generation failed", generationError);
+
+      const customTools = await ctx.runQuery(internal.tools.resolveForAgent, {
+        workspaceId: workspace._id,
+        agentId: agent._id,
+      });
+
+      const toolset: ToolSet = {
+        ...buildBuiltinTools(ctx, turn, apiKey, {
+          team,
+          allowTransfer,
+          alreadyHeld,
+        }),
+        ...buildCustomTools(ctx, turn, customTools),
+      };
+
+      const system = compileSystemPrompt({
+        workspace,
+        agent,
+        contact: turn.contact,
+        knowledgeContext,
+        toolNames: Object.keys(toolset),
+        team,
+        handoff,
+        now: new Date().toISOString(),
+      });
+
+      let stepText = "";
+      try {
+        const result = await generateText({
+          model: openai(agent.model),
+          system,
+          messages: conversationMessages,
+          tools: toolset,
+          stopWhen: [
+            stepCountIs(Math.max(1, Math.min(agent.maxSteps, 12))),
+            // Once the handover is requested there is nothing left for this
+            // agent to say, so do not pay for another step.
+            hasToolCall("transfer_to_agent"),
+          ],
+          temperature: agent.temperature,
+        });
+
+        stepText = result.text?.trim() ?? "";
+
+        // totalUsage, not usage: the agent loop can run several steps and only
+        // the total covers all of them. Attributed to the agent that spent it,
+        // so a routed conversation splits its cost correctly.
+        await ctx.runMutation(internal.usage.record, {
+          workspaceId: workspace._id,
+          agentId: agent._id,
+          conversationId: turn.conversationId,
+          source: "chat",
+          channelType: args.channelType,
+          model: agent.model,
+          kind: "chat",
+          inputTokens: result.totalUsage?.inputTokens ?? 0,
+          outputTokens: result.totalUsage?.outputTokens ?? 0,
+        });
+
+        // When the loop stops on a tool call the final text can be empty —
+        // fall back to the last step that produced any.
+        if (!stepText && Array.isArray(result.steps)) {
+          for (let i = result.steps.length - 1; i >= 0; i--) {
+            const text = result.steps[i]?.text?.trim();
+            if (text) {
+              stepText = text;
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        generationError = error instanceof Error ? error.message : String(error);
+        console.error("[engine] generation failed", generationError);
+      }
+
+      const requested = turn.pendingTransfer;
+      turn.pendingTransfer = null;
+
+      // A transfer that came back after the budget was spent is ignored: the
+      // agent holding the conversation has to answer it.
+      if (!requested || !allowTransfer || generationError) {
+        replyText = stepText;
+        break;
+      }
+
+      const target = await ctx.runQuery(internal.agents.getInternal, {
+        agentId: requested.agentId,
+      });
+      if (!target || target.agent.status === "paused") {
+        // The colleague went away between the roster read and the handover.
+        replyText = stepText;
+        break;
+      }
+
+      await ctx.runMutation(internal.conversations.recordHandoff, {
+        workspaceId: workspace._id,
+        conversationId: turn.conversationId,
+        fromAgentId: agent._id,
+        toAgentId: target.agent._id,
+        fromBotName: agent.botName,
+        toBotName: target.agent.botName,
+        reason: requested.reason,
+        summary: requested.summary,
+      });
+
+      handoff = {
+        fromBotName: agent.botName,
+        reason: requested.reason,
+        summary: requested.summary,
+      };
+      agent = target.agent;
+      turn.agent = agent;
+      alreadyHeld.push(agent._id);
+      handoffPath.push(agent.botName);
+      hops++;
     }
 
     if (!replyText) {
@@ -774,6 +977,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
     await ctx.runMutation(internal.conversations.finishTurn, {
       workspaceId: workspace._id,
       conversationId: turn.conversationId,
+      agentId: agent._id,
       replyText,
       errorText: generationError,
       latencyMs: Date.now() - startedAt,
@@ -785,6 +989,9 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       text: replyText,
       conversationId: turn.conversationId,
       toolCalls: turn.trace.map((t) => t.toolName),
+      agentId: agent._id,
+      agentBotName: agent.botName,
+      handoffPath,
       error: generationError,
     };
 }
@@ -800,5 +1007,77 @@ export const respondAsUser = action({
   handler: async (ctx, args): Promise<TurnResult> => {
     await ctx.runQuery(internal.authDb.assertAgent, { agentId: args.agentId });
     return await runTurn(ctx, args);
+  },
+});
+
+// Same turn again, for an anonymous visitor on an embedded widget.
+//
+// The caller proves nothing and is given nothing: it passes the channel's
+// unguessable key and its own browser session id, and the agent, workspace and
+// contact are all resolved from those server-side. Nothing about the model
+// configuration, the tool trace or the routing is returned.
+const WIDGET_FAILURES: Record<string, string> = {
+  unknown_channel: "This chat is no longer available.",
+  channel_paused: "This chat is not accepting messages right now.",
+  bad_session: "This chat session has expired. Reload the page to start again.",
+  not_registered: "Tell us who you are before sending a message.",
+};
+
+export const respondFromWidget = action({
+  args: {
+    channelKey: v.string(),
+    sessionId: v.string(),
+    text: v.string(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ ok: boolean; delivered: boolean; error?: string }> => {
+    const text = args.text.trim();
+    if (!text) {
+      return { ok: false, delivered: false, error: "Type a message first." };
+    }
+    if (text.length > MAX_WIDGET_MESSAGE_CHARS) {
+      return {
+        ok: false,
+        delivered: false,
+        error: `Messages are limited to ${MAX_WIDGET_MESSAGE_CHARS} characters.`,
+      };
+    }
+
+    const resolved = await ctx.runQuery(internal.widget.resolveForSend, {
+      channelKey: args.channelKey,
+      sessionId: args.sessionId,
+    });
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        delivered: false,
+        error: WIDGET_FAILURES[resolved.reason] ?? "This chat is unavailable.",
+      };
+    }
+
+    const result = await runTurn(ctx, {
+      agentId: resolved.agentId,
+      channelType: "web",
+      channelId: resolved.channelId,
+      externalId: resolved.sessionId,
+      contactName: resolved.contactName ?? undefined,
+      contactPhone: resolved.contactPhone ?? undefined,
+      text,
+    });
+
+    // The reply itself arrives through the `widget.session` subscription, so
+    // there is nothing to hand back but success. An engine error is reported in
+    // general terms: its own text names models, keys and deployment commands.
+    if (!result.ok) {
+      console.error("[widget] turn failed", result.error);
+      return {
+        ok: false,
+        delivered: true,
+        error: "Something went wrong answering that. Please try again.",
+      };
+    }
+    return { ok: true, delivered: true };
   },
 });

@@ -48,10 +48,113 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* [data-theme="default"] lets a nested element ask for the base palette even
-   when a theme is active — the Settings swatch relies on it. */
+/* ---------------------------------------------------------------------------
+   The default palette: green.
+   The same green as the embedded widget (#0c7d3e), so the console, the admin
+   panel, the landing page and the chat a customer sees are one product.
+
+   The neutrals are true greys. They used to be olive-tinted (hue ~107) to sit
+   under amber, and that warmth reads as a mistake next to green — every
+   lightness here is unchanged from the amber palette, only the chroma is gone,
+   so contrast ratios carry over. The exception is --muted-foreground, nudged
+   from 0.58 to 0.556 because 0.58 measures 4.28:1 on white and secondary text
+   wants 4.5:1.
+
+   [data-theme="default"] lets a nested element ask for this palette even when a
+   theme is active — the Settings swatch relies on it.
+   --------------------------------------------------------------------------- */
 :root,
 [data-theme="default"] {
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.153 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.153 0 0);
+  --primary: oklch(0.518 0.134 151.478);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.967 0 0);
+  --secondary-foreground: oklch(0.21 0 0);
+  --muted: oklch(0.966 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.966 0 0);
+  --accent-foreground: oklch(0.228 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.93 0 0);
+  --input: oklch(0.93 0 0);
+  --ring: oklch(0.518 0.134 151.478);
+  --chart-1: oklch(0.88 0.011 106.6);
+  --chart-2: oklch(0.58 0.031 107.3);
+  --chart-3: oklch(0.466 0.025 107.3);
+  --chart-4: oklch(0.394 0.023 107.4);
+  --chart-5: oklch(0.286 0.016 107.4);
+  /* Dashboard viz steps. The preset ships ONE chart ramp for both modes, and
+     used as-is in light mode its light end measures 1.49:1 on white — below the
+     2:1 floor. So the step is selected per mode: light takes the ramp's dark
+     end, dark takes its light end. Validated with the dataviz palette checker
+     against the real card surfaces (#ffffff / #1c1917). */
+  --viz-series: var(--chart-3);
+  --viz-series-alt: var(--chart-4);
+  --radius: 0.875rem;
+  --sidebar: oklch(0.988 0 0);
+  --sidebar-foreground: oklch(0.153 0 0);
+  --sidebar-primary: oklch(0.518 0.134 151.478);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.966 0 0);
+  --sidebar-accent-foreground: oklch(0.228 0 0);
+  --sidebar-border: oklch(0.93 0 0);
+  --sidebar-ring: oklch(0.518 0.134 151.478);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.153 0 0);
+}
+
+.dark,
+.dark [data-theme="default"] {
+  --background: oklch(0.153 0 0);
+  --foreground: oklch(0.988 0 0);
+  --card: oklch(0.228 0 0);
+  --card-foreground: oklch(0.988 0 0);
+  --popover: oklch(0.228 0 0);
+  --popover-foreground: oklch(0.988 0 0);
+  /* Lighter green on a dark surface, carrying dark text — the same inversion
+     the amber palette used. */
+  --primary: oklch(0.644 0.165 150.787);
+  --primary-foreground: oklch(0.18 0 0);
+  --secondary: oklch(0.274 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.286 0 0);
+  --muted-foreground: oklch(0.737 0 0);
+  --accent: oklch(0.286 0 0);
+  --accent-foreground: oklch(0.988 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.644 0.165 150.787);
+  --chart-1: oklch(0.88 0.011 106.6);
+  --chart-2: oklch(0.58 0.031 107.3);
+  --chart-3: oklch(0.466 0.025 107.3);
+  --chart-4: oklch(0.394 0.023 107.4);
+  --chart-5: oklch(0.286 0.016 107.4);
+  /* The ramp's light end — 3.65:1 against the #1c1917 card. */
+  --viz-series: var(--chart-1);
+  --viz-series-alt: var(--chart-2);
+  --sidebar: oklch(0.228 0 0);
+  --sidebar-foreground: oklch(0.988 0 0);
+  --sidebar-primary: oklch(0.644 0.165 150.787);
+  --sidebar-primary-foreground: oklch(0.18 0 0);
+  --sidebar-accent: oklch(0.286 0 0);
+  --sidebar-accent-foreground: oklch(0.988 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.644 0.165 150.787);
+}
+
+/* ---------------------------------------------------------------------------
+   Alternate theme: Amber.
+   The palette this console shipped with, kept selectable so a workspace that
+   wants the warm look still has it after green became the default.
+   --------------------------------------------------------------------------- */
+
+[data-theme="amber"] {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.153 0.006 107.1);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.153 0.006 107.1);
   --popover: oklch(1 0 0);
@@ -68,19 +171,6 @@
   --border: oklch(0.93 0.007 106.5);
   --input: oklch(0.93 0.007 106.5);
   --ring: oklch(0.737 0.021 106.9);
-  --chart-1: oklch(0.88 0.011 106.6);
-  --chart-2: oklch(0.58 0.031 107.3);
-  --chart-3: oklch(0.466 0.025 107.3);
-  --chart-4: oklch(0.394 0.023 107.4);
-  --chart-5: oklch(0.286 0.016 107.4);
-  /* Dashboard viz steps. The preset ships ONE chart ramp for both modes, and
-     used as-is in light mode its light end measures 1.49:1 on white — below the
-     2:1 floor. So the step is selected per mode: light takes the ramp's dark
-     end, dark takes its light end. Validated with the dataviz palette checker
-     against the real card surfaces (#ffffff / #1c1917). */
-  --viz-series: var(--chart-3);
-  --viz-series-alt: var(--chart-4);
-  --radius: 0.875rem;
   --sidebar: oklch(0.988 0.003 106.5);
   --sidebar-foreground: oklch(0.153 0.006 107.1);
   --sidebar-primary: oklch(0.681 0.162 75.834);
@@ -89,12 +179,10 @@
   --sidebar-accent-foreground: oklch(0.228 0.013 107.4);
   --sidebar-border: oklch(0.93 0.007 106.5);
   --sidebar-ring: oklch(0.737 0.021 106.9);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.153 0.006 107.1);
 }
 
-.dark,
-.dark [data-theme="default"] {
+.dark[data-theme="amber"],
+.dark [data-theme="amber"] {
   --background: oklch(0.153 0.006 107.1);
   --foreground: oklch(0.988 0.003 106.5);
   --card: oklch(0.228 0.013 107.4);
@@ -113,14 +201,6 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.58 0.031 107.3);
-  --chart-1: oklch(0.88 0.011 106.6);
-  --chart-2: oklch(0.58 0.031 107.3);
-  --chart-3: oklch(0.466 0.025 107.3);
-  --chart-4: oklch(0.394 0.023 107.4);
-  --chart-5: oklch(0.286 0.016 107.4);
-  /* The ramp's light end — 3.65:1 against the #1c1917 card. */
-  --viz-series: var(--chart-1);
-  --viz-series-alt: var(--chart-2);
   --sidebar: oklch(0.228 0.013 107.4);
   --sidebar-foreground: oklch(0.988 0.003 106.5);
   --sidebar-primary: oklch(0.795 0.184 86.047);
@@ -231,4 +311,53 @@
   html {
     @apply font-sans;
   }
+}
+/* ---------------------------------------------------------------------------
+   The embedded website widget.
+   Not a console palette, so it is deliberately absent from THEMES in
+   components/workspace-theme.tsx and never offered in Settings → Theme. It is
+   applied by app/widget/[channelKey]/page.tsx to the widget's own root, so the
+   chat reads green like the WhatsApp launcher that opens it, whatever palette
+   the workspace console happens to be set to.
+
+   Only the accent tokens are overridden: the chat surface itself stays neutral,
+   which is what keeps a green header and green outgoing bubbles legible.
+
+   #0c7d3e rather than the launcher's brighter #25d366 — the header and the send
+   button carry white text, and white on #25d366 measures 1.98:1. This green
+   measures 5.23:1.
+   --------------------------------------------------------------------------- */
+
+[data-theme="widget"] {
+  --primary: oklch(0.518 0.134 151.478);
+  --primary-foreground: oklch(1 0 0);
+  --ring: oklch(0.518 0.134 151.478);
+
+  /* The console's neutrals are olive-tinted to sit under amber (hue ~107), and
+     next to green that tint reads as a mistake. Same lightnesses, chroma zero.
+     --muted-foreground is the exception: it is nudged darker because the
+     widget's smallest text is 10-12px on white, and 0.58 measures 4.28:1. */
+  --muted: oklch(0.966 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.966 0 0);
+  --accent-foreground: oklch(0.228 0 0);
+  --secondary: oklch(0.967 0 0);
+  --secondary-foreground: oklch(0.21 0 0);
+  --border: oklch(0.93 0 0);
+  --input: oklch(0.93 0 0);
+}
+
+.dark[data-theme="widget"],
+.dark [data-theme="widget"] {
+  --primary: oklch(0.518 0.134 151.478);
+  --primary-foreground: oklch(1 0 0);
+  --ring: oklch(0.518 0.134 151.478);
+  --muted: oklch(0.286 0 0);
+  --muted-foreground: oklch(0.737 0 0);
+  --accent: oklch(0.286 0 0);
+  --accent-foreground: oklch(0.988 0 0);
+  --secondary: oklch(0.274 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
 }
