@@ -79,7 +79,12 @@ export default function WidgetPage({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!sessionId || !channelData) return;
+    if (!sessionId || channelData === undefined) return;
+
+    if (channelData === null) {
+      setCheckingParams(false);
+      return;
+    }
 
     const queryParams = new URLSearchParams(window.location.search);
     const utmName = queryParams.get("utm_name");
