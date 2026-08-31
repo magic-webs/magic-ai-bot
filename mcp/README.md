@@ -18,7 +18,9 @@ It signs in the same way the dashboard does — `auth.login` for a session token
   (only `list_channels` uses the app URL, and only to print an embed snippet).
 
 Sign in as a **workspace** (slug + password) to scope it to one company, or as
-an **admin** (email + password) to reach every workspace.
+an **admin** (email + password) to reach every workspace and unlock the
+platform-administration tools — creating tenants, issuing their logins,
+suspending and deleting them.
 
 ## Configuration
 
@@ -91,17 +93,24 @@ to host and no tunnel to keep alive, and the URL never changes.
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
-### 2. Set four environment variables on the host
+### 2. Set the environment variables on the host
 
 | Variable | Value |
 | --- | --- |
 | `MAGIC_AI_BOT_MCP_TOKEN` | the token from step 1 |
-| `MAGIC_AI_BOT_USERNAME` | a **workspace slug** (not the platform admin) |
-| `MAGIC_AI_BOT_PASSWORD` | that workspace's password |
+| `MAGIC_AI_BOT_USERNAME` | an **admin email** for the whole platform, or a **workspace slug** for one company |
+| `MAGIC_AI_BOT_PASSWORD` | that account's password |
+| `MAGIC_AI_BOT_WORKSPACE` | optional: a default slug, so tools can omit `workspace` |
 | `MAGIC_AI_BOT_CONVEX_URL` | only if it differs from `NEXT_PUBLIC_CONVEX_URL` |
 
 On Vercel: Project → Settings → Environment Variables, then **redeploy** —
 environment changes do not reach a running deployment.
+
+Signing in as an admin is what turns on `create_workspace`,
+`issue_workspace_password`, `delete_workspace` and the rest. It also means the
+connector URL reaches every tenant — see
+[Security](#security-whenever-it-is-reachable-over-http) for what that implies
+and how to keep it narrow.
 
 `MAGIC_AI_BOT_APP_URL` is not needed on Vercel: the deployment's own hostname is
 used for the widget embed snippets that `list_channels` prints.
@@ -207,11 +216,17 @@ the path. Anyone holding that URL has whatever the account in
 
 Consequences worth acting on:
 
-- **Sign in as a workspace, not as the platform admin.** A workspace account
-  reaches one company's data; an admin account reaches every tenant and can
-  create and delete workspaces. On a public deployment, set
-  `MAGIC_AI_BOT_USERNAME` explicitly — do not let it fall back to
-  `ADMIN_EMAIL`/`ADMIN_PASSWORD`.
+- **Decide deliberately between admin and workspace.** A workspace account
+  reaches one company's data. An admin account reaches every tenant and can
+  create, suspend and delete them — which is what the administration tools are
+  for, and also what a leaked URL would expose. Either is a legitimate choice;
+  what matters is that it is a choice, so set `MAGIC_AI_BOT_USERNAME`
+  explicitly rather than letting it fall back to `ADMIN_EMAIL`/`ADMIN_PASSWORD`
+  by accident.
+- **If you run it as admin**, the mitigations that actually help are: a long
+  token, rotating it if the URL is ever pasted anywhere shared, and remembering
+  that `delete_workspace` needs the exact workspace name — so a confused caller
+  cannot delete a tenant on a single wrong argument.
 - **No token, no endpoint.** Both HTTP paths refuse a token under 24 characters,
   and answer an identical `404` for a wrong token and for MCP being switched
   off, so neither the URL shape nor the feature's existence can be probed.
@@ -260,6 +275,14 @@ the candidates.
 **Operations** — `list_conversations`, `read_conversation`, `list_contacts`,
 `list_orders`, `usage_summary`
 
+**Platform administration** (admin sign-in only) — `create_workspace`,
+`issue_workspace_password`, `set_workspace_access`, `set_workspace_status`,
+`delete_workspace`, `workspace_access_report`, `platform_usage`
+
+Signed in as a workspace, the administration tools are still listed but fail
+with "Administrator access required" from the Convex guard — the same answer the
+dashboard gives.
+
 ### Notes on a few of them
 
 - **`chat_with_agent`** is the one that makes the rest usable. It runs the real
@@ -276,6 +299,19 @@ the candidates.
   dashboard's job — an MCP tool cannot carry bytes usefully.
 - **`draft_agent`** / **`draft_catalogue`** spend model tokens on the
   workspace's own account.
+- **`issue_workspace_password`** returns the password once and keeps only the
+  hash. There is no way to read it back, only to issue a new one — which also
+  drops that company's live sessions.
+- **The tenant-level tools will not guess a workspace.** `set_workspace_status`,
+  `set_workspace_access`, `issue_workspace_password` and `delete_workspace`
+  require an explicit slug and ignore `MAGIC_AI_BOT_WORKSPACE`, because
+  inheriting a default there would mean archiving the wrong company.
+  `delete_workspace` additionally wants the workspace's exact name in
+  `confirmName`.
+- **Prefer `set_workspace_status: "archived"` to `delete_workspace`.** Archiving
+  blocks sign-in and keeps every record; deleting cascades through agents,
+  catalogue, knowledge and its embeddings, uploaded files, channels, tools,
+  contacts, conversations and orders, with no undo and no export.
 
 ## A first-run sequence that works
 
