@@ -38,7 +38,6 @@ import {
   RobotIcon,
   BooksIcon,
   PackageIcon,
-  ReceiptIcon,
   WrenchIcon,
   WhatsappLogoIcon,
   ChatsIcon,
@@ -80,10 +79,6 @@ export default function WorkspaceOverviewPage() {
   });
   const agents = useQuery(api.agents.listByWorkspace, {
     workspaceId: workspace._id,
-  });
-  const orders = useQuery(api.orders.listByWorkspace, {
-    workspaceId: workspace._id,
-    limit: 5,
   });
 
   const setupSteps = [
@@ -405,66 +400,6 @@ export default function WorkspaceOverviewPage() {
               </CardContent>
             </Card>
           </section>
-
-          {/* ------------------------------------------------ recent orders */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                Recent orders
-                <Button
-                  size="lg"
-                  variant="ghost"
-                  className="ml-auto"
-                  nativeButton={false}
-                  render={<Link href={`${base}/orders`} />}
-                >
-                  View all <ArrowRightIcon />
-                </Button>
-              </CardTitle>
-              <CardDescription>
-                Enquiries the agents captured, newest first.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {orders === undefined ? (
-                <Spinner />
-              ) : orders.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No orders captured yet. Once an agent calls{" "}
-                  <code>create_order</code>, they appear here and fire the
-                  workspace webhook.
-                </p>
-              ) : (
-                <ItemGroup>
-                  {orders.map((order) => (
-                    <Item key={order._id} variant="outline">
-                      <ItemMedia variant="icon">
-                        <ReceiptIcon />
-                      </ItemMedia>
-                      <ItemContent>
-                        <ItemTitle className="flex items-center gap-2">
-                          <span className="font-mono">{order.orderNumber}</span>
-                          <Badge variant="secondary">{order.status}</Badge>
-                        </ItemTitle>
-                        <ItemDescription>
-                          {order.customer.name} ·{" "}
-                          {order.items
-                            .map(
-                              (item) =>
-                                `${item.quantity} × ${item.productName}`
-                            )
-                            .join(", ")}
-                        </ItemDescription>
-                      </ItemContent>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(order.createdAt).toLocaleDateString()}
-                      </span>
-                    </Item>
-                  ))}
-                </ItemGroup>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
     </div>

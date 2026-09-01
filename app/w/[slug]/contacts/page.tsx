@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -38,6 +39,8 @@ import {
 } from "@/components/ui/empty";
 import { toast } from "@/components/ui/toast";
 import { TableSkeleton } from "@/components/skeletons";
+import { SelectField } from "@/components/select-field";
+import { useHourBucket } from "@/components/use-now";
 import {
   UsersIcon,
   WhatsappLogoIcon,
@@ -47,6 +50,7 @@ import {
   MagnifyingGlassIcon,
   FloppyDiskIcon,
   RobotIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -66,6 +70,7 @@ type ContactRow = {
   conversationId: Id<"conversations"> | null;
   messageCount: number;
   handledBy: string | null;
+  conversationStatus: "open" | "escalated" | "closed" | null;
 };
 
 // A web visitor's id is a random string, which is no use as a label.
@@ -243,16 +248,104 @@ function ContactDialog({
 
 // ---------------------------------------------------------------------------
 
+// Filter options. "all" is the no-filter sentinel, as on Orders and
+// Conversations.
+const CHANNELS = [
+  { value: "all", label: "All channels" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "web", label: "Website" },
+];
+
+// The conversation's status, not the contact's — a contact has no state of its
+// own. "none" picks out the people who have never sent a message, which is a
+// real thing to want and which none of the three statuses can express.
+const STATUSES = [
+  { value: "all", label: "Any status" },
+  { value: "open", label: "Open" },
+  { value: "escalated", label: "Escalated" },
+  { value: "closed", label: "Closed" },
+  { value: "none", label: "Never messaged" },
+];
+
+const WINDOWS = [
+  { value: "all", label: "Any time" },
+  { value: "1", label: "Last 24 hours" },
+  { value: "7", label: "Last 7 days" },
+  { value: "30", label: "Last 30 days" },
+];
+
+// Owner names are free text, so the "no owner" option needs a value no person
+// can be called.
+const UNASSIGNED = "__unassigned";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export default function ContactsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
   const contacts = useQuery(api.contacts.listByWorkspace, {
     workspaceId: workspace._id,
   });
+
   const [search, setSearch] = useState("");
+  const [channel, setChannel] = useState("all");
+  const [owner, setOwner] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [seen, setSeen] = useState("all");
+  // The last-seen window needs the clock, and a render must not read it
+  // directly. Hour granularity is ample for a 24-hour bucket and keeps the
+  // value stable within a render pass.
+  const now = useHourBucket();
+
+  const all = (contacts ?? []) as ContactRow[];
+
+  // Every name anyone has been assigned to or by, so the editor can suggest
+  // them instead of inviting a new spelling each time.
+  const people = [
+    ...new Set(
+      all
+        .flatMap((contact) => [contact.assignedBy, contact.assignedTo])
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    ),
+  ].sort();
+
+  // The filter's owners are deduped case-insensitively: "Sam" and "sam" are one
+  // person, and two options that select the same rows are not a choice.
+  const owners = [
+    ...new Map(
+      all
+        .map((contact) => contact.assignedTo?.trim())
+        .filter((value): value is string => Boolean(value))
+        .map((value) => [value.toLowerCase(), value] as const)
+    ).values(),
+  ].sort();
 
   const term = search.trim().toLowerCase();
-  const rows = ((contacts ?? []) as ContactRow[]).filter((contact) => {
+  const filtered =
+    Boolean(term) ||
+    channel !== "all" ||
+    owner !== "all" ||
+    status !== "all" ||
+    seen !== "all";
+
+  const rows = all.filter((contact) => {
+    if (channel !== "all" && contact.channelType !== channel) return false;
+
+    if (owner !== "all") {
+      const assigned = contact.assignedTo?.trim().toLowerCase() ?? "";
+      if (assigned !== (owner === UNASSIGNED ? "" : owner.toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (status !== "all" && (contact.conversationStatus ?? "none") !== status) {
+      return false;
+    }
+
+    if (seen !== "all" && contact.lastSeenAt < now - Number(seen) * DAY_MS) {
+      return false;
+    }
+
     if (!term) return true;
     return [
       contact.name,
@@ -271,16 +364,13 @@ export default function ContactsPage() {
       .includes(term);
   });
 
-  // Every name anyone has been assigned to or by, so the editor can suggest
-  // them instead of inviting a new spelling each time.
-  const people = [
-    ...new Set(
-      ((contacts ?? []) as ContactRow[])
-        .flatMap((contact) => [contact.assignedBy, contact.assignedTo])
-        .map((value) => value?.trim())
-        .filter((value): value is string => Boolean(value))
-    ),
-  ].sort();
+  const clear = () => {
+    setSearch("");
+    setChannel("all");
+    setOwner("all");
+    setStatus("all");
+    setSeen("all");
+  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
@@ -294,14 +384,74 @@ export default function ContactsPage() {
         </p>
       </header>
 
-      <div className="relative max-w-md">
-        <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          placeholder="Search name, number, owner or remark…"
-          className="pl-7"
-          onChange={(event) => setSearch(event.target.value)}
+      {/* No visible field labels, unlike the one- and two-filter pages: four of
+          them would run the row wider than the table. Each select's resting
+          option names its own dimension instead — "All channels", "Anyone",
+          "Any status", "Any time" — with an aria-label for anyone who cannot
+          see that. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full max-w-xs min-w-56">
+          <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            placeholder="Search name, number, owner or remark…"
+            className="pl-7"
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
+
+        <SelectField
+          aria-label="Filter by channel"
+          value={channel}
+          onValueChange={setChannel}
+          options={CHANNELS}
         />
+
+        {/* Offered once somebody has actually been assigned: on a workspace
+            that has never used the field every contact is unassigned, so the
+            filter could only ever be a no-op. It stays mounted while the filter
+            is set, so clearing the last assignment cannot strand an active
+            filter with no control left to change it. */}
+        {owners.length > 0 || owner !== "all" ? (
+          <SelectField
+            aria-label="Filter by who the contact is assigned to"
+            value={owner}
+            onValueChange={setOwner}
+            options={[
+              { value: "all", label: "Anyone" },
+              { value: UNASSIGNED, label: "Unassigned" },
+              ...owners.map((person) => ({ value: person, label: person })),
+            ]}
+          />
+        ) : null}
+
+        <SelectField
+          aria-label="Filter by conversation status"
+          value={status}
+          onValueChange={setStatus}
+          options={STATUSES}
+        />
+
+        <SelectField
+          aria-label="Filter by when the contact was last seen"
+          value={seen}
+          onValueChange={setSeen}
+          options={WINDOWS}
+        />
+
+        {filtered ? (
+          <Button variant="ghost" onClick={clear}>
+            <XIcon /> Clear
+          </Button>
+        ) : null}
+
+        {/* Which of the two shapes this takes is the cue that a filter is on,
+            once the row itself has scrolled out of sight. */}
+        <span className="ml-auto text-sm tabular-nums text-muted-foreground">
+          {filtered
+            ? `${rows.length} of ${all.length}`
+            : `${all.length} contact${all.length === 1 ? "" : "s"}`}
+        </span>
       </div>
 
       {contacts === undefined ? (
@@ -313,14 +463,21 @@ export default function ContactsPage() {
               <UsersIcon />
             </EmptyMedia>
             <EmptyTitle>
-              {term ? "No contacts match" : "No contacts yet"}
+              {filtered ? "No contacts match" : "No contacts yet"}
             </EmptyTitle>
             <EmptyDescription>
-              {term
-                ? "Try a different search term."
+              {filtered
+                ? "Nothing here matches every filter at once. Widen one, or clear them all."
                 : "Contacts appear here once someone talks to your agent on WhatsApp or the website widget."}
             </EmptyDescription>
           </EmptyHeader>
+          {filtered ? (
+            <EmptyContent>
+              <Button variant="outline" onClick={clear}>
+                <XIcon /> Clear filters
+              </Button>
+            </EmptyContent>
+          ) : null}
         </Empty>
       ) : (
         <div className="overflow-x-auto rounded-md border">

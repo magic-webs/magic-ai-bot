@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -261,7 +262,17 @@ function FrontDeskCard({
   base: string;
 }) {
   return (
-    <Card className="border-primary/40 bg-primary/[0.03]">
+    // shrink-0 is load-bearing. Card carries `overflow-hidden`, and a flex
+    // item whose overflow is not visible has an automatic minimum size of
+    // zero — so as the only shrinkable child of this page's height-constrained
+    // flex column, this card absorbed the entire overflow: it was squashed to
+    // its title line, clipping the description and both buttons, and its
+    // rounded-4xl corners on a 60px box read as a lozenge.
+    //
+    // ring, not border: Card's outline is `ring-1 ring-foreground/5`, so the
+    // previous `border-primary/40` set a colour on a border that has no width
+    // and drew nothing at all.
+    <Card className="shrink-0 bg-primary/[0.04] ring-primary/25">
       <CardHeader>
         <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
@@ -269,38 +280,42 @@ function FrontDeskCard({
           </span>
           <span className="truncate">{router.botName}</span>
           <Badge variant="secondary">Front desk</Badge>
-          <Badge
-            variant={router.status === "active" ? "default" : "secondary"}
-            className="ml-auto shrink-0"
-          >
+          {/* Beside the name rather than pushed out with ml-auto: this card is
+              full width, so on a wide screen that stranded the status badge a
+              screenful away from the agent it describes. */}
+          <Badge variant={router.status === "active" ? "default" : "secondary"}>
             {router.status}
           </Badge>
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="max-w-prose">
           Answers first on every channel, works out what the customer needs, then
           hands the conversation to one of your{" "}
           {specialistCount === 1 ? "agent" : `${specialistCount} agents`}. Your
           agents can hand it on to each other from there.
         </CardDescription>
+        {/* CardAction flips CardHeader to grid-cols-[1fr_auto] and pins the
+            buttons top-right across both rows. Below sm the two columns would
+            leave the description a sliver, so they drop to a row of their
+            own. */}
+        <CardAction className="flex flex-wrap gap-1 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-start">
+          <Button
+            size="lg"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`${base}/agents/${router._id}/test`} />}
+          >
+            <ChatsIcon /> Test routing
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`${base}/agents/${router._id}`} />}
+          >
+            <SlidersIcon /> Configure
+          </Button>
+        </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-1 pt-0">
-        <Button
-          size="lg"
-          variant="outline"
-          nativeButton={false}
-          render={<Link href={`${base}/agents/${router._id}/test`} />}
-        >
-          <ChatsIcon /> Test routing
-        </Button>
-        <Button
-          size="lg"
-          variant="outline"
-          nativeButton={false}
-          render={<Link href={`${base}/agents/${router._id}`} />}
-        >
-          <SlidersIcon /> Configure
-        </Button>
-      </CardContent>
     </Card>
   );
 }

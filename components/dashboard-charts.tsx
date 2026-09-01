@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   ChartContainer,
   ChartTooltip,
@@ -160,16 +160,22 @@ type Column = {
 };
 
 /**
- * A day-by-day area chart with a Values twin.
+ * A day-by-day chart with a Values twin.
  *
  * `series` and `columns` default to the workspace dashboard's messages series,
  * so that call site reads the same as before generalising this for the admin
  * cost chart.
+ *
+ * `kind` chooses the mark, over identical axes, grid and tooltip: an area for a
+ * continuous level that exists between the points too (messages), bars for a
+ * discrete per-day amount that does not (cost — a day is the sum of that day's
+ * calls and nothing else, so there is nothing to interpolate across).
  */
 export function ActivityChart({
   data,
   windowDays,
   truncated,
+  kind = "area",
   series = { key: "messages", label: "Messages" },
   columns,
   noun = "messages",
@@ -178,6 +184,7 @@ export function ActivityChart({
   data: Array<Record<string, unknown> & { date: string }>;
   windowDays: number;
   truncated: boolean;
+  kind?: "area" | "bar";
   series?: Column;
   columns?: Column[];
   noun?: string;
@@ -208,6 +215,75 @@ export function ActivityChart({
     return <NoData label={emptyLabel} />;
   }
 
+  // Grid, axes and tooltip are the same whichever mark is drawn, so they are
+  // built once. An array of children is a shape recharts reads exactly as it
+  // reads literal siblings.
+  const frame = [
+    // Solid hairline grid, horizontal only, recessive.
+    <CartesianGrid
+      key="grid"
+      vertical={false}
+      stroke="var(--border)"
+      strokeWidth={1}
+    />,
+    <XAxis
+      key="date"
+      dataKey="date"
+      tickFormatter={formatDay}
+      tickLine={false}
+      axisLine={false}
+      minTickGap={24}
+      tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
+    />,
+    <YAxis
+      key="value"
+      allowDecimals={series.fractional ?? false}
+      // A formatted money tick needs room that a 2-digit count does not.
+      width={series.fractional ? 56 : 28}
+      tickFormatter={
+        series.fractional && series.format
+          ? (value) => series.format!(Number(value))
+          : undefined
+      }
+      tickLine={false}
+      axisLine={false}
+      tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
+    />,
+    <ChartTooltip
+      key="tooltip"
+      content={
+        <ChartTooltipContent
+          labelFormatter={(l) => formatDay(String(l))}
+          // The default row prints value.toLocaleString(), which renders a
+          // cost of 0.0031 as "0.003" — unitless, and rounded past the point
+          // where these figures actually live. A series that formats its own
+          // axis has to format the tooltip too, and doing that means owning
+          // the whole row, indicator included.
+          formatter={
+            series.format
+              ? (value) => (
+                  <>
+                    <div
+                      className="size-2.5 shrink-0 rounded-[2px]"
+                      style={{ background: `var(--color-${series.key})` }}
+                    />
+                    <div className="flex flex-1 items-center justify-between leading-none">
+                      <span className="text-muted-foreground">
+                        {series.label}
+                      </span>
+                      <span className="font-mono font-medium text-foreground tabular-nums">
+                        {series.format!(Number(value))}
+                      </span>
+                    </div>
+                  </>
+                )
+              : undefined
+          }
+        />
+      }
+    />,
+  ];
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -237,72 +313,66 @@ export function ActivityChart({
       {view === "chart" ? (
         // Height includes the x-axis band so the axis labels are never cropped.
         <ChartContainer config={config} className="h-56 w-full">
-          <AreaChart
-            data={data}
-            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-          >
-            <defs>
-              <linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor={`var(--color-${series.key})`}
-                  stopOpacity={0.2}
-                />
-                <stop
-                  offset="100%"
-                  stopColor={`var(--color-${series.key})`}
-                  stopOpacity={0.02}
-                />
-              </linearGradient>
-            </defs>
-            {/* Solid hairline grid, horizontal only, recessive. */}
-            <CartesianGrid
-              vertical={false}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatDay}
-              tickLine={false}
-              axisLine={false}
-              minTickGap={24}
-              tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
-            />
-            <YAxis
-              allowDecimals={series.fractional ?? false}
-              // A formatted money tick needs room that a 2-digit count does not.
-              width={series.fractional ? 56 : 28}
-              tickFormatter={
-                series.fractional && series.format
-                  ? (value) => series.format!(Number(value))
-                  : undefined
-              }
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
-            />
-            <ChartTooltip
-              content={<ChartTooltipContent labelFormatter={(l) => formatDay(String(l))} />}
-            />
-            <Area
-              dataKey={series.key}
-              type="monotone"
-              stroke={`var(--color-${series.key})`}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="url(#activity-fill)"
-              // >= 8px markers with a 2px surface ring, only on hover.
-              dot={false}
-              activeDot={{
-                r: 4,
-                strokeWidth: 2,
-                stroke: "var(--card)",
-                fill: `var(--color-${series.key})`,
-              }}
-            />
-          </AreaChart>
+          {kind === "bar" ? (
+            <BarChart
+              data={data}
+              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+            >
+              {frame}
+              <Bar
+                dataKey={series.key}
+                fill={`var(--color-${series.key})`}
+                // Rounded data-end only, as RankedBars does: the baseline is
+                // shared with the axis and has to stay square.
+                radius={[4, 4, 0, 0]}
+                // Uncapped, a 7-day window renders seven slabs a sixth of the
+                // card wide. A 90-day one thins out on its own.
+                maxBarSize={32}
+                // This panel is a live Convex subscription, so every recorded
+                // model call re-renders it. Bars re-growing from the baseline
+                // each time is motion carrying no information.
+                isAnimationActive={false}
+              />
+            </BarChart>
+          ) : (
+            <AreaChart
+              data={data}
+              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+            >
+              <defs>
+                <linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop
+                    offset="0%"
+                    stopColor={`var(--color-${series.key})`}
+                    stopOpacity={0.2}
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor={`var(--color-${series.key})`}
+                    stopOpacity={0.02}
+                  />
+                </linearGradient>
+              </defs>
+              {frame}
+              <Area
+                dataKey={series.key}
+                type="monotone"
+                stroke={`var(--color-${series.key})`}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="url(#activity-fill)"
+                // >= 8px markers with a 2px surface ring, only on hover.
+                dot={false}
+                activeDot={{
+                  r: 4,
+                  strokeWidth: 2,
+                  stroke: "var(--card)",
+                  fill: `var(--color-${series.key})`,
+                }}
+              />
+            </AreaChart>
+          )}
         </ChartContainer>
       ) : (
         <div className="max-h-56 overflow-y-auto rounded-md border border-border">

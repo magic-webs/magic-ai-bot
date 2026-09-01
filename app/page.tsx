@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Logo } from "@/components/logo";
 import {
   Card,
   CardContent,
@@ -113,9 +114,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-6">
           <Link href="/" className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <RobotIcon className="size-4" />
-            </span>
+            <Logo className="h-7" />
             <span className="font-heading text-base font-semibold tracking-tight">
               Magic AI Bot
             </span>

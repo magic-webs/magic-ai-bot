@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Logo } from "@/components/logo";
 import {
   Card,
   CardContent,
@@ -52,7 +53,6 @@ import {
   SparkleIcon,
   KeyIcon,
   SignOutIcon,
-  RobotIcon,
 } from "@phosphor-icons/react";
 
 const LOCALES = ["en-GB", "en-US", "en-IN", "en-AU", "de-DE", "fr-FR", "es-ES"];
@@ -356,9 +356,7 @@ export default function AdminWorkspacesPage() {
           tables squeezed into half the width. */}
       <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur">
         <Link href="/" className="flex items-center gap-2">
-          <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <RobotIcon className="size-3.5" />
-          </span>
+          <Logo className="h-6" />
           <span className="font-heading text-sm font-semibold tracking-tight">
             Magic AI Bot
           </span>

@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { WorkspaceTheme } from "@/components/workspace-theme";
 import { useSession } from "@/components/use-session";
+import { Logo } from "@/components/logo";
 import {
   Sidebar,
   SidebarContent,
@@ -167,9 +168,7 @@ export default function WorkspaceLayout({
                   tooltip={workspace.name}
                   render={<Link href={base} />}
                 >
-                  <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                    <RobotIcon className="size-3.5" />
-                  </div>
+                  <Logo className="h-6 shrink-0" />
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate font-medium">
                       {workspace.name}
