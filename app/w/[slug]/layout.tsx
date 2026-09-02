@@ -48,6 +48,7 @@ import {
   ArrowLeftIcon,
   WarningIcon,
   SignOutIcon,
+  FunnelIcon,
 } from "@phosphor-icons/react";
 
 const NAV = [
@@ -57,22 +58,24 @@ const NAV = [
     items: [
       { href: "/agents", label: "Agents", icon: RobotIcon },
       { href: "/knowledge", label: "Knowledge base", icon: BooksIcon },
+      { href: "/products", label: "Catalogue", icon: PackageIcon },
       { href: "/tools", label: "Custom tools", icon: WrenchIcon },
     ],
   },
   {
-    group: "Business data",
+    group: "Inbox",
     items: [
-      { href: "/products", label: "Catalogue", icon: PackageIcon },
-      { href: "/orders", label: "Orders", icon: ReceiptIcon },
-      { href: "/contacts", label: "Contacts", icon: UsersIcon },
+      { href: "/conversations", label: "Conversations", icon: ChatsIcon },
+      { href: "/channels", label: "Channels", icon: WhatsappLogoIcon },
     ],
   },
   {
-    group: "Live",
+    // In the order the work happens: a lead becomes a contact, then an order.
+    group: "Sales",
     items: [
-      { href: "/channels", label: "Channels", icon: WhatsappLogoIcon },
-      { href: "/conversations", label: "Conversations", icon: ChatsIcon },
+      { href: "/leads", label: "Leads", icon: FunnelIcon },
+      { href: "/contacts", label: "Contacts", icon: UsersIcon },
+      { href: "/orders", label: "Orders", icon: ReceiptIcon },
     ],
   },
   {

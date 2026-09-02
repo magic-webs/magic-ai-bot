@@ -90,7 +90,7 @@ export const draftAgent = action({
     await ctx.runQuery(internal.authDb.assertWorkspace, {
       workspaceId: args.workspaceId,
     });
-    const apiKey = requireApiKey();
+    requireApiKey();
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
@@ -267,7 +267,7 @@ export const draftTool = action({
     await ctx.runQuery(internal.authDb.assertWorkspace, {
       workspaceId: args.workspaceId,
     });
-    const apiKey = requireApiKey();
+    requireApiKey();
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
@@ -427,7 +427,7 @@ export const draftCatalogue = action({
     await ctx.runQuery(internal.authDb.assertWorkspace, {
       workspaceId: args.workspaceId,
     });
-    const apiKey = requireApiKey();
+    requireApiKey();
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }

@@ -235,12 +235,124 @@ export const CHAT_MODELS = [
     id: "openai/gpt-4.1",
     label: "gpt-4.1 — strongest instruction following",
   },
-  {
-    id: "anthropic/claude-haiku-4.5",
-    label: "Claude Haiku 4.5 — fast, strong at following rules",
-  },
 ] as const;
 
 // The most an anonymous website visitor may send in one message. Generous for a
 // chat box, small enough that nobody can bill a workspace for an essay.
 export const MAX_WIDGET_MESSAGE_CHARS = 2000;
+
+// ---------------------------------------------------------------------------
+// The lead pipeline.
+//
+// Every workspace starts with these and can rename, reorder, extend or delete
+// them. The descriptions are model-facing: the follow-up desk files a
+// conversation by matching it against them, so they are written as tests a
+// reader could apply, not as labels.
+//
+// Deliberately generic. The same seven have to make sense to a printer, a
+// property developer, an influencer marketplace and a clothing store, so they
+// describe how far a conversation has got rather than what was discussed.
+// ---------------------------------------------------------------------------
+
+export type LeadStageSeed = {
+  name: string;
+  description: string;
+  outcome: "open" | "won" | "lost";
+};
+
+export const DEFAULT_LEAD_STAGES: LeadStageSeed[] = [
+  {
+    name: "New enquiry",
+    description:
+      "They have made contact but not said enough to work with yet — a greeting, a one-line question, or a request you have not been able to pin down.",
+    outcome: "open",
+  },
+  {
+    name: "Qualified",
+    description:
+      "You know what they want and that it is something this company offers. Quantities, sizes, dates or scope may still be open, but the need is clear.",
+    outcome: "open",
+  },
+  {
+    name: "Details collected",
+    description:
+      "Everything needed to price or fulfil the request has been collected, and the only thing left is the price, a proposal, or a decision.",
+    outcome: "open",
+  },
+  {
+    name: "Quoted",
+    description:
+      "A price, an estimate or a proposal has been given to them, or the team has been asked to send one, and you are waiting on their answer.",
+    outcome: "open",
+  },
+  {
+    name: "Negotiating",
+    description:
+      "They have engaged with the price or the terms — asking for a discount, comparing options, or pushing on timing — and are not yet committed.",
+    outcome: "open",
+  },
+  {
+    name: "Won",
+    description:
+      "They committed: an order was recorded, a booking made, or they said plainly that they are going ahead.",
+    outcome: "won",
+  },
+  {
+    name: "Lost",
+    description:
+      "They said no, bought elsewhere, or wanted something this company does not do. Also where a lead lands once it has gone quiet and stopped answering follow-ups.",
+    outcome: "lost",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// The follow-up desk. One per workspace, alongside the front desk.
+//
+// It never takes a live turn. It reads conversations that have gone quiet,
+// files them at a stage, and writes the nudge when one is worth sending — so
+// its configuration is about judgement and voice, not about routing or tools.
+// ---------------------------------------------------------------------------
+
+/** How long a conversation must be silent before the desk reads it. */
+export const DORMANT_AFTER_MINUTES = 60;
+
+/**
+ * Nudges per conversation, ever. Two is the whole budget: the first catches
+ * someone who got distracted, the second catches someone who meant to reply.
+ * A third is not a follow-up, it is pestering, and it is how a number gets
+ * blocked.
+ */
+export const MAX_FOLLOW_UPS = 2;
+
+/**
+ * WhatsApp only allows a free-form message within 24 hours of the customer's
+ * last one; after that it has to be an approved template. The desk therefore
+ * will not write to a WhatsApp thread older than this, and says so in the
+ * review rather than sending something the provider would reject.
+ */
+export const WHATSAPP_FREE_FORM_WINDOW_HOURS = 24;
+
+export const FOLLOW_UP_DEFAULTS = {
+  name: "Follow-up desk",
+  role: "Follow-up desk",
+  objective:
+    "Read conversations that have gone quiet, file each one at the stage it has actually reached, and win back the ones worth winning back with a single well-judged message.",
+  jobDescription: [
+    "You are not part of the conversation. You read it after it has stopped and decide two things.",
+    "First, which stage it belongs at, judged against the stage descriptions you are given and nothing else.",
+    "Second, whether a follow-up message is worth sending, and if so what it should say.",
+    "A follow-up is worth sending when the customer was mid-way through something and simply stopped — a question you asked went unanswered, details were half collected, a quote was sent and never acknowledged.",
+    "It is not worth sending when they got what they came for, when they said no, when they are waiting on the team rather than the other way round, or when you have nothing new to offer them.",
+  ].join(" "),
+  rules: [
+    "Pick the furthest stage the conversation actually reached, not the one you hope it reaches.",
+    "Write a follow-up as one short message that moves things forward by naming the specific thing that was left open.",
+    "Reference what they actually said, so it reads as a continuation and not a broadcast.",
+  ],
+  guardrails: [
+    "Never send a second message in the same breath as the first — one message, and then wait.",
+    "Never invent a discount, an offer, a deadline or a stock position to create urgency.",
+    "Never imply the customer was rude or slow for not replying.",
+    "Never follow up a conversation that ended with a complaint or an escalation; those belong to a person.",
+  ],
+} as const;

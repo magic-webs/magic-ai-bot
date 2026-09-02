@@ -13,7 +13,8 @@ const sourceValidator = v.union(
   v.literal("ingest"),
   v.literal("draft_agent"),
   v.literal("draft_tool"),
-  v.literal("draft_catalogue")
+  v.literal("draft_catalogue"),
+  v.literal("review")
 );
 
 /**

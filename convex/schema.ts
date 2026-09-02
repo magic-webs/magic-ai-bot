@@ -168,7 +168,16 @@ export default defineSchema({
     // "router" is the workspace's single default bot: it takes every new
     // conversation and hands the turn to a specialist. Absent == "specialist",
     // so every agent that existed before routing keeps working unchanged.
-    kind: v.optional(v.union(v.literal("router"), v.literal("specialist"))),
+    kind: v.optional(
+      v.union(
+        v.literal("router"),
+        v.literal("specialist"),
+        // The follow-up desk. Reads a conversation that has gone quiet, files
+        // it at a lead stage and, when it is worth it, writes the nudge. Never
+        // takes a live turn and never appears in a routing roster.
+        v.literal("follow_up")
+      )
+    ),
     // Model-facing "hand this conversation to me when…". This is the whole
     // routing table: the router and every specialist are shown these lines and
     // pick a colleague from them.
@@ -357,10 +366,11 @@ export default defineSchema({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     company: v.optional(v.string()),
-    // Ownership, as a person would write it on a whiteboard. Free text because
-    // there are no staff accounts to reference.
-    assignedBy: v.optional(v.string()),
-    assignedTo: v.optional(v.string()),
+    /**
+     * The latest note about this person, as a person would write it on a
+     * whiteboard. Also where the follow-up desk explains why it messaged them,
+     * so the reason sits next to the contact rather than only in the thread.
+     */
     remark: v.optional(v.string()),
     attributes: v.array(kvPair),
     lastSeenAt: v.number(),
@@ -389,11 +399,34 @@ export default defineSchema({
     messageCount: v.number(),
     lastMessageAt: v.number(),
     lastMessagePreview: v.optional(v.string()),
+
+    // --- Lead pipeline -----------------------------------------------------
+    // Where this conversation sits, as last judged by the follow-up desk or set
+    // by hand. Absent until the first review, which is a real state: a thread
+    // nobody has looked at yet is not the same as one filed at "New enquiry".
+    leadStageId: v.optional(v.id("leadStages")),
+    /** Why it was filed there, in the reviewer's own words. */
+    leadStageNote: v.optional(v.string()),
+    /** Set by hand rather than by a review, so a review will not overrule it. */
+    leadStagePinned: v.optional(v.boolean()),
+    /**
+     * When the desk last read this conversation. Compared against
+     * lastMessageAt to find what has gone quiet since it was last looked at,
+     * which is what stops the same silence being reviewed every sweep.
+     */
+    reviewedAt: v.optional(v.number()),
+    /** Nudges sent. Capped, so a quiet lead is not chased indefinitely. */
+    followUpCount: v.optional(v.number()),
+    lastFollowUpAt: v.optional(v.number()),
+
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_agent", ["agentId"])
-    .index("by_contact_agent", ["contactId", "agentId"]),
+    .index("by_contact_agent", ["contactId", "agentId"])
+    // The sweep reads the oldest activity first, workspace by workspace.
+    .index("by_workspace_lastMessageAt", ["workspaceId", "lastMessageAt"])
+    .index("by_workspace_stage", ["workspaceId", "leadStageId"]),
 
   messages: defineTable({
     workspaceId: v.id("workspaces"),
@@ -435,6 +468,39 @@ export default defineSchema({
   })
     .index("by_conversation", ["conversationId"])
     .index("by_workspace", ["workspaceId"]),
+
+  // -------------------------------------------------------------------------
+  // Lead stages — the pipeline a workspace files its conversations into.
+  //
+  // Rows rather than an enum, because every workspace sells differently: a
+  // printer quotes, a developer books site visits, a clothing store just takes
+  // the order. Each workspace gets a generalised default set it can rename,
+  // reorder, extend or delete.
+  // -------------------------------------------------------------------------
+  leadStages: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    /**
+     * What belongs at this stage, written for the follow-up desk — this is the
+     * text it matches a conversation against, so it is the field that decides
+     * whether the pipeline is any good. Shown to the team as the stage's
+     * meaning too.
+     */
+    description: v.string(),
+    /** Pipeline order, low to high. Gaps are fine; only the sort matters. */
+    position: v.number(),
+    /**
+     * Terminal stages end the chase: there is nothing to follow up once a lead
+     * has bought or gone cold, and a nudge to either reads badly.
+     */
+    outcome: v.union(
+      v.literal("open"),
+      v.literal("won"),
+      v.literal("lost")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
 
   // -------------------------------------------------------------------------
   // Tools — builtin toggles live on the agent; these are the custom ones.
@@ -561,7 +627,9 @@ export default defineSchema({
       v.literal("ingest"), // embedding knowledge chunks
       v.literal("draft_agent"),
       v.literal("draft_tool"),
-      v.literal("draft_catalogue")
+      v.literal("draft_catalogue"),
+      // The follow-up desk reading a dormant conversation.
+      v.literal("review")
     ),
     channelType: v.optional(
       v.union(v.literal("whatsapp"), v.literal("web"))

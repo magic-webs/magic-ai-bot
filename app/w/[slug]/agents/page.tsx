@@ -43,6 +43,7 @@ import { toast } from "@/components/ui/toast";
 import { CardGridSkeleton } from "@/components/skeletons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
+  FunnelIcon,
   RobotIcon,
   PlusIcon,
   SparkleIcon,
@@ -330,7 +331,15 @@ export default function AgentsPage() {
   const [provisioning, setProvisioning] = useState(false);
 
   const router = (agents ?? []).find((agent) => agent.kind === "router");
-  const specialists = (agents ?? []).filter((agent) => agent.kind !== "router");
+  const followUpDesk = (agents ?? []).find(
+    (agent) => agent.kind === "follow_up"
+  );
+  // Neither desk is a specialist. An agent with no kind at all predates kinds
+  // and is one, which is why this tests for the two exclusions rather than for
+  // the word "specialist".
+  const specialists = (agents ?? []).filter(
+    (agent) => agent.kind !== "router" && agent.kind !== "follow_up"
+  );
   const routable = specialists.filter(
     (agent) => agent.status === "active" && agent.acceptsHandoff !== false
   );
@@ -403,6 +412,44 @@ export default function AgentsPage() {
             </Button>
           </AlertDescription>
         </Alert>
+      ) : null}
+
+      {followUpDesk ? (
+        <Card className="shrink-0 bg-muted/40">
+          <CardHeader>
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <FunnelIcon className="size-4" />
+              </span>
+              <span className="truncate">{followUpDesk.name}</span>
+              <Badge variant="secondary">Lead pipeline</Badge>
+            </CardTitle>
+            <CardDescription className="max-w-prose">
+              Reads a conversation an hour after it goes quiet, files it at a
+              lead stage and sends one nudge if it is worth sending. It never
+              takes a live turn, so it is not in the front desk&apos;s roster
+              and cannot be transferred to.
+            </CardDescription>
+            <CardAction className="flex flex-wrap gap-1 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-start">
+              <Button
+                size="lg"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href={`${base}/leads`} />}
+              >
+                <FunnelIcon /> Leads
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href={`${base}/agents/${followUpDesk._id}`} />}
+              >
+                <SlidersIcon /> Configure
+              </Button>
+            </CardAction>
+          </CardHeader>
+        </Card>
       ) : null}
 
       {router && routable.length === 0 && specialists.length > 0 ? (

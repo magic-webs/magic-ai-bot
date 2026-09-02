@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
@@ -61,8 +60,6 @@ type ContactRow = {
   phone?: string;
   email?: string;
   company?: string;
-  assignedBy?: string;
-  assignedTo?: string;
   remark?: string;
   externalId: string;
   channelType: "whatsapp" | "web";
@@ -94,19 +91,14 @@ type Draft = {
   phone: string;
   email: string;
   company: string;
-  assignedBy: string;
-  assignedTo: string;
   remark: string;
 };
 
 function ContactDialog({
   contact,
-  people,
   trigger,
 }: {
   contact: ContactRow;
-  /** Names already used for an assignment, offered as suggestions. */
-  people: string[];
   trigger: React.ReactElement;
 }) {
   const updateContact = useMutation(api.contacts.update);
@@ -117,8 +109,6 @@ function ContactDialog({
     phone: contact.phone ?? "",
     email: contact.email ?? "",
     company: contact.company ?? "",
-    assignedBy: contact.assignedBy ?? "",
-    assignedTo: contact.assignedTo ?? "",
     remark: contact.remark ?? "",
   });
 
@@ -142,8 +132,6 @@ function ContactDialog({
     }
   };
 
-  const listId = `people-${contact._id}`;
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={trigger} />
@@ -152,17 +140,11 @@ function ContactDialog({
           <DialogTitle>{displayName(contact)}</DialogTitle>
           <DialogDescription>
             Agents pick up the name, phone, email and company when they talk to
-            this person. The assignment and remark are for your team only — they
-            are never shown to the customer.
+            this person. The remark is for your team only and is never shown to
+            the customer — it is also where the follow-up desk records why it
+            messaged them.
           </DialogDescription>
         </DialogHeader>
-
-        {/* Names already in use, so two people do not become "Sam" and "sam". */}
-        <datalist id={listId}>
-          {people.map((person) => (
-            <option key={person} value={person} />
-          ))}
-        </datalist>
 
         <div className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -197,26 +179,6 @@ function ContactDialog({
                 id="ct-company"
                 value={draft.company}
                 onChange={(event) => set("company", event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ct-assigned-by">Assigned by</Label>
-              <Input
-                id="ct-assigned-by"
-                list={listId}
-                placeholder="Who handed this over"
-                value={draft.assignedBy}
-                onChange={(event) => set("assignedBy", event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ct-assigned-to">Assigned to</Label>
-              <Input
-                id="ct-assigned-to"
-                list={listId}
-                placeholder="Who owns it now"
-                value={draft.assignedTo}
-                onChange={(event) => set("assignedTo", event.target.value)}
               />
             </div>
           </div>
@@ -274,9 +236,6 @@ const WINDOWS = [
   { value: "30", label: "Last 30 days" },
 ];
 
-// Owner names are free text, so the "no owner" option needs a value no person
-// can be called.
-const UNASSIGNED = "__unassigned";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function ContactsPage() {
@@ -288,7 +247,6 @@ export default function ContactsPage() {
 
   const [search, setSearch] = useState("");
   const [channel, setChannel] = useState("all");
-  const [owner, setOwner] = useState("all");
   const [status, setStatus] = useState("all");
   const [seen, setSeen] = useState("all");
   // The last-seen window needs the clock, and a render must not read it
@@ -298,45 +256,12 @@ export default function ContactsPage() {
 
   const all = (contacts ?? []) as ContactRow[];
 
-  // Every name anyone has been assigned to or by, so the editor can suggest
-  // them instead of inviting a new spelling each time.
-  const people = [
-    ...new Set(
-      all
-        .flatMap((contact) => [contact.assignedBy, contact.assignedTo])
-        .map((value) => value?.trim())
-        .filter((value): value is string => Boolean(value))
-    ),
-  ].sort();
-
-  // The filter's owners are deduped case-insensitively: "Sam" and "sam" are one
-  // person, and two options that select the same rows are not a choice.
-  const owners = [
-    ...new Map(
-      all
-        .map((contact) => contact.assignedTo?.trim())
-        .filter((value): value is string => Boolean(value))
-        .map((value) => [value.toLowerCase(), value] as const)
-    ).values(),
-  ].sort();
-
   const term = search.trim().toLowerCase();
   const filtered =
-    Boolean(term) ||
-    channel !== "all" ||
-    owner !== "all" ||
-    status !== "all" ||
-    seen !== "all";
+    Boolean(term) || channel !== "all" || status !== "all" || seen !== "all";
 
   const rows = all.filter((contact) => {
     if (channel !== "all" && contact.channelType !== channel) return false;
-
-    if (owner !== "all") {
-      const assigned = contact.assignedTo?.trim().toLowerCase() ?? "";
-      if (assigned !== (owner === UNASSIGNED ? "" : owner.toLowerCase())) {
-        return false;
-      }
-    }
 
     if (status !== "all" && (contact.conversationStatus ?? "none") !== status) {
       return false;
@@ -352,8 +277,6 @@ export default function ContactsPage() {
       contact.phone,
       contact.email,
       contact.company,
-      contact.assignedBy,
-      contact.assignedTo,
       contact.remark,
       contact.handledBy,
       contact.externalId,
@@ -367,7 +290,6 @@ export default function ContactsPage() {
   const clear = () => {
     setSearch("");
     setChannel("all");
-    setOwner("all");
     setStatus("all");
     setSeen("all");
   };
@@ -406,24 +328,6 @@ export default function ContactsPage() {
           onValueChange={setChannel}
           options={CHANNELS}
         />
-
-        {/* Offered once somebody has actually been assigned: on a workspace
-            that has never used the field every contact is unassigned, so the
-            filter could only ever be a no-op. It stays mounted while the filter
-            is set, so clearing the last assignment cannot strand an active
-            filter with no control left to change it. */}
-        {owners.length > 0 || owner !== "all" ? (
-          <SelectField
-            aria-label="Filter by who the contact is assigned to"
-            value={owner}
-            onValueChange={setOwner}
-            options={[
-              { value: "all", label: "Anyone" },
-              { value: UNASSIGNED, label: "Unassigned" },
-              ...owners.map((person) => ({ value: person, label: person })),
-            ]}
-          />
-        ) : null}
 
         <SelectField
           aria-label="Filter by conversation status"
@@ -486,8 +390,6 @@ export default function ContactsPage() {
               <TableRow>
                 <TableHead className="min-w-44">Name</TableHead>
                 <TableHead className="min-w-40">Phone / Email</TableHead>
-                <TableHead className="min-w-28">Assigned by</TableHead>
-                <TableHead className="min-w-28">Assigned to</TableHead>
                 <TableHead className="min-w-28">Handled by</TableHead>
                 <TableHead className="min-w-52">Remark</TableHead>
                 <TableHead className="min-w-24 text-right">Last seen</TableHead>
@@ -536,17 +438,6 @@ export default function ContactsPage() {
                       ) : null}
                       {!contact.phone && !contact.email ? <Blank /> : null}
                     </div>
-                  </TableCell>
-
-                  <TableCell className="text-sm">
-                    {contact.assignedBy || <Blank />}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {contact.assignedTo ? (
-                      <Badge variant="secondary">{contact.assignedTo}</Badge>
-                    ) : (
-                      <Blank />
-                    )}
                   </TableCell>
 
                   <TableCell className="text-sm">
@@ -611,7 +502,6 @@ export default function ContactsPage() {
                       )}
                       <ContactDialog
                         contact={contact}
-                        people={people}
                         trigger={
                           <Button
                             size="icon-lg"

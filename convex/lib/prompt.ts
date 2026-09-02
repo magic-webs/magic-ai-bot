@@ -38,7 +38,7 @@ export type AgentShape = {
   guardrails: string[];
   escalationPolicy?: string;
   promptOverride?: string;
-  kind?: "router" | "specialist";
+  kind?: "router" | "specialist" | "follow_up";
 };
 
 // One colleague this agent may hand the conversation to. `key` is the string

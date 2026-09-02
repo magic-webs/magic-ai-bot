@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/empty";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
+import { ChannelQr } from "@/components/channel-qr";
 import { CardGridSkeleton } from "@/components/skeletons";
 import {
   WhatsappLogoIcon,
@@ -112,7 +113,7 @@ type AgentOption = {
   _id: string;
   botName: string;
   name: string;
-  kind?: "router" | "specialist";
+  kind?: "router" | "specialist" | "follow_up";
 };
 
 function defaultChannelAgentId(
@@ -646,6 +647,12 @@ export default function ChannelsPage() {
             // the host page, because an iframe cannot resize itself there.
             const embedCode = `<script src="${appOrigin}/widget/${channel.channelKey}/embed.js" async></script>`;
 
+            const waDigits = (channel.whatsapp?.displayPhoneNumber ?? "").replace(
+              /D/g,
+              ""
+            );
+            const waLink = waDigits ? `https://wa.me/${waDigits}` : null;
+
             return (
               <Card key={channel._id}>
                 <CardHeader>
@@ -701,6 +708,14 @@ export default function ChannelsPage() {
                         value={widgetUrl}
                         hint="The chat on its own page — handy for testing, or for a link in an email."
                       />
+
+                      <div className="flex flex-wrap gap-1">
+                        <ChannelQr
+                          label="Scan to open this chat"
+                          url={widgetUrl}
+                          caption="Point a phone camera at this to open the widget on the handset — the quickest way to see what a visitor sees, on the screen size they will see it on."
+                        />
+                      </div>
                       <Alert>
                         <InfoIcon />
                         <AlertTitle>What your visitors see</AlertTitle>
@@ -738,6 +753,15 @@ export default function ChannelsPage() {
                   ) : (
                     <>
                       <CopyField label="Callback URL" value={webhookUrl} />
+
+                      <div className="flex flex-wrap gap-1">
+                        <ChannelQr
+                          label="Scan to message this number"
+                          url={waLink}
+                          caption="Point a phone camera at this to open a WhatsApp chat with this number, already addressed. Send anything and the front desk answers."
+                          unavailable="This channel has no display phone number saved, and that is the only field a wa.me link can be built from — Meta's phone number ID is an internal handle, not a dialable number. Add it under Edit."
+                        />
+                      </div>
 
                       <Alert>
                         <InfoIcon />

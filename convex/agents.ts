@@ -12,6 +12,7 @@ import { toneConfig } from "./schema";
 import {
   DEFAULT_BUILTIN_TOOLS,
   BUILTIN_TOOLS,
+  FOLLOW_UP_DEFAULTS,
   ROUTER_DEFAULTS,
   ROUTER_TOOLS,
   RICH_TOOL_NAMES,
@@ -98,7 +99,11 @@ async function handoffCandidates(
   const eligible = agents
     .filter(
       (agent) =>
-        agent.kind !== "router" &&
+        // Only specialists take handoffs. The front desk hands work outwards
+        // and the follow-up desk is not in the conversation at all, so an
+        // undefined kind — every agent written before kinds existed — counts
+        // as a specialist and nothing else does.
+        (agent.kind === "specialist" || agent.kind === undefined) &&
         agent.status === "active" &&
         agent.acceptsHandoff !== false
     )
@@ -267,6 +272,73 @@ async function ensureRouter(
  * behave, so it is opt-in and never happens as a side effect of creating an
  * agent.
  */
+/**
+ * Provision the workspace's follow-up desk. Idempotent.
+ *
+ * Kept out of every roster (acceptsHandoff false) and left active, because a
+ * desk nobody switched on would silently stop the pipeline moving. It borrows
+ * the front desk's tone so its nudges sound like the same company.
+ */
+async function ensureFollowUpDesk(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">
+): Promise<{ agentId: Id<"agents">; created: boolean }> {
+  const existing = await ctx.db
+    .query("agents")
+    .withIndex("by_workspace_kind", (q) =>
+      q.eq("workspaceId", workspaceId).eq("kind", "follow_up")
+    )
+    .first();
+  if (existing) return { agentId: existing._id, created: false };
+
+  const workspace = await ctx.db.get("workspaces", workspaceId);
+  if (!workspace) throw new Error("Workspace not found");
+
+  const now = Date.now();
+  const agentId = await ctx.db.insert("agents", {
+    workspaceId,
+    kind: "follow_up",
+    acceptsHandoff: false,
+    name: FOLLOW_UP_DEFAULTS.name,
+    botName: workspace.name,
+    role: FOLLOW_UP_DEFAULTS.role,
+    objective: FOLLOW_UP_DEFAULTS.objective,
+    jobDescription: FOLLOW_UP_DEFAULTS.jobDescription,
+    tone: DEFAULT_TONE,
+    rules: [...FOLLOW_UP_DEFAULTS.rules],
+    guardrails: [...FOLLOW_UP_DEFAULTS.guardrails],
+    model: DEFAULT_CHAT_MODEL,
+    // Low: filing a lead against a written description is a judgement that
+    // should come out the same way twice.
+    temperature: 0.1,
+    maxSteps: 1,
+    historyLimit: 40,
+    // It is handed the transcript directly and calls no tools, so retrieval
+    // would only add cost.
+    knowledgeEnabled: false,
+    knowledgeTopK: 0,
+    builtinTools: [],
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return { agentId, created: true };
+}
+
+export const ensureDefaultFollowUpDesk = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return await ensureFollowUpDesk(ctx, args.workspaceId);
+  },
+});
+
+export const ensureFollowUpDeskInternal = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => await ensureFollowUpDesk(ctx, args.workspaceId),
+});
+
 export const ensureDefaultRouter = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -380,8 +452,10 @@ export const create = mutation({
     });
 
     // Every agent sits behind the default bot, so creating one provisions the
-    // front desk if this workspace does not have it yet.
+    // front desk if this workspace does not have it yet — and the follow-up
+    // desk, which the lead pipeline needs before any lead exists.
     await ensureRouter(ctx, args.workspaceId);
+    await ensureFollowUpDesk(ctx, args.workspaceId);
 
     return agentId;
   },
