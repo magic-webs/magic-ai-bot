@@ -182,7 +182,18 @@ export const createFromTool = internalMutation({
       updatedAt: now,
     });
 
-    return { orderId, orderNumber };
+    return {
+      orderId,
+      orderNumber,
+      // Priced here, from the catalogue, never from anything the model said.
+      total: priced ? Math.round(total * 100) / 100 : null,
+      currency: priced ? workspace.currency : null,
+      lines: items.map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice ?? null,
+      })),
+    };
   },
 });
 

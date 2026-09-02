@@ -207,7 +207,6 @@ export function UsagePanel() {
                   data={costSeries}
                   windowDays={data.windowDays}
                   truncated={data.truncated}
-                  kind="bar"
                   series={{
                     key: "cost",
                     label: "Cost (USD)",

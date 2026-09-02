@@ -223,6 +223,17 @@ export const resolveByKey = internalQuery({
   },
 });
 
+// Same, by id — the outbound sender knows the channel it is answering on but
+// not its key. Internal only: this carries the live access token.
+export const resolveById = internalQuery({
+  args: { channelId: v.id("channels") },
+  handler: async (ctx, args) => {
+    const channel = await ctx.db.get("channels", args.channelId);
+    if (!channel) return null;
+    return { channel };
+  },
+});
+
 export const touchInbound = internalMutation({
   args: {
     channelId: v.id("channels"),

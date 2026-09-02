@@ -2,6 +2,7 @@
 
 import type { Doc } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
+import { RichMessage, parseRichPayload } from "@/components/rich-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -214,6 +215,12 @@ export function TranscriptView({
               }
 
               const isUser = message.role === "user";
+              // What the customer was actually shown, rendered the same way
+              // the chat renders it — a line of prose describing a menu is no
+              // use to someone working out why a conversation went wrong.
+              // Inert here: clicking a button in a transcript must not answer
+              // on the customer's behalf.
+              const rich = parseRichPayload(message.payload);
               return (
                 <MessageScrollerItem key={message._id} messageId={message._id}>
                   <Message align={isUser ? "end" : "start"}>
@@ -226,8 +233,16 @@ export function TranscriptView({
                     </MessageAvatar>
                     <MessageContent>
                       <Bubble variant={isUser ? "default" : "muted"}>
-                        <BubbleContent className="whitespace-pre-wrap">
-                          {message.text}
+                        <BubbleContent
+                          className={
+                            rich ? "min-w-56" : "whitespace-pre-wrap"
+                          }
+                        >
+                          {rich ? (
+                            <RichMessage message={rich} interactive={false} />
+                          ) : (
+                            message.text
+                          )}
                         </BubbleContent>
                       </Bubble>
                       <MessageFooter>

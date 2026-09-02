@@ -112,7 +112,7 @@ export default function LandingPage() {
     <div className="flex min-h-svh flex-col">
       {/* ------------------------------------------------------------- header */}
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-6">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2">
             <Logo className="h-7" />
             <span className="font-heading text-base font-semibold tracking-tight">
@@ -140,7 +140,7 @@ export default function LandingPage() {
 
       <main className="flex-1">
         {/* ----------------------------------------------------------- hero */}
-        <section className="mx-auto grid w-full max-w-6xl gap-10 px-6 py-14 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:py-20">
+        <section className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:py-20">
           <div className="flex flex-col items-start gap-5">
             <Badge variant="secondary" className="gap-1.5">
               <LightningIcon className="size-3" />
@@ -253,7 +253,7 @@ export default function LandingPage() {
         {/* -------------------------------------------------- what it does */}
         <section
           id="what-it-does"
-          className="mx-auto w-full max-w-6xl px-6 py-14 lg:py-18"
+          className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:py-18"
         >
           <div className="max-w-2xl">
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
@@ -290,7 +290,7 @@ export default function LandingPage() {
         {/* ----------------------------------------------------- guardrails */}
         <section
           id="guardrails"
-          className="mx-auto w-full max-w-6xl px-6 py-14 lg:py-18"
+          className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:py-18"
         >
           <div className="max-w-2xl">
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
@@ -323,7 +323,7 @@ export default function LandingPage() {
         <Separator />
 
         {/* ------------------------------------------------------ how it works */}
-        <section id="how" className="mx-auto w-full max-w-6xl px-6 py-14 lg:py-18">
+        <section id="how" className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:py-18">
           <div className="max-w-2xl">
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
               Up and running the same day
@@ -368,7 +368,7 @@ export default function LandingPage() {
 
       {/* ------------------------------------------------------------- footer */}
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-xs text-muted-foreground">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 sm:px-6 text-xs text-muted-foreground">
           <span>Magic AI Bot</span>
           <Link href="/login" className="underline">
             Sign in

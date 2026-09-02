@@ -25,6 +25,7 @@ import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_prompt from "../lib/prompt.js";
 import type * as lib_shared from "../lib/shared.js";
 import type * as lib_toolSchema from "../lib/toolSchema.js";
+import type * as lib_whatsappSend from "../lib/whatsappSend.js";
 import type * as orders from "../orders.js";
 import type * as products from "../products.js";
 import type * as tools from "../tools.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   "lib/prompt": typeof lib_prompt;
   "lib/shared": typeof lib_shared;
   "lib/toolSchema": typeof lib_toolSchema;
+  "lib/whatsappSend": typeof lib_whatsappSend;
   orders: typeof orders;
   products: typeof products;
   tools: typeof tools;

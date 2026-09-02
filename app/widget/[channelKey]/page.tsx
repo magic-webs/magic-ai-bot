@@ -11,7 +11,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import {
   Message,
-  MessageAvatar,
   MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
@@ -27,11 +26,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   PaperPlaneRightIcon,
   RobotIcon,
-  UserIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { toast } from "@/components/ui/toast";
+import { RichMessage, parseRichPayload } from "@/components/rich-message";
 
 // One browser == one contact, so a returning visitor keeps their conversation.
 // localStorage is an external store rather than React state, so it is read
@@ -84,6 +83,14 @@ function useEmbedded(): boolean {
     () => new URLSearchParams(window.location.search).get("embed") === "1",
     () => false
   );
+}
+
+// WhatsApp stamps every bubble with a short local clock time, no date.
+function clockTime(at: number): string {
+  return new Date(at).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function closePanel() {
@@ -376,6 +383,8 @@ type WidgetMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** JSON of the rich payload, when the agent sent more than prose. */
+  payload: string | null;
   botName: string | null;
   createdAt: number;
 };
@@ -397,17 +406,19 @@ function WidgetChat({
   const [sending, setSending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (override?: string) => {
+    const text = (override ?? input).trim();
     if (!text || sending) return;
 
-    setInput("");
+    // Only the composer is cleared, and only when it is the source: a tapped
+    // button must not throw away half-typed text sitting beside it.
+    if (override === undefined) setInput("");
     setSending(true);
     try {
       const result = await respond({ channelKey, sessionId, text });
       if (!result.delivered) {
         // Nothing was recorded, so hand the text back rather than losing it.
-        setInput(text);
+        if (override === undefined) setInput(text);
         toast.add({
           title: "Not sent",
           description: result.error,
@@ -418,7 +429,7 @@ function WidgetChat({
       // toast: it is in the transcript, and so is the apology. Offering the
       // text back would invite the visitor to send it twice.
     } catch (error) {
-      setInput(text);
+      if (override === undefined) setInput(text);
       toast.add({
         title: "Could not send",
         description: error instanceof Error ? error.message : String(error),
@@ -438,11 +449,8 @@ function WidgetChat({
             <MessageScrollerContent className="mx-auto w-full max-w-2xl justify-end gap-3 p-4">
               <MessageScrollerItem messageId="greeting">
                 <Message align="start">
-                  <MessageAvatar>
-                    <RobotIcon className="size-4" />
-                  </MessageAvatar>
                   <MessageContent>
-                    <Bubble variant="muted">
+                    <Bubble variant="outline">
                       <BubbleContent className="whitespace-pre-wrap">
                         {greeting}
                       </BubbleContent>
@@ -453,20 +461,44 @@ function WidgetChat({
 
               {messages.map((message) => {
                 const isUser = message.role === "user";
+                const rich = parseRichPayload(message.payload);
                 return (
                   <MessageScrollerItem key={message.id} messageId={message.id}>
                     <Message align={isUser ? "end" : "start"}>
-                      <MessageAvatar>
-                        {isUser ? (
-                          <UserIcon className="size-4" />
-                        ) : (
-                          <RobotIcon className="size-4" />
-                        )}
-                      </MessageAvatar>
                       <MessageContent>
-                        <Bubble variant={isUser ? "default" : "muted"}>
-                          <BubbleContent className="whitespace-pre-wrap">
-                            {message.text}
+                        <Bubble variant={isUser ? "tinted" : "outline"}>
+                          {/* A rich payload carries its own body text, so
+                              rendering message.text as well would print the
+                              question twice — once as prose and once above the
+                              buttons. */}
+                          <BubbleContent
+                            className={
+                              rich
+                                ? "flex min-w-56 flex-col gap-1.5"
+                                : "whitespace-pre-wrap"
+                            }
+                          >
+                            {rich ? (
+                              <>
+                                <RichMessage
+                                  message={rich}
+                                  onPick={(label) => void send(label)}
+                                />
+                                <span data-slot="chat-time">
+                                  {clockTime(message.createdAt)}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                {/* Before the text, not after: it is floated,
+                                    so the last line wraps around it the way
+                                    WhatsApp's does. */}
+                                <span data-slot="chat-time">
+                                  {clockTime(message.createdAt)}
+                                </span>
+                                {message.text}
+                              </>
+                            )}
                           </BubbleContent>
                         </Bubble>
                         {/* Named once the front desk has routed the chat, so
@@ -483,11 +515,8 @@ function WidgetChat({
               {sending ? (
                 <MessageScrollerItem messageId="typing">
                   <Message align="start">
-                    <MessageAvatar>
-                      <RobotIcon className="size-4" />
-                    </MessageAvatar>
                     <MessageContent>
-                      <Bubble variant="muted">
+                      <Bubble variant="outline">
                         <BubbleContent className="flex items-center gap-2">
                           <Spinner /> typing…
                         </BubbleContent>

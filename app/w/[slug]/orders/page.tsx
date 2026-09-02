@@ -71,7 +71,7 @@ function OrderDetail({ order }: { order: Doc<"orders"> }) {
           </Button>
         }
       />
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="font-mono">{order.orderNumber}</DialogTitle>
           <DialogDescription>
@@ -208,7 +208,7 @@ export default function OrdersPage() {
   const removeOrder = useMutation(api.orders.remove);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
+    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">

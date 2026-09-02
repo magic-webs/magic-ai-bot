@@ -50,7 +50,8 @@ export type BuiltinToolKey =
   | "lookup_orders"
   | "save_contact_detail"
   | "escalate_to_human"
-  | "transfer_to_agent";
+  | "transfer_to_agent"
+  | "rich_messages";
 
 export const BUILTIN_TOOLS: Array<{
   key: BuiltinToolKey;
@@ -113,6 +114,14 @@ export const BUILTIN_TOOLS: Array<{
       "Hand the conversation to a human when the customer asks for a person, makes a complaint, or needs something you cannot do. This notifies the team and marks the conversation as escalated.",
   },
   {
+    key: "rich_messages",
+    label: "Rich messages",
+    summary:
+      "Quick-reply buttons, option lists, media, pins and contact cards, on WhatsApp and web chat.",
+    description:
+      "Send a message that is more than text: up to three tappable quick-reply buttons, a scrollable list of options, an image, video or document with a caption, a link button, a location pin, a request for the customer's location or delivery address, or a saveable contact card. Prefer buttons or a list over asking the customer to type one of a short set of choices. Works the same on WhatsApp and in the website chat.",
+  },
+  {
     key: "transfer_to_agent",
     label: "Transfer to another agent",
     summary: "Hand the conversation to a colleague agent in this workspace.",
@@ -120,6 +129,25 @@ export const BUILTIN_TOOLS: Array<{
       "Hand this conversation to another AI colleague who is better suited to it. The customer never sees the transfer — the colleague answers the current message directly. Only ever transfer to one of the agents named in your team roster.",
   },
 ];
+
+/**
+ * What the single `rich_messages` toggle actually hands the model.
+ *
+ * One switch rather than eight, because a workspace decides whether its bot may
+ * send rich WhatsApp messages at all, not which seven of them. Named here so
+ * the Compiled prompt tab can show the real tool list instead of the toggle's
+ * own key — that tab's whole claim is that it is what the model receives.
+ */
+export const RICH_TOOL_NAMES = [
+  "send_buttons",
+  "send_list",
+  "send_media",
+  "send_link_button",
+  "request_location",
+  "request_address",
+  "send_location",
+  "send_contact_card",
+] as const;
 
 export const DEFAULT_BUILTIN_TOOLS: BuiltinToolKey[] = [
   "search_knowledge",

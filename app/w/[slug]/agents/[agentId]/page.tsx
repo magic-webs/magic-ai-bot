@@ -258,7 +258,7 @@ export default function AgentConfigPage({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Button
             size="icon-lg"
@@ -317,7 +317,7 @@ export default function AgentConfigPage({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <Tabs defaultValue="identity" className="gap-4">
           <TabsList>
             <TabsTrigger value="identity">Identity</TabsTrigger>

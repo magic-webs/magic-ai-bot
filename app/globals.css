@@ -361,3 +361,61 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
 }
+
+/* ---------------------------------------------------------------------------
+   The website chat, dressed as WhatsApp.
+   ---------------------------------------------------------------------------
+   Only the chat ground and the bubble tail live here; the bubbles themselves
+   are the `tinted` and `outline` variants, which derive from --primary so a
+   site that set data-color on the embed snippet still gets its own colour
+   rather than WhatsApp's green.
+
+   The ground is WhatsApp's own #efeae2 / #0b141a, converted to oklch to match
+   the rest of this file. Their doodle wallpaper is deliberately not reproduced
+   — it is their artwork, and a flat ground is the part that actually carries
+   the resemblance.
+   --------------------------------------------------------------------------- */
+
+[data-theme="widget"] {
+  --chat-ground: oklch(0.939 0.012 79.8);
+}
+
+.dark[data-theme="widget"],
+.dark [data-theme="widget"] {
+  --chat-ground: oklch(0.185 0.018 238.2);
+}
+
+[data-theme="widget"] [data-slot="message-scroller-viewport"],
+[data-theme="widget"] [data-slot="message-scroller"] {
+  background: var(--chat-ground);
+}
+
+/* WhatsApp's bubbles are barely rounded and carry a tail on the outer top
+   corner. The tail is a triangle cut from the bubble's own background, so it
+   follows tinted/outline without being told which is which. */
+[data-theme="widget"] [data-slot="bubble-content"] {
+  border-radius: 0.5rem;
+  position: relative;
+}
+
+[data-theme="widget"] [data-align="end"] > [data-slot="bubble-content"] {
+  border-top-right-radius: 0;
+}
+
+[data-theme="widget"] [data-align="start"] > [data-slot="bubble-content"] {
+  border-top-left-radius: 0;
+}
+
+/* The clock line sits inside the bubble, bottom right, and the last text line
+   flows around it — which is why it is a float rather than a row underneath. */
+[data-theme="widget"] [data-slot="chat-time"] {
+  float: right;
+  margin: 0.375rem 0 -0.125rem 0.5rem;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--muted-foreground);
+  user-select: none;
+  /* A float is ignored on a flex item, and a rich message lays its parts out in
+     a column — so the same element also has to know how to be the last row. */
+  align-self: flex-end;
+}

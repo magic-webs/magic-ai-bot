@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { buildMessage, type Outbound } from "./lib/whatsappSend";
 
 // WhatsApp caps a text body at 4096 characters.
 const MAX_BODY = 3900;
@@ -16,9 +17,11 @@ function messagesUrl(config: WhatsAppConfig): string {
   return `${config.apiBaseUrl.replace(/\/$/, "")}/${config.apiVersion}/${config.phoneNumberId}/messages`;
 }
 
-async function post(
+async function send(
   config: WhatsAppConfig,
-  payload: Record<string, unknown>
+  to: string,
+  message: Outbound,
+  replyTo?: string
 ): Promise<{ ok: boolean; error?: string }> {
   const response = await fetch(messagesUrl(config), {
     method: "POST",
@@ -26,11 +29,7 @@ async function post(
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.accessToken}`,
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      ...payload,
-    }),
+    body: JSON.stringify(buildMessage(to, message, replyTo)),
   });
 
   if (response.ok) return { ok: true };
@@ -185,6 +184,54 @@ function extractText(message: InboundMessage): string | null {
   }
 }
 
+/**
+ * Send one message on a channel.
+ *
+ * The engine's WhatsApp tools call this. They know which channel the
+ * conversation arrived on and the customer's number; the access token stays
+ * inside Convex, which is the same reason the inbound webhook lives here.
+ */
+export const sendOutbound = internalAction({
+  args: {
+    channelId: v.id("channels"),
+    to: v.string(),
+    // The Outbound union is enforced by TypeScript at the tool that builds it,
+    // not restated here: a v.union of seventeen message shapes would be a
+    // second description of the same thing, free to drift from the first.
+    message: v.any(),
+    replyTo: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
+    const resolved = await ctx.runQuery(internal.channels.resolveById, {
+      channelId: args.channelId,
+    });
+    const channel = resolved?.channel;
+    if (!channel || channel.type !== "whatsapp" || !channel.whatsapp) {
+      return {
+        ok: false,
+        error: "This conversation is not on a WhatsApp channel.",
+      };
+    }
+
+    const result = await send(
+      channel.whatsapp,
+      args.to,
+      args.message as Outbound,
+      args.replyTo
+    );
+    if (!result.ok) {
+      // Surfaced on the Channels page, which is where someone looks when a
+      // rich message silently fails to arrive.
+      console.error("[whatsapp] outbound failed", result.error);
+      await ctx.runMutation(internal.channels.touchInbound, {
+        channelId: channel._id,
+        error: result.error,
+      });
+    }
+    return result;
+  },
+});
+
 export const handleInbound = internalAction({
   args: {
     channelKey: v.string(),
@@ -258,12 +305,9 @@ export const handleInbound = internalAction({
             channelId: channel._id,
             error: reason,
           });
-          await post(config, {
-            to: from,
-            type: "text",
-            text: {
-              body: "Sorry, I could not make out that voice note. Could you type it instead?",
-            },
+          await send(config, from, {
+            kind: "text",
+            body: "Sorry, I could not make out that voice note. Could you type it instead?",
           });
           return { handled: true, reason: "voice_failed" };
         }
@@ -271,12 +315,9 @@ export const handleInbound = internalAction({
     }
 
     if (!text?.trim()) {
-      await post(config, {
-        to: from,
-        type: "text",
-        text: {
-          body: "I can read text messages and listen to voice notes. Could you send your question that way?",
-        },
+      await send(config, from, {
+        kind: "text",
+        body: "I can read text messages and listen to voice notes. Could you send your question that way?",
       });
       return { handled: true, reason: "unsupported_type" };
     }
@@ -306,11 +347,7 @@ export const handleInbound = internalAction({
     }
 
     for (const part of splitForWhatsApp(result.text)) {
-      const sent = await post(config, {
-        to: from,
-        type: "text",
-        text: { body: part, preview_url: false },
-      });
+      const sent = await send(config, from, { kind: "text", body: part });
       if (!sent.ok) {
         console.error("[whatsapp] send failed", sent.error);
         await ctx.runMutation(internal.channels.touchInbound, {

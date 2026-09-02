@@ -14,6 +14,7 @@ import {
   BUILTIN_TOOLS,
   ROUTER_DEFAULTS,
   ROUTER_TOOLS,
+  RICH_TOOL_NAMES,
   slugify,
 } from "./lib/shared";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
@@ -510,9 +511,15 @@ export const previewPrompt = query({
       .collect();
 
     const toolNames = [
-      ...agent.builtinTools.filter((key) =>
-        BUILTIN_TOOLS.some((t) => t.key === key)
-      ),
+      ...agent.builtinTools
+        .filter((key) => BUILTIN_TOOLS.some((t) => t.key === key))
+        // The toggle is one key; the model is given eight named tools.
+        // Expand it so this preview matches what actually arrives.
+        .flatMap((key) =>
+          key === "rich_messages"
+            ? [...RICH_TOOL_NAMES]
+            : [key]
+        ),
       ...customTools
         .filter(
           (t) =>

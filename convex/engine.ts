@@ -31,6 +31,7 @@ import {
   MAX_WIDGET_MESSAGE_CHARS,
   truncate,
 } from "./lib/shared";
+import { summarise, type HeaderSpec, type Outbound } from "./lib/whatsappSend";
 import {
   parametersToJsonSchema,
   renderTemplate,
@@ -65,6 +66,10 @@ type TurnContext = {
   conversationId: Id<"conversations">;
   contactId: Id<"contacts">;
   channelType: "whatsapp" | "web";
+  // Both needed to send anything richer than the reply text: the channel holds
+  // the credentials, and on WhatsApp the external id *is* the phone number.
+  channelId?: Id<"channels">;
+  externalId: string;
   contact: {
     name?: string;
     phone?: string;
@@ -323,7 +328,7 @@ function buildBuiltinTools(
           throw new Error("The customer's name is required.");
         }
 
-        const { orderId, orderNumber } = await ctx.runMutation(
+        const recorded = await ctx.runMutation(
           internal.orders.createFromTool,
           {
             workspaceId: workspace._id,
@@ -363,6 +368,7 @@ function buildBuiltinTools(
           }
         );
 
+        const { orderId, orderNumber } = recorded;
         const order = await ctx.runQuery(internal.orders.getForWebhook, {
           orderId,
         });
@@ -375,7 +381,12 @@ function buildBuiltinTools(
         return {
           ok: true,
           orderNumber,
-          message: `Order recorded as ${orderNumber}. Tell the customer their reference number and what happens next.`,
+          // The authoritative figures, priced from the catalogue rather than
+          // from anything said in the conversation.
+          total: recorded.total,
+          currency: recorded.currency,
+          lines: recorded.lines,
+          message: `Order recorded as ${orderNumber}. Give the customer that reference and say what happens next. Quote the total from this result — if you quoted a different figure earlier in the conversation, correct it now and apologise briefly for the slip.`,
         };
       }),
     });
@@ -529,6 +540,294 @@ function buildBuiltinTools(
       },
     });
   }
+
+  return registry;
+}
+
+// ---------------------------------------------------------------------------
+// Rich messages
+//
+// Buttons, lists, media, pins and cards, on both channels. On WhatsApp they go
+// out over the Cloud API; on the web widget the chat renders the same payload
+// itself. Either way the message is recorded, so the transcript shows what the
+// customer was actually shown and the model remembers having shown it.
+//
+// Each of these sends immediately, alongside the turn's text reply rather than
+// instead of it — so every result tells the model not to repeat the contents in
+// prose, which is the failure mode once a tool has already spoken.
+// ---------------------------------------------------------------------------
+
+function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
+  const { workspace, agent, conversationId, channelId, externalId, channelType, trace } =
+    turn;
+
+  const deliver = async (message: Outbound) => {
+    // Send first, record second. A payload the provider rejected must not sit
+    // in the transcript as something the customer saw.
+    if (channelType === "whatsapp") {
+      if (!channelId || !externalId) {
+        throw new Error("This conversation has no WhatsApp channel to send on.");
+      }
+      const result: { ok: boolean; error?: string } = await ctx.runAction(
+        internal.whatsapp.sendOutbound,
+        { channelId, to: externalId, message }
+      );
+      if (!result.ok) {
+        throw new Error(
+          result.error ?? "WhatsApp would not accept that message."
+        );
+      }
+    }
+
+    await ctx.runMutation(internal.conversations.recordRichMessage, {
+      workspaceId: workspace._id,
+      conversationId,
+      agentId: agent._id,
+      summary: summarise(message),
+      payload: JSON.stringify(message),
+    });
+
+    return {
+      ok: true,
+      note: "Shown to the customer. Do not repeat its contents in your reply — add only what it does not already say.",
+    };
+  };
+
+  // A header is optional on most of these, and is either a line of text or an
+  // image. Shared so the four tools that take one agree on the shape.
+  const headerSchema = {
+    headerText: z
+      .string()
+      .optional()
+      .describe("Short bold line above the body. Max 60 characters."),
+    headerImageUrl: z
+      .string()
+      .optional()
+      .describe(
+        "Public https URL of an image to show above the body. Use instead of headerText, not as well."
+      ),
+  };
+  const headerFrom = (input: {
+    headerText?: string;
+    headerImageUrl?: string;
+  }): HeaderSpec | undefined =>
+    input.headerImageUrl
+      ? { type: "image", media: { link: input.headerImageUrl } }
+      : input.headerText
+        ? { type: "text", text: input.headerText }
+        : undefined;
+
+  const registry: ToolSet = {};
+
+  registry.send_buttons = tool({
+    description:
+      "Send the customer up to three tappable quick-reply buttons. Use it whenever you would otherwise ask them to type one of a short set of choices — confirming a summary, picking a service, answering yes or no. Tapping one sends its label back as their next message. Write the body as the question; do not also list the options in it.",
+    inputSchema: z.object({
+      body: z.string().describe("The question or prompt. Max 1024 characters."),
+      buttons: z
+        .array(z.string().describe("Button label, max 20 characters"))
+        .min(1)
+        .max(3),
+      footer: z.string().optional().describe("Small grey line underneath"),
+      ...headerSchema,
+    }),
+    execute: traced(trace, "send_buttons", async (input) =>
+      deliver({
+        kind: "buttons",
+        body: input.body,
+        footer: input.footer,
+        header: headerFrom(input),
+        // id mirrors the label, as the provider's own examples do; the inbound
+        // webhook reads the title back, so the two must not disagree.
+        buttons: input.buttons.map((title) => ({ id: title, title })),
+      })
+    ),
+  });
+
+  registry.send_list = tool({
+    description:
+      "Send a scrollable menu of options, grouped into sections. Use it when there are more than three choices — a service list, a product range, appointment slots. Ten rows in total at most, across every section. The customer taps one and its title comes back as their next message.",
+    inputSchema: z.object({
+      body: z.string().describe("What the list is for. Max 1024 characters."),
+      buttonText: z
+        .string()
+        .describe("Label on the button that opens the list, max 20 characters"),
+      sections: z
+        .array(
+          z.object({
+            title: z.string().describe("Section heading, max 24 characters"),
+            rows: z
+              .array(
+                z.object({
+                  title: z.string().describe("Option label, max 24 characters"),
+                  description: z
+                    .string()
+                    .optional()
+                    .describe("One line under the label, max 72 characters"),
+                })
+              )
+              .min(1),
+          })
+        )
+        .min(1)
+        .max(10),
+      footer: z.string().optional(),
+      ...headerSchema,
+    }),
+    execute: traced(trace, "send_list", async (input) =>
+      deliver({
+        kind: "list",
+        body: input.body,
+        buttonText: input.buttonText,
+        footer: input.footer,
+        header: headerFrom(input),
+        sections: input.sections.map((section) => ({
+          title: section.title,
+          rows: section.rows.map((row) => ({
+            id: row.title,
+            title: row.title,
+            description: row.description,
+          })),
+        })),
+      })
+    ),
+  });
+
+  registry.send_media = tool({
+    description:
+      "Send an image, a PDF or a video with a caption — a product photo, a price list, a brochure, a spec sheet. The file must already be on a public https URL; you cannot attach something you do not have a link for.",
+    inputSchema: z.object({
+      media: z.enum(["image", "document", "video"]),
+      url: z.string().describe("Public https URL of the file"),
+      caption: z
+        .string()
+        .optional()
+        .describe("Shown under the file. Max 1024 characters."),
+      filename: z
+        .string()
+        .optional()
+        .describe("Documents only — the name the customer sees when saving it"),
+    }),
+    execute: traced(trace, "send_media", async (input) =>
+      deliver({
+        kind: "media",
+        media: input.media,
+        source: { link: input.url },
+        caption: input.caption,
+        filename: input.filename,
+      })
+    ),
+  });
+
+  registry.send_link_button = tool({
+    description:
+      "Send a message with one button that opens a web page — a booking form, a catalogue, a payment page, a map. Use this rather than pasting a bare URL into your reply.",
+    inputSchema: z.object({
+      body: z.string().describe("Why they should tap it"),
+      displayText: z
+        .string()
+        .describe("Button label, max 20 characters, e.g. 'View catalogue'"),
+      url: z.string().describe("The https URL the button opens"),
+      footer: z.string().optional(),
+      ...headerSchema,
+    }),
+    execute: traced(trace, "send_link_button", async (input) =>
+      deliver({
+        kind: "cta_url",
+        body: input.body,
+        displayText: input.displayText,
+        url: input.url,
+        footer: input.footer,
+        header: headerFrom(input),
+      })
+    ),
+  });
+
+  registry.request_location = tool({
+    description:
+      "Ask the customer to share their location, with a button that opens their map picker. Far more reliable than asking them to type an address when what you need is a point on a map — a delivery pin, a site visit, the nearest branch.",
+    inputSchema: z.object({
+      body: z.string().describe("Why you need it, in one sentence"),
+    }),
+    execute: traced(trace, "request_location", async (input) =>
+      deliver({ kind: "request_location", body: input.body })
+    ),
+  });
+
+  registry.request_address = tool({
+    description:
+      "Ask for a full delivery address using WhatsApp's own address form, which returns it as structured fields rather than as prose you have to interpret. Use it when you need a postal address for an order.",
+    inputSchema: z.object({
+      body: z.string().describe("Why you need it, in one sentence"),
+      country: z
+        .string()
+        .length(2)
+        .describe(
+          "Two-letter ISO country code the form should be laid out for, e.g. IN or GB"
+        ),
+    }),
+    execute: traced(trace, "request_address", async (input) =>
+      deliver({
+        kind: "request_address",
+        body: input.body,
+        country: input.country.toUpperCase(),
+      })
+    ),
+  });
+
+  registry.send_location = tool({
+    description:
+      "Send a pin on the map — the shop, the office, a site. It opens in the customer's map app and can be navigated to, which a typed address cannot. Only send coordinates you actually have from the knowledge base or company facts; never estimate them.",
+    inputSchema: z.object({
+      latitude: z.number(),
+      longitude: z.number(),
+      name: z.string().optional().describe("What is at that pin"),
+      address: z.string().optional().describe("The address, as one line"),
+    }),
+    execute: traced(trace, "send_location", async (input) =>
+      deliver({
+        kind: "location",
+        latitude: input.latitude,
+        longitude: input.longitude,
+        name: input.name,
+        address: input.address,
+      })
+    ),
+  });
+
+  registry.send_contact_card = tool({
+    description:
+      "Send a saveable contact card — a colleague's or the company's number — so the customer can tap to call or save it instead of copying digits out of a chat. Use it when handing someone to a person, alongside escalate_to_human rather than in place of it.",
+    inputSchema: z.object({
+      name: z.string().describe("The name as it should be saved"),
+      phone: z.string().describe("In full international form, e.g. +919876543210"),
+      email: z.string().optional(),
+      company: z.string().optional(),
+      jobTitle: z.string().optional(),
+    }),
+    execute: traced(trace, "send_contact_card", async (input) =>
+      deliver({
+        kind: "contacts",
+        contacts: [
+          {
+            formattedName: input.name,
+            phones: [{ phone: input.phone, type: "WORK" }],
+            ...(input.email
+              ? { emails: [{ email: input.email, type: "WORK" }] }
+              : {}),
+            ...(input.company || input.jobTitle
+              ? {
+                  org: {
+                    ...(input.company ? { company: input.company } : {}),
+                    ...(input.jobTitle ? { title: input.jobTitle } : {}),
+                  },
+                }
+              : {}),
+          },
+        ],
+      })
+    ),
+  });
 
   return registry;
 }
@@ -789,6 +1088,8 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       conversationId: session.conversationId,
       contactId: session.contactId,
       channelType: args.channelType,
+      channelId: args.channelId,
+      externalId: args.externalId,
       contact: {
         name: session.contact.name ?? undefined,
         phone: session.contact.phone ?? undefined,
@@ -863,6 +1164,11 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           allowTransfer,
           alreadyHeld,
         }),
+        // Empty unless this agent has the key AND the conversation is on
+        // WhatsApp, so the web playground never sees a tool it cannot honour.
+        ...(agent.builtinTools.includes("rich_messages")
+          ? buildRichMessageTools(ctx, turn)
+          : {}),
         ...buildCustomTools(ctx, turn, customTools),
       };
 

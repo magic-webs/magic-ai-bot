@@ -148,7 +148,7 @@ export default function WorkspaceSettingsPage() {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
       {/* Sticky so Save stays reachable however far down the form you are. */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-end justify-between gap-3 border-b bg-background/95 px-6 py-4 backdrop-blur">
+      <header className="sticky top-0 z-20 flex flex-wrap items-end justify-between gap-3 border-b bg-background/95 px-4 py-4 backdrop-blur sm:px-6">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Workspace settings
@@ -162,7 +162,7 @@ export default function WorkspaceSettingsPage() {
         </Button>
       </header>
 
-      <div className="flex min-w-0 flex-col gap-5 p-6">
+      <div className="flex min-w-0 flex-col gap-5 p-4 sm:p-6">
         <Tabs defaultValue="profile" className="gap-4">
           <TabsList>
             <TabsTrigger value="profile">Company</TabsTrigger>

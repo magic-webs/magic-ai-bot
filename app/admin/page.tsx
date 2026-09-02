@@ -354,7 +354,7 @@ export default function AdminWorkspacesPage() {
       {/* Full-bleed and sticky, so the console fills the screen the way the
           workspace shell does instead of sitting in a centred column with the
           tables squeezed into half the width. */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur">
+      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
         <Link href="/" className="flex items-center gap-2">
           <Logo className="h-6" />
           <span className="font-heading text-sm font-semibold tracking-tight">
@@ -372,7 +372,7 @@ export default function AdminWorkspacesPage() {
         </div>
       </header>
 
-      <main className="flex min-w-0 flex-1 flex-col p-6">
+      <main className="flex min-w-0 flex-1 flex-col p-4 sm:p-6">
         <Tabs defaultValue="workspaces" className="gap-5">
         <TabsList>
           <TabsTrigger value="workspaces">

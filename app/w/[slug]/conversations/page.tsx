@@ -49,6 +49,7 @@ import {
   WhatsappLogoIcon,
   GlobeIcon,
   TrashIcon,
+  ArrowLeftIcon,
   MagnifyingGlassIcon,
   EnvelopeIcon,
   PhoneIcon,
@@ -87,9 +88,12 @@ function relative(timestamp: number): string {
 function ConversationDetail({
   conversationId,
   onDeleted,
+  onBack,
 }: {
   conversationId: Id<"conversations">;
   onDeleted: () => void;
+  /** Below lg the transcript is the whole screen; this is the way back to the list. */
+  onBack: () => void;
 }) {
   const detail = useQuery(api.conversations.getWithContact, { conversationId });
   const messages = useQuery(api.conversations.listMessages, { conversationId });
@@ -124,6 +128,17 @@ function ConversationDetail({
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b px-4 py-2.5">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+            {/* Hidden from lg up, where the list is still on screen beside the
+                transcript and going "back" would mean nothing. */}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Back to all conversations"
+              className="-ml-1 shrink-0 lg:hidden"
+              onClick={onBack}
+            >
+              <ArrowLeftIcon />
+            </Button>
             {conversation.channelType === "whatsapp" ? (
               <WhatsappLogoIcon className="size-3.5 shrink-0" />
             ) : (
@@ -316,27 +331,36 @@ export default function ConversationsPage() {
       .includes(term);
   });
 
+  // What the reader actually picked, or nothing. Kept separate from `active`
+  // because the two layouts want different answers: side by side there should
+  // always be a transcript up, but on a phone "nothing picked yet" is a real
+  // state — it is the one that gives the list the whole screen.
+  const chosen = selected
+    ? rows.find((row) => row._id === selected)
+    : undefined;
+
   // Derived rather than stored: keeps a conversation open by default, and
   // falls back gracefully when the current selection is filtered out or deleted.
-  const active = rows.find((row) => row._id === selected) ?? rows[0];
+  const active = chosen ?? rows[0];
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3 border-b px-6 py-4">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3 border-b px-4 py-4 sm:px-6">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Conversations
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          <p className="mt-1 hidden max-w-2xl text-sm text-muted-foreground sm:block">
             Threads across WhatsApp and the web playground.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Label htmlFor="conv-agent" className="text-sm">
+          <Label htmlFor="conv-agent" className="hidden text-sm sm:inline">
             Agent
           </Label>
           <SelectField
             id="conv-agent"
+            aria-label="Filter by agent"
             value={agentFilter}
             onValueChange={setAgentFilter}
             options={[
@@ -347,21 +371,36 @@ export default function ConversationsPage() {
               })),
             ]}
           />
-          <Label htmlFor="conv-status" className="text-sm">
+          <Label htmlFor="conv-status" className="hidden text-sm sm:inline">
             Status
           </Label>
           <SelectField
             id="conv-status"
+            aria-label="Filter by status"
             value={statusFilter}
             onValueChange={setStatusFilter}
-            options={[{ value: "all", label: "All" }, ...STATUS_OPTIONS]}
+            options={[
+              { value: "all", label: "All statuses" },
+              ...STATUS_OPTIONS,
+            ]}
           />
         </div>
       </header>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
-        {/* List — capped on narrow screens so the transcript stays visible. */}
-        <div className="flex max-h-[45vh] min-h-0 shrink-0 flex-col border-b lg:max-h-none lg:w-[22rem] lg:border-b-0 lg:border-r">
+        {/* Master-detail below lg: the list owns the screen until a thread is
+            picked, then hands it over, and the back button in the transcript
+            header brings it back. Splitting the viewport instead — a list
+            capped at 45vh above a transcript — left a phone with about 230px
+            for the transcript once the page header and the thread's own header
+            were paid for, which is not enough to read a conversation in. From
+            lg up the two panes sit side by side exactly as before. */}
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-col border-b lg:w-[22rem] lg:shrink-0 lg:border-b-0 lg:border-r",
+            chosen ? "hidden lg:flex" : "flex"
+          )}
+        >
           <div className="shrink-0 p-3 pb-2">
             <div className="relative">
               <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -464,7 +503,12 @@ export default function ConversationsPage() {
         </div>
 
         {/* Detail */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-1 flex-col",
+            chosen ? "flex" : "hidden lg:flex"
+          )}
+        >
           {!active ? (
             <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
               {conversations === undefined
@@ -476,6 +520,7 @@ export default function ConversationsPage() {
               key={active._id}
               conversationId={active._id}
               onDeleted={() => setSelected(null)}
+              onBack={() => setSelected(null)}
             />
           )}
         </div>

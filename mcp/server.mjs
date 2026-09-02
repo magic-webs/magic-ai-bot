@@ -155,6 +155,14 @@ export async function authorize() {
     return;
   }
 
+  // Drop the dead token before asking for a new one. Convex validates the
+  // Authorization header on every request before the function runs, so an
+  // expired JWT fails the very call that would replace it — the refresh path
+  // blocked itself, and a server left running past the 30-minute token life
+  // could never recover. mintAccessToken needs no identity anyway: the session
+  // token in the argument is the credential.
+  convex().clearAuth();
+
   let minted = await convex().action(api.auth.mintAccessToken, {
     sessionToken: session.sessionToken,
   });
@@ -449,6 +457,7 @@ const BUILTIN_TOOL_KEYS = [
   "save_contact_detail",
   "escalate_to_human",
   "transfer_to_agent",
+  "rich_messages",
 ];
 
 const toneArg = z

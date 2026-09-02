@@ -129,7 +129,8 @@ export const getWithContact = query({
 export const reset = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    await requireConversation(ctx, args.conversationId);
+    // The guard hands the document back, so there is no second read.
+    const conversation = await requireConversation(ctx, args.conversationId);
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
@@ -143,6 +144,13 @@ export const reset = mutation({
       status: "open",
       lastMessagePreview: undefined,
       lastMessageAt: Date.now(),
+      // Give the thread back to the entry agent. Clearing the transcript alone
+      // left whichever specialist the last handoff put in charge still holding
+      // it, so the next message skipped the front desk and was answered by an
+      // agent nobody had chosen — a "clean" conversation that was anything but,
+      // and routing that could not be tested twice in a row.
+      activeAgentId: conversation.agentId,
+      handoffCount: 0,
     });
     return { success: true };
   },
@@ -265,7 +273,11 @@ export const startTurn = internalMutation({
       .take(args.historyLimit * 2);
 
     const history = priorMessages
-      .filter((m) => m.kind === "text" && (m.role === "user" || m.role === "assistant"))
+      .filter(
+        (m) =>
+          (m.kind === "text" || m.kind === "rich") &&
+          (m.role === "user" || m.role === "assistant")
+      )
       .reverse()
       .slice(-args.historyLimit)
       .map((m) => ({
@@ -431,6 +443,50 @@ export const recordHandoff = internalMutation({
       createdAt: Date.now(),
     });
 
+    return { success: true };
+  },
+});
+
+/**
+ * Record a message the customer was shown that is not prose — buttons, a list,
+ * media, a pin, a card.
+ *
+ * Written on every channel, WhatsApp included, where the same message also
+ * goes out over the wire. The transcript, the web chat and the model's own
+ * replayed history all read from this table, so a rich message that was only
+ * sent would be invisible to all three: the team could not see what the
+ * customer was shown, and the agent would offer the same menu again next turn.
+ */
+export const recordRichMessage = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    agentId: v.optional(v.id("agents")),
+    /** One line, for the transcript preview and for history replay. */
+    summary: v.string(),
+    payload: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.insert("messages", {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      role: "assistant",
+      kind: "rich",
+      text: args.summary,
+      payload: args.payload,
+      agentId: args.agentId,
+      createdAt: now,
+    });
+
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (conversation) {
+      await ctx.db.patch(args.conversationId, {
+        messageCount: conversation.messageCount + 1,
+        lastMessageAt: now,
+        lastMessagePreview: args.summary.slice(0, 140),
+      });
+    }
     return { success: true };
   },
 });

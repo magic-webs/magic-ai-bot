@@ -409,9 +409,19 @@ export default defineSchema({
       v.literal("note"),
       v.literal("error"),
       // An internal agent-to-agent handover. Never shown to the customer.
-      v.literal("handoff")
+      v.literal("handoff"),
+      // Anything the customer sees that is not a paragraph of text: quick-reply
+      // buttons, an option list, media, a location pin, a contact card, a link
+      // button. `payload` holds it.
+      v.literal("rich")
     ),
     text: v.optional(v.string()),
+    // The Outbound union from lib/whatsappSend, as JSON, on kind === "rich".
+    // Stored rather than only sent, for three reasons: the web chat has to
+    // render it at all, the transcript has to show what the customer was
+    // actually shown weeks later, and replaying history to the model needs a
+    // description of it rather than a silent gap where a menu used to be.
+    payload: v.optional(v.string()),
     // Which agent produced an assistant message, or took over on a handoff.
     // Optional because messages written before routing existed have no answer.
     agentId: v.optional(v.id("agents")),

@@ -512,12 +512,25 @@ function SidebarMenuButton({
     isActive?: boolean
     tooltip?: string | React.ComponentProps<typeof TooltipContent>
   } & VariantProps<typeof sidebarMenuButtonVariants>) {
-  const { isMobile, state } = useSidebar()
+  const { isMobile, setOpenMobile, state } = useSidebar()
   const comp = useRender({
     defaultTagName: "button",
     props: mergeProps<"button">(
       {
         className: cn(sidebarMenuButtonVariants({ variant, size }), className),
+        // On mobile the sidebar is a Sheet laid over the page, and nothing
+        // dismissed it: tapping a nav item navigated underneath and left the
+        // panel sitting on top of the page you had just asked for.
+        //
+        // Here rather than on each item for two reasons. It covers every menu
+        // button there is — the workspace link, the nav, "All workspaces",
+        // sign out — including ones added later. And it fires on the tap, so
+        // re-tapping the section you are already on still closes; an effect
+        // watching the pathname would see no change and leave it open.
+        //
+        // mergeProps chains handlers rather than replacing them, calling the
+        // call site's first, so Sign out still signs out.
+        onClick: isMobile ? () => setOpenMobile(false) : undefined,
       },
       props
     ),

@@ -157,11 +157,11 @@ export const session = query({
     // Only what the customer is allowed to see. Tool traces, handoff notes and
     // engine errors are internal, and a handoff note in particular would name
     // the agents behind the curtain.
-    const visible = rows.filter(
+const visible = rows.filter(
       (row) =>
-        row.kind === "text" &&
+        (row.kind === "text" || row.kind === "rich") &&
         (row.role === "user" || row.role === "assistant") &&
-        (row.text ?? "").trim().length > 0
+        ((row.text ?? "").trim().length > 0 || Boolean(row.payload))
     );
 
     // Assistant messages are attributed, so the widget can show the customer
@@ -189,6 +189,10 @@ export const session = query({
         id: row._id as string,
         role: row.role as "user" | "assistant",
         text: row.text ?? "",
+        // The chat renders buttons, lists, media and cards from this. Still
+        // only what the customer was shown — tool traces, handoff notes and
+        // engine errors are filtered out above, as they always were.
+        payload: row.kind === "rich" ? (row.payload ?? null) : null,
         botName: row.agentId ? botNames.get(row.agentId) ?? null : null,
         createdAt: row.createdAt,
       })),

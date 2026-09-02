@@ -114,7 +114,7 @@ export default function WorkspaceOverviewPage() {
   const remaining = setupSteps.filter((step) => !step.done).length;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
+    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
       {/* ------------------------------------------------------------ header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">

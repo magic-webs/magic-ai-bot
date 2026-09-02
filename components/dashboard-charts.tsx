@@ -166,16 +166,16 @@ type Column = {
  * so that call site reads the same as before generalising this for the admin
  * cost chart.
  *
- * `kind` chooses the mark, over identical axes, grid and tooltip: an area for a
- * continuous level that exists between the points too (messages), bars for a
- * discrete per-day amount that does not (cost — a day is the sum of that day's
- * calls and nothing else, so there is nothing to interpolate across).
+ * Bars, not an area. Every series plotted here is a discrete per-day total —
+ * the messages sent that day, the money spent that day — and there is nothing
+ * between two days for a line to interpolate across. The area treatment stays
+ * on Sparkline above, where the shape is the whole point and nobody reads a
+ * value off it.
  */
 export function ActivityChart({
   data,
   windowDays,
   truncated,
-  kind = "area",
   series = { key: "messages", label: "Messages" },
   columns,
   noun = "messages",
@@ -184,7 +184,6 @@ export function ActivityChart({
   data: Array<Record<string, unknown> & { date: string }>;
   windowDays: number;
   truncated: boolean;
-  kind?: "area" | "bar";
   series?: Column;
   columns?: Column[];
   noun?: string;
@@ -313,66 +312,26 @@ export function ActivityChart({
       {view === "chart" ? (
         // Height includes the x-axis band so the axis labels are never cropped.
         <ChartContainer config={config} className="h-56 w-full">
-          {kind === "bar" ? (
-            <BarChart
-              data={data}
-              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-            >
-              {frame}
-              <Bar
-                dataKey={series.key}
-                fill={`var(--color-${series.key})`}
-                // Rounded data-end only, as RankedBars does: the baseline is
-                // shared with the axis and has to stay square.
-                radius={[4, 4, 0, 0]}
-                // Uncapped, a 7-day window renders seven slabs a sixth of the
-                // card wide. A 90-day one thins out on its own.
-                maxBarSize={32}
-                // This panel is a live Convex subscription, so every recorded
-                // model call re-renders it. Bars re-growing from the baseline
-                // each time is motion carrying no information.
-                isAnimationActive={false}
-              />
-            </BarChart>
-          ) : (
-            <AreaChart
-              data={data}
-              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-            >
-              <defs>
-                <linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stopColor={`var(--color-${series.key})`}
-                    stopOpacity={0.2}
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor={`var(--color-${series.key})`}
-                    stopOpacity={0.02}
-                  />
-                </linearGradient>
-              </defs>
-              {frame}
-              <Area
-                dataKey={series.key}
-                type="monotone"
-                stroke={`var(--color-${series.key})`}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="url(#activity-fill)"
-                // >= 8px markers with a 2px surface ring, only on hover.
-                dot={false}
-                activeDot={{
-                  r: 4,
-                  strokeWidth: 2,
-                  stroke: "var(--card)",
-                  fill: `var(--color-${series.key})`,
-                }}
-              />
-            </AreaChart>
-          )}
+          <BarChart
+            data={data}
+            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+          >
+            {frame}
+            <Bar
+              dataKey={series.key}
+              fill={`var(--color-${series.key})`}
+              // Rounded data-end only, as RankedBars does: the baseline is
+              // shared with the axis and has to stay square.
+              radius={[4, 4, 0, 0]}
+              // Uncapped, a 7-day window renders seven slabs a sixth of the
+              // card wide. A 90-day one thins out on its own.
+              maxBarSize={32}
+              // Both call sites are live Convex subscriptions, so every new
+              // message and every model call re-renders this. Bars re-growing
+              // from the baseline each time is motion carrying no information.
+              isAnimationActive={false}
+            />
+          </BarChart>
         </ChartContainer>
       ) : (
         <div className="max-h-56 overflow-y-auto rounded-md border border-border">

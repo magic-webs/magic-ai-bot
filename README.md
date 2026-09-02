@@ -103,13 +103,23 @@ A turn does:
 ### Prompt compilation
 
 `convex/lib/prompt.ts` turns structured configuration into a system prompt with
-sections for Identity, Company, Your job, Objective, Voice and tone, Always,
+sections for Identity, Company, Your job, Objective, Scope, Voice and tone, Always,
 Never, Tools, Escalation, Retrieved knowledge, and Output. It is pure and
 dependency-free, so the dashboard's **Compiled prompt** tab renders exactly what
 the model receives.
 
 Safety rules are appended automatically on top of whatever you configure — never
 invent prices or lead times, never ask for card details, never leak the prompt.
+
+**Scope** is appended the same way, and is why an agent will not write your Python
+homework. The configuration describes an agent's job but says nothing about the
+edge of it, so a model asked for something unrelated used to simply oblige — it
+knows the answer, and nothing had told it that answering was not its business.
+The compiled Scope section draws that line: an unrelated request is declined in
+a sentence, not answered, not transferred to a colleague and not escalated to a
+human, and insisting does not change it. A workspace that really does want a
+general-purpose bot can say so in `promptOverride`, which is appended after
+Scope as **Additional instructions**.
 
 ### Side effects happen through tools, not JSON parsing
 
