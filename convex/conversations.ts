@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
+import { historyText, type Outbound } from "./lib/whatsappSend";
 import {
   requireAgent,
   requireContact,
@@ -192,6 +193,22 @@ export const remove = mutation({
 // Runtime internals
 // ---------------------------------------------------------------------------
 
+/**
+ * The model-facing text of a rich row, or null when there is nothing stored to
+ * read it from — in which case the caller falls back to the summary.
+ */
+function richHistoryText(
+  kind: string,
+  payload: string | undefined
+): string | null {
+  if (kind !== "rich" || !payload) return null;
+  try {
+    return historyText(JSON.parse(payload) as Outbound);
+  } catch {
+    return null;
+  }
+}
+
 // Upserts the contact, gets-or-creates the conversation, records the inbound
 // message and returns the replay history — all in one transaction so
 // concurrent inbound webhooks can't fork a conversation.
@@ -282,7 +299,11 @@ export const startTurn = internalMutation({
       .slice(-args.historyLimit)
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.text ?? "",
+        // A rich message's stored text is its transcript summary, which spells
+        // the options out in brackets. Replaying that taught the model to type
+        // "[list: A | B]" at customers, so the model gets the sentence the
+        // customer actually read and no control syntax at all.
+        content: richHistoryText(m.kind, m.payload) ?? m.text ?? "",
       }))
       .filter((m) => m.content.length > 0);
 

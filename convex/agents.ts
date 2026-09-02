@@ -15,6 +15,7 @@ import {
   ROUTER_DEFAULTS,
   ROUTER_TOOLS,
   RICH_TOOL_NAMES,
+  DEFAULT_CHAT_MODEL,
   slugify,
 } from "./lib/shared";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
@@ -225,7 +226,7 @@ async function ensureRouter(
     rules: [...ROUTER_DEFAULTS.rules],
     guardrails: [...ROUTER_DEFAULTS.guardrails],
     escalationPolicy: ROUTER_DEFAULTS.escalationPolicy,
-    model: "gpt-4.1-mini",
+    model: DEFAULT_CHAT_MODEL,
     temperature: 0.2,
     // Routing is a one-decision job: greet, maybe search, transfer.
     maxSteps: 4,
@@ -366,7 +367,7 @@ export const create = mutation({
       escalationPolicy:
         args.escalationPolicy ??
         "Hand over to a human if the customer asks for one, raises a complaint, or asks something you cannot answer after one attempt.",
-      model: args.model ?? "gpt-4.1-mini",
+      model: args.model ?? DEFAULT_CHAT_MODEL,
       temperature: 0.4,
       maxSteps: 6,
       historyLimit: 16,

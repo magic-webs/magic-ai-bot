@@ -21,6 +21,7 @@ import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as knowledge from "../knowledge.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_gateway from "../lib/gateway.js";
 import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_prompt from "../lib/prompt.js";
 import type * as lib_shared from "../lib/shared.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   ingest: typeof ingest;
   knowledge: typeof knowledge;
   "lib/auth": typeof lib_auth;
+  "lib/gateway": typeof lib_gateway;
   "lib/pricing": typeof lib_pricing;
   "lib/prompt": typeof lib_prompt;
   "lib/shared": typeof lib_shared;

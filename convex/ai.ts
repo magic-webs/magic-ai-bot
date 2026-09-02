@@ -4,18 +4,19 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { createOpenAI } from "@ai-sdk/openai";
+import { aiGateway } from "./lib/gateway";
+import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { DEFAULT_BUILTIN_TOOLS, BUILTIN_TOOLS } from "./lib/shared";
 
-const DRAFT_MODEL = "gpt-4.1-mini";
+const DRAFT_MODEL = DEFAULT_CHAT_MODEL;
 
 function requireApiKey(): string {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.AI_GATEWAY_API_KEY;
   if (!apiKey) {
     throw new Error(
-      "OPENAI_API_KEY is not set on the Convex deployment. Run: npx convex env set OPENAI_API_KEY sk-..."
+      "AI_GATEWAY_API_KEY is not set on the Convex deployment. Run: npx convex env set AI_GATEWAY_API_KEY <key>"
     );
   }
   return apiKey;
@@ -101,9 +102,8 @@ export const draftAgent = action({
       { workspaceId: args.workspaceId, limit: 20 }
     );
 
-    const openai = createOpenAI({ apiKey });
     const { object, usage } = await generateObject({
-      model: openai(DRAFT_MODEL),
+      model: aiGateway()(DRAFT_MODEL),
       schema: agentDraftSchema,
       system: [
         "You design production chat agents for real businesses.",
@@ -274,9 +274,8 @@ export const draftTool = action({
     );
     if (!workspace) throw new Error("Workspace not found");
 
-    const openai = createOpenAI({ apiKey });
     const { object, usage } = await generateObject({
-      model: openai(DRAFT_MODEL),
+      model: aiGateway()(DRAFT_MODEL),
       schema: toolDraftSchema,
       system: [
         "You design tools for an LLM chat agent. Output a single tool definition.",
@@ -435,9 +434,8 @@ export const draftCatalogue = action({
     );
     if (!workspace) throw new Error("Workspace not found");
 
-    const openai = createOpenAI({ apiKey });
     const { object, usage } = await generateObject({
-      model: openai(DRAFT_MODEL),
+      model: aiGateway()(DRAFT_MODEL),
       schema: catalogueSchema,
       system: [
         "You build product catalogues for quoting bots.",

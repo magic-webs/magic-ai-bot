@@ -116,6 +116,9 @@ export function compileSystemPrompt(opts: {
   const tone = a.tone;
 
   const canTransfer = (opts.toolNames ?? []).includes("transfer_to_agent");
+  // Whether this agent can actually send a picture or a link button. Without
+  // it, "use send_media instead" is advice it cannot take.
+  const sendsMedia = (opts.toolNames ?? []).includes("send_media");
   const team = opts.team ?? [];
   // Routing is live for this turn: there is a colleague to hand to, and the
   // tool to do it with.
@@ -227,6 +230,15 @@ export function compileSystemPrompt(opts: {
         "- Prefer calling a tool over guessing. A wrong answer is worse than a short delay.",
         "- Call tools silently. Never tell the customer you are 'checking the system' by name, and never mention tool names.",
         "- If a tool fails or returns nothing, say plainly that you could not find it and offer the next best step. Do not retry the same call more than once.",
+        sendsMedia
+          ? "- Every choice between a fixed set of options goes out as a control, no matter how far into the conversation you are: two or three options with send_buttons, four or more with send_list. Writing them into your own text — \"Black, White or Sand?\" — is the mistake to avoid, and it stays a mistake on the fourth question as much as the first."
+          : null,
+        sendsMedia
+          ? "- One question per turn, and the control asks it. After sending buttons or a list, write nothing else: anything you add arrives underneath as a second bubble asking the same thing again."
+          : null,
+        sendsMedia
+          ? "- When the customer asks for a link, a page, a form, a catalogue or your website, send it with send_link_button. Do not answer that you cannot, and do not describe where to find it."
+          : null,
         routes
           ? '- transfer_to_agent and escalate_to_human are not the same thing. transfer_to_agent moves the conversation to an AI colleague, silently and immediately; escalate_to_human pulls in a person. If a colleague listed under "Your team" covers the request, transfer — do not escalate, and do not answer around it.'
           : null,
@@ -324,7 +336,10 @@ export function compileSystemPrompt(opts: {
       "Output",
       [
         "Reply with plain conversational text only — the customer sees it verbatim in a chat window.",
-        "No markdown headings, no code fences, no JSON.",
+        "No markdown of any kind. No headings, no code fences, no JSON, and in particular no markdown links or images: WhatsApp renders none of it, so `![Tee](https://…)` reaches the customer as those literal characters.",
+        sendsMedia
+          ? "Never paste a URL into your reply. To show a picture call send_media with it; to send someone to a page call send_link_button. A link the customer can tap is the whole reason those exist."
+          : "Never paste a raw URL into your reply. Say what is at it — the customer cannot tap it here.",
         opts.now ? `The current date and time is ${opts.now} (${w.timezone}).` : null,
       ]
         .filter(Boolean)

@@ -31,6 +31,7 @@ import {
 } from "@phosphor-icons/react";
 import { toast } from "@/components/ui/toast";
 import { RichMessage, parseRichPayload } from "@/components/rich-message";
+import { TypingBubble } from "@/components/typing-bubble";
 
 // One browser == one contact, so a returning visitor keeps their conversation.
 // localStorage is an external store rather than React state, so it is read
@@ -444,7 +445,10 @@ function WidgetChat({
   return (
     <>
       <MessageScrollerProvider autoScroll defaultScrollPosition="end">
-        <MessageScroller className="min-h-0 min-w-0 flex-1">
+        <MessageScroller
+          data-chat="whatsapp"
+          className="min-h-0 min-w-0 flex-1"
+        >
           <MessageScrollerViewport aria-label="Conversation">
             <MessageScrollerContent className="mx-auto w-full max-w-2xl justify-end gap-3 p-4">
               <MessageScrollerItem messageId="greeting">
@@ -514,15 +518,7 @@ function WidgetChat({
 
               {sending ? (
                 <MessageScrollerItem messageId="typing">
-                  <Message align="start">
-                    <MessageContent>
-                      <Bubble variant="outline">
-                        <BubbleContent className="flex items-center gap-2">
-                          <Spinner /> typing…
-                        </BubbleContent>
-                      </Bubble>
-                    </MessageContent>
-                  </Message>
+                  <TypingBubble />
                 </MessageScrollerItem>
               ) : null}
             </MessageScrollerContent>

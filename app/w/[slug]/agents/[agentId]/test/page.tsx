@@ -15,23 +15,20 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import {
-  Message,
-  MessageAvatar,
-  MessageContent,
+  Message,  MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
 import {
   TranscriptItem,
   TranscriptView,
 } from "@/components/transcript";
+import { TypingBubble } from "@/components/typing-bubble";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
 import {
   PaperPlaneRightIcon,
   ArrowLeftIcon,
-  ArrowsClockwiseIcon,
-  RobotIcon,
-  WarningIcon,
+  ArrowsClockwiseIcon,  WarningIcon,
   SlidersIcon,
 } from "@phosphor-icons/react";
 
@@ -254,11 +251,8 @@ export default function AgentTestPage({
           <>
             <TranscriptItem messageId="greeting">
               <Message align="start">
-                <MessageAvatar>
-                  <RobotIcon className="size-4" />
-                </MessageAvatar>
                 <MessageContent>
-                  <Bubble variant="muted">
+                  <Bubble variant="outline">
                     <BubbleContent>
                       {resolveGreeting(agent, workspace.name)}
                     </BubbleContent>
@@ -295,18 +289,7 @@ export default function AgentTestPage({
         trailing={
           sending ? (
             <TranscriptItem messageId="typing">
-              <Message align="start">
-                <MessageAvatar>
-                  <RobotIcon className="size-4" />
-                </MessageAvatar>
-                <MessageContent>
-                  <Bubble variant="muted">
-                    <BubbleContent className="flex items-center gap-2">
-                      <Spinner /> thinking…
-                    </BubbleContent>
-                  </Bubble>
-                </MessageContent>
-              </Message>
+              <TypingBubble label="The agent is typing" />
             </TranscriptItem>
           ) : null
         }

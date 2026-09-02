@@ -7,7 +7,8 @@ configure agents in the dashboard, and the same runtime serves both a web
 playground and WhatsApp.
 
 Stack: Next.js 16 (App Router) · Convex (database, vector search, actions, HTTP
-endpoints, file storage) · AI SDK v7 with OpenAI · Zod · shadcn/ui.
+endpoints, file storage) · AI SDK v7 through the Vercel AI Gateway · Zod ·
+shadcn/ui.
 
 ---
 
@@ -36,7 +37,7 @@ console at `/admin`, and sign-in at `/login`.
 ```bash
 bun install
 npx convex dev          # pushes the schema + functions, generates types
-npx convex env set OPENAI_API_KEY sk-...   # required — actions run on Convex
+npx convex env set AI_GATEWAY_API_KEY vck_...   # required — actions run on Convex
 
 # Session signing key — see Authentication below
 node -e '(async()=>{const p=await crypto.subtle.generateKey({name:"RSASSA-PKCS1-v1_5",modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},true,["sign","verify"]);const k=await crypto.subtle.exportKey("pkcs8",p.privateKey);const j=await crypto.subtle.exportKey("jwk",p.publicKey);console.log("JWT_PRIVATE_KEY="+Buffer.from(k).toString("base64"));console.log("JWT_PUBLIC_JWK="+JSON.stringify({kty:j.kty,n:j.n,e:j.e,alg:"RS256",use:"sig",kid:"magic-ai-bot-1"}))})()'
@@ -47,7 +48,7 @@ bun dev
 ```
 
 `.env.local` needs `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL`
-(both written by `convex dev`). The OpenAI key and the signing key must be set
+(both written by `convex dev`). The gateway key and the signing key must be set
 **on the Convex deployment**, not just in `.env.local`, because every model call
 and every token signature happens inside a Convex action.
 
@@ -73,6 +74,28 @@ Then, in the console:
    straight in their own workspace.
 
 ---
+
+## Models
+
+Every model call goes through the [Vercel AI
+Gateway](https://vercel.com/docs/ai-gateway), so one `AI_GATEWAY_API_KEY`
+reaches all three things the platform needs:
+
+| Use | Model | Why that one |
+| --- | --- | --- |
+| Chat | `deepseek/deepseek-v4-flash` | Tool-capable, and at $0.13/$0.26 per million tokens roughly a quarter of gpt-4.1-mini |
+| Retrieval | `openai/text-embedding-3-small` | The `knowledgeChunks` vector index is pinned to 1536 dimensions — any other model stops matching and every source in every workspace needs re-embedding |
+| Voice notes | `openai/whisper-1` | Same model the direct OpenAI call used |
+
+`convex/lib/gateway.ts` is the only file that builds a provider, and only the
+Node-runtime actions import it — `lib/shared.ts` is imported by React, so the
+model *ids* live there and the SDK never reaches the browser bundle.
+
+Agents saved before the gateway hold a bare id like `gpt-4.1-mini`. Those are
+qualified to `openai/gpt-4.1-mini` at the call rather than migrated, so an
+agent nobody has touched keeps answering on the model it was configured with,
+through the new route. `convex/lib/pricing.ts` therefore keys both forms, or
+old usage rows would become an unpriced gap.
 
 ## Architecture
 

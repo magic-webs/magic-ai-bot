@@ -1,7 +1,15 @@
+// Node runtime: this file drives the AI SDK for Whisper transcription, which
+// the default V8 runtime is not the place for. Legal here because the module
+// exports only actions — Convex requires that of a Node-runtime file, and both
+// handleInbound and sendOutbound qualify.
+"use node";
+
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { buildMessage, type Outbound } from "./lib/whatsappSend";
+import { experimental_transcribe as transcribeAudio } from "ai";
+import { aiGateway, TRANSCRIPTION_MODEL } from "./lib/gateway";
 
 // WhatsApp caps a text body at 4096 characters.
 const MAX_BODY = 3900;
@@ -119,31 +127,12 @@ async function downloadMedia(
   };
 }
 
-async function transcribe(
-  blob: Blob,
-  mimeType: string,
-  apiKey: string
-): Promise<string> {
-  const extension = mimeType.split("/")[1]?.split(";")[0] || "ogg";
-  const form = new FormData();
-  form.append("file", blob, `voice.${extension}`);
-  form.append("model", "whisper-1");
-
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-    }
-  );
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Transcription failed: ${text.slice(0, 200)}`);
-  }
-  const result = (await response.json()) as { text?: string };
-  return (result.text ?? "").trim();
+async function transcribe(blob: Blob): Promise<string> {
+  const result = await transcribeAudio({
+    model: aiGateway().transcription(TRANSCRIPTION_MODEL),
+    audio: new Uint8Array(await blob.arrayBuffer()),
+  });
+  return result.text.trim();
 }
 
 // The subset of Meta's inbound message shape this app reads.
@@ -291,12 +280,12 @@ export const handleInbound = internalAction({
     let text = extractText(message);
 
     if (!text && (message.type === "audio" || message.type === "voice")) {
-      const apiKey = process.env.OPENAI_API_KEY;
+      const apiKey = process.env.AI_GATEWAY_API_KEY;
       const mediaId = message.audio?.id ?? message.voice?.id;
       if (apiKey && mediaId) {
         try {
-          const { blob, mimeType } = await downloadMedia(config, mediaId);
-          text = await transcribe(blob, mimeType, apiKey);
+          const { blob } = await downloadMedia(config, mediaId);
+          text = await transcribe(blob);
         } catch (error) {
           const reason =
             error instanceof Error ? error.message : String(error);

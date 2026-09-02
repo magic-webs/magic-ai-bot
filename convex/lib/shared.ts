@@ -207,15 +207,39 @@ export const ROUTER_DEFAULTS = {
     "Escalate to a human if the customer asks for a person, is complaining, or no colleague on the team covers what they need.",
 } as const;
 
-export const CHAT_MODELS = [
-  { id: "gpt-4.1-mini", label: "gpt-4.1-mini — fast, cheap, tool-capable" },
-  { id: "gpt-4.1", label: "gpt-4.1 — strongest instruction following" },
-  { id: "gpt-4o-mini", label: "gpt-4o-mini — legacy cheap default" },
-  { id: "gpt-4o", label: "gpt-4o — legacy flagship" },
-] as const;
+/** The model a new agent and every front desk is created with. */
+export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
 
-// Must stay in step with the `dimensions` on the knowledgeChunks vector index.
-export const EMBEDDING_MODEL = "text-embedding-3-small";
+/**
+ * What the model picker offers. Ids are the Vercel AI Gateway's
+ * `creator/model` form, which is what convex/lib/gateway.ts sends.
+ *
+ * An agent saved before the gateway holds a bare id like `gpt-4.1-mini`; that
+ * still runs, qualified to `openai/…` at the call, so this list does not have
+ * to carry history.
+ */
+export const CHAT_MODELS = [
+  {
+    id: "deepseek/deepseek-v4-flash",
+    label: "DeepSeek V4 Flash — fast, tool-capable, cheapest",
+  },
+  {
+    id: "deepseek/deepseek-v4-pro",
+    label: "DeepSeek V4 Pro — stronger reasoning, dearer",
+  },
+  {
+    id: "openai/gpt-4.1-mini",
+    label: "gpt-4.1-mini — the previous default",
+  },
+  {
+    id: "openai/gpt-4.1",
+    label: "gpt-4.1 — strongest instruction following",
+  },
+  {
+    id: "anthropic/claude-haiku-4.5",
+    label: "Claude Haiku 4.5 — fast, strong at following rules",
+  },
+] as const;
 
 // The most an anonymous website visitor may send in one message. Generous for a
 // chat box, small enough that nobody can bill a workspace for an essay.

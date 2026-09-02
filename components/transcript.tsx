@@ -10,7 +10,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import {
   Message,
-  MessageAvatar,
   MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
@@ -28,8 +27,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
-  RobotIcon,
-  UserIcon,
   WrenchIcon,
   CaretRightIcon,
   ArrowsSplitIcon,
@@ -147,7 +144,10 @@ export function TranscriptView({
 
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
-      <MessageScroller className="min-h-0 min-w-0 flex-1">
+      <MessageScroller
+        data-chat="whatsapp"
+        className="min-h-0 min-w-0 flex-1"
+      >
         <MessageScrollerViewport aria-label="Conversation">
           {/* justify-end sits a short conversation just above the composer,
               the way a chat client does; once the content overflows,
@@ -224,15 +224,8 @@ export function TranscriptView({
               return (
                 <MessageScrollerItem key={message._id} messageId={message._id}>
                   <Message align={isUser ? "end" : "start"}>
-                    <MessageAvatar>
-                      {isUser ? (
-                        <UserIcon className="size-4" />
-                      ) : (
-                        <RobotIcon className="size-4" />
-                      )}
-                    </MessageAvatar>
                     <MessageContent>
-                      <Bubble variant={isUser ? "default" : "muted"}>
+                      <Bubble variant={isUser ? "tinted" : "outline"}>
                         <BubbleContent
                           className={
                             rich ? "min-w-56" : "whitespace-pre-wrap"

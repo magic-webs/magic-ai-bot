@@ -8,7 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { createOpenAI } from "@ai-sdk/openai";
+import { aiGateway, gatewayModelId, EMBEDDING_MODEL } from "./lib/gateway";
 import {
   generateText,
   embed,
@@ -26,7 +26,6 @@ import {
   type TeammateShape,
 } from "./lib/prompt";
 import {
-  EMBEDDING_MODEL,
   MAX_HANDOFFS_PER_TURN,
   MAX_WIDGET_MESSAGE_CHARS,
   truncate,
@@ -79,6 +78,11 @@ type TurnContext = {
   };
   trace: ToolTrace[];
   pendingTransfer: PendingTransfer | null;
+  /**
+   * Whether a control that puts a question to the customer has already gone out
+   * this turn. One reply cannot answer two menus, so the second is refused.
+   */
+  askedThisTurn: boolean;
 };
 
 function record(
@@ -139,9 +143,8 @@ async function retrieveKnowledge(
     conversationId?: Id<"conversations">;
   }
 ): Promise<Array<{ text: string; sourceTitle: string }>> {
-  const openai = createOpenAI({ apiKey: opts.apiKey });
   const { embedding, usage } = await embed({
-    model: openai.embedding(EMBEDDING_MODEL),
+    model: aiGateway().embedding(EMBEDDING_MODEL),
     value: opts.queryText,
   });
 
@@ -260,7 +263,23 @@ function buildBuiltinTools(
           query,
           limit: 8,
         });
-        return { count: products.length, products };
+        const withImages = products.filter((p) => p.imageUrl).length;
+        return {
+          count: products.length,
+          products,
+          // Said here rather than only in the prompt because this is where the
+          // URL is handed over, and a bare imageUrl reads as an invitation to
+          // paste it into the reply.
+          ...(withImages > 0 && enabled.has("rich_messages")
+            ? {
+                note: "imageUrl is for send_media, not for your reply. If the customer wants to see a product, call send_media with its imageUrl and a short caption — one call per product. Never write the URL out.",
+              }
+            : withImages > 0
+              ? {
+                  note: "Do not put imageUrl in your reply — the customer cannot open it. Describe the product instead.",
+                }
+              : {}),
+        };
       }),
     });
   }
@@ -273,10 +292,41 @@ function buildBuiltinTools(
         product: z.string().describe("The product name the customer wants"),
       }),
       execute: traced(trace, "get_product_requirements", async ({ product }) => {
-        return await ctx.runQuery(internal.products.requirementsForTool, {
+        const result = await ctx.runQuery(internal.products.requirementsForTool, {
           workspaceId: workspace._id,
           product,
         });
+
+        // Which control each field wants, decided here where the option
+        // counts are, rather than left to the model to remember. Reply buttons
+        // hold three; anything more has to be a list.
+        if (!enabled.has("rich_messages") || !result.found) return result;
+        const choices = [
+          ...(result.product?.requiredFields ?? []),
+          ...(result.product?.optionalFields ?? []),
+        ].filter((field) => (field.options?.length ?? 0) >= 2);
+        const asButtons = choices.filter((f) => (f.options?.length ?? 0) <= 3);
+        const asList = choices.filter((f) => (f.options?.length ?? 0) > 3);
+
+        const note = [
+          asButtons.length > 0
+            ? `Ask with send_buttons, one field at a time: ${asButtons
+                .map((f) => f.label)
+                .join(", ")}.`
+            : null,
+          asList.length > 0
+            ? `Ask with send_list — more than three options, which reply buttons cannot hold: ${asList
+                .map((f) => `${f.label} (${f.options?.length})`)
+                .join(", ")}.`
+            : null,
+          choices.length > 0
+            ? "Never also write the options out in your own text; the control shows them, and doing both asks twice."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return { ...result, ...(note ? { note } : {}) };
       }),
     });
   }
@@ -557,11 +607,36 @@ function buildBuiltinTools(
 // prose, which is the failure mode once a tool has already spoken.
 // ---------------------------------------------------------------------------
 
+// Kinds that put the question to the customer themselves, so the agent has
+// nothing left to say this turn.
+const ASKS_ITS_OWN_QUESTION = new Set<Outbound["kind"]>([
+  "buttons",
+  "list",
+  "cta_url",
+  "flow",
+  "request_location",
+  "request_address",
+  "product",
+  "product_list",
+  "catalog",
+]);
+
 function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
   const { workspace, agent, conversationId, channelId, externalId, channelType, trace } =
     turn;
 
   const deliver = async (message: Outbound) => {
+    if (ASKS_ITS_OWN_QUESTION.has(message.kind)) {
+      if (turn.askedThisTurn) {
+        return {
+          ok: false,
+          error:
+            "You have already put a question to the customer this turn. They can only answer one, and a second would bury the first — wait for their reply before asking the next thing.",
+        };
+      }
+      turn.askedThisTurn = true;
+    }
+
     // Send first, record second. A payload the provider rejected must not sit
     // in the transcript as something the customer saw.
     if (channelType === "whatsapp") {
@@ -589,7 +664,9 @@ function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
 
     return {
       ok: true,
-      note: "Shown to the customer. Do not repeat its contents in your reply — add only what it does not already say.",
+      note: ASKS_ITS_OWN_QUESTION.has(message.kind)
+        ? "Sent, and it is your whole reply for this turn — it already asks the question and shows the options. Write nothing further: whatever you add arrives as a second bubble underneath, asking again."
+        : "Sent. The customer can see it, so add at most one short line and never describe what is in it.",
     };
   };
 
@@ -621,11 +698,17 @@ function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
 
   registry.send_buttons = tool({
     description:
-      "Send the customer up to three tappable quick-reply buttons. Use it whenever you would otherwise ask them to type one of a short set of choices — confirming a summary, picking a service, answering yes or no. Tapping one sends its label back as their next message. Write the body as the question; do not also list the options in it.",
+      "Send the customer up to three tappable quick-reply buttons. Use it whenever you would otherwise ask them to type one of a short set of choices — confirming a summary, picking a service, answering yes or no. Tapping one sends its label back as their next message. Write the body as the question; do not also list the options in it. THREE IS A HARD LIMIT: with four or more choices use send_list instead. Never drop options to make them fit — a size menu missing XL is worse than a list.",
     inputSchema: z.object({
       body: z.string().describe("The question or prompt. Max 1024 characters."),
       buttons: z
-        .array(z.string().describe("Button label, max 20 characters"))
+        .array(
+          z
+            .string()
+            .describe(
+              "Button label. Twenty characters, hard — write 'Classic tee', not 'Classic Cotton T-Shirt', which is cut short on the phone. Shorten it yourself rather than letting it be trimmed."
+            )
+        )
         .min(1)
         .max(3),
       footer: z.string().optional().describe("Small grey line underneath"),
@@ -1044,7 +1127,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       };
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.AI_GATEWAY_API_KEY;
     if (!apiKey) {
       return {
         ok: false,
@@ -1052,7 +1135,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         conversationId: null,
         toolCalls: [],
         error:
-          "OPENAI_API_KEY is not set on the Convex deployment. Run: npx convex env set OPENAI_API_KEY sk-...",
+          "AI_GATEWAY_API_KEY is not set on the Convex deployment. Every model call runs inside a Convex action, which cannot read .env.local — run: npx convex env set AI_GATEWAY_API_KEY <key>",
       };
     }
 
@@ -1099,6 +1182,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       },
       trace: [],
       pendingTransfer: null,
+      askedThisTurn: false,
     };
 
     const conversationMessages = [
@@ -1106,7 +1190,6 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       { role: "user" as const, content: message },
     ];
 
-    const openai = createOpenAI({ apiKey });
 
     // Agents that have already held this message. Used both to keep the roster
     // honest and to make a hand-back impossible.
@@ -1186,7 +1269,9 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       let stepText = "";
       try {
         const result = await generateText({
-          model: openai(agent.model),
+          // Qualified on the way out, so an agent still configured with a bare
+          // OpenAI id keeps working through the gateway.
+          model: aiGateway()(gatewayModelId(agent.model)),
           system,
           messages: conversationMessages,
           tools: toolset,

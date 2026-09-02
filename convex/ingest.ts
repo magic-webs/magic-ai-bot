@@ -3,9 +3,8 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { createOpenAI } from "@ai-sdk/openai";
+import { aiGateway, EMBEDDING_MODEL } from "./lib/gateway";
 import { embedMany } from "ai";
-import { EMBEDDING_MODEL } from "./lib/shared";
 // pdf-parse-fork has no bundled types
 // @ts-expect-error -- untyped CommonJS module
 import pdf from "pdf-parse-fork";
@@ -84,14 +83,14 @@ export const processSource = internalAction({
     });
     if (!source) return { success: false, error: "Source not found" };
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.AI_GATEWAY_API_KEY;
     if (!apiKey) {
       await ctx.runMutation(internal.knowledge.markFailed, {
         sourceId: args.sourceId,
         reason:
-          "OPENAI_API_KEY is not set on the Convex deployment. Run: npx convex env set OPENAI_API_KEY sk-...",
+          "AI_GATEWAY_API_KEY is not set on the Convex deployment. Run: npx convex env set AI_GATEWAY_API_KEY <key>",
       });
-      return { success: false, error: "Missing OPENAI_API_KEY" };
+      return { success: false, error: "Missing AI_GATEWAY_API_KEY" };
     }
 
     await ctx.runMutation(internal.knowledge.markProcessing, {
@@ -154,11 +153,10 @@ export const processSource = internalAction({
       }
 
       // --- 3. Embed and persist in batches ---------------------------------
-      const openai = createOpenAI({ apiKey });
       for (let start = 0; start < chunks.length; start += EMBED_BATCH) {
         const batch = chunks.slice(start, start + EMBED_BATCH);
         const { embeddings, usage } = await embedMany({
-          model: openai.embedding(EMBEDDING_MODEL),
+          model: aiGateway().embedding(EMBEDDING_MODEL),
           values: batch,
         });
 

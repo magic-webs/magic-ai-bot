@@ -37,6 +37,22 @@ const CAP = {
 const clamp = (value: string, max: number): string =>
   value.trim().slice(0, max);
 
+/**
+ * Clamp for anything the customer reads as a label.
+ *
+ * Backs up to the last word boundary when one is reasonably near the end, so a
+ * 22-character button title becomes "Classic Cotton" rather than the
+ * "Classic Cotton T-Shi" WhatsApp was showing. Falls back to a hard cut when
+ * the first word is itself too long.
+ */
+const clampLabel = (value: string, max: number): string => {
+  const trimmed = value.trim();
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(0, max);
+  const boundary = cut.lastIndexOf(" ");
+  return (boundary > max * 0.55 ? cut.slice(0, boundary) : cut).trim();
+};
+
 export type MediaRef = { link: string } | { id: string };
 
 export type HeaderSpec =
@@ -398,7 +414,7 @@ function payloadFor(message: Outbound): Json {
             type: "reply",
             reply: {
               id: clamp(button.id, CAP.buttonId),
-              title: clamp(button.title, CAP.buttonTitle),
+              title: clampLabel(button.title, CAP.buttonTitle),
             },
           })),
         },
@@ -414,10 +430,10 @@ function payloadFor(message: Outbound): Json {
         const rows = section.rows.slice(0, remaining);
         remaining -= rows.length;
         sections.push({
-          title: clamp(section.title, CAP.sectionTitle),
+          title: clampLabel(section.title, CAP.sectionTitle),
           rows: rows.map((row) => ({
             id: clamp(row.id, CAP.buttonId),
-            title: clamp(row.title, CAP.rowTitle),
+            title: clampLabel(row.title, CAP.rowTitle),
             ...(row.description
               ? { description: clamp(row.description, CAP.rowDescription) }
               : {}),
@@ -429,7 +445,7 @@ function payloadFor(message: Outbound): Json {
         header: message.header,
         footer: message.footer,
         action: {
-          button: clamp(message.buttonText, CAP.listButton),
+          button: clampLabel(message.buttonText, CAP.listButton),
           sections,
         },
       });
@@ -443,7 +459,7 @@ function payloadFor(message: Outbound): Json {
         action: {
           name: "cta_url",
           parameters: {
-            display_text: clamp(message.displayText, CAP.buttonTitle),
+            display_text: clampLabel(message.displayText, CAP.buttonTitle),
             url: message.url,
           },
         },
@@ -460,7 +476,7 @@ function payloadFor(message: Outbound): Json {
             flow_message_version: "3",
             flow_token: message.flowToken,
             flow_id: message.flowId,
-            flow_cta: clamp(message.flowCta, CAP.buttonTitle),
+            flow_cta: clampLabel(message.flowCta, CAP.buttonTitle),
             flow_action: "navigate",
             mode: message.mode ?? "published",
             ...(message.screen
@@ -554,6 +570,43 @@ export function buildMessage(
 
 /** Long text has to be split; WhatsApp caps a body at 4096. */
 export const MAX_TEXT_BODY = CAP.text;
+
+/**
+ * What the model sees in replayed history for a rich message: the words the
+ * customer read, and nothing describing the controls.
+ *
+ * Deliberately not summarise(). That one brackets the options so a person
+ * reading a transcript can see the menu — and replaying it to the model taught
+ * it to write "[list: A | B]" as literal message text. There is no phrasing of
+ * a control that a model will reliably decline to copy, so the answer is to
+ * give it nothing to copy.
+ */
+export function historyText(message: Outbound): string {
+  switch (message.kind) {
+    case "text":
+      return message.body;
+    case "media":
+      return message.caption?.trim() ?? "(sent an attachment)";
+    case "location":
+      return `(shared a location${message.name ? `: ${message.name}` : ""})`;
+    case "contacts":
+      return "(shared a contact card)";
+    case "reaction":
+      return message.emoji;
+    case "buttons":
+    case "list":
+    case "cta_url":
+    case "flow":
+    case "request_location":
+    case "request_address":
+    case "product":
+    case "product_list":
+    case "catalog":
+      return message.body;
+    case "carousel":
+      return "(sent a carousel)";
+  }
+}
 
 /**
  * One line describing what the customer was shown.
