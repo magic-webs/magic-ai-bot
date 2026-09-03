@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Magic AI Bot — MCP server.
+ * Magic Agent — MCP server.
  *
  * Exposes the platform's own Convex functions as MCP tools, so an assistant can
  * build and configure a workspace end to end: agents, the front desk that
@@ -108,7 +108,7 @@ function assertConfigured() {
   if (CONVEX_URL && USERNAME && PASSWORD) return;
   throw new Error(
     [
-      "Magic AI Bot MCP is not configured.",
+      "Magic Agent MCP is not configured.",
       `  Convex URL: ${CONVEX_URL ? "ok" : "MISSING (MAGIC_AI_BOT_CONVEX_URL or NEXT_PUBLIC_CONVEX_URL)"}`,
       `  Username:   ${USERNAME ? "ok" : "MISSING (MAGIC_AI_BOT_USERNAME or ADMIN_EMAIL)"}`,
       `  Password:   ${PASSWORD ? "ok" : "MISSING (MAGIC_AI_BOT_PASSWORD or ADMIN_PASSWORD)"}`,
@@ -173,7 +173,7 @@ export async function authorize() {
       sessionToken: session.sessionToken,
     });
   }
-  if (!minted) throw new Error("Could not authenticate with Magic AI Bot.");
+  if (!minted) throw new Error("Could not authenticate with Magic Agent.");
 
   access = { token: minted.token, expiresAt: minted.expiresAt };
   convex().setAuth(access.token);
@@ -503,7 +503,7 @@ export function buildServer() {
     { name: "magic-ai-bot", version: "1.0.0" },
     {
       instructions: [
-        "Manage a Magic AI Bot workspace: agents, the front desk that routes between them, the product catalogue, the knowledge base, channels and custom tools.",
+        "Manage a Magic Agent workspace: agents, the front desk that routes between them, the product catalogue, the knowledge base, channels and custom tools.",
         "",
         "How the platform fits together, so configuration lands in the right place:",
         "- Every workspace has one front desk agent (kind: router). It answers first on every channel and hands each conversation to the specialist that should deal with it, silently. Specialists can hand on to each other.",

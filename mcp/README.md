@@ -1,4 +1,4 @@
-# Magic AI Bot — MCP server
+# Magic Agent — MCP server
 
 Lets an assistant build and configure a workspace: agents, the front desk that
 routes between them, the product catalogue, the knowledge base, channels and

@@ -105,7 +105,7 @@ export const processSource = internalAction({
         text = source.rawText ?? "";
       } else if (source.kind === "url") {
         const response = await fetch(source.url!, {
-          headers: { "User-Agent": "magic-ai-bot knowledge crawler" },
+          headers: { "User-Agent": "Magic Agent knowledge crawler" },
           redirect: "follow",
         });
         if (!response.ok) {

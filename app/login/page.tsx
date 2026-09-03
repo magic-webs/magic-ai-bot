@@ -82,7 +82,7 @@ function LoginForm() {
       <Link href="/" className="flex items-center gap-2">
         <Logo className="h-7" />
         <span className="font-heading text-base font-semibold tracking-tight">
-          Magic AI Bot
+          Magic Agent
         </span>
       </Link>
 

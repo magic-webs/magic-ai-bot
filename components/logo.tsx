@@ -3,7 +3,7 @@ import logoMark from "@/public/images/logo.png";
 import { cn } from "@/lib/utils";
 
 /**
- * The Magic AI Bot mark.
+ * The Magic Agent mark.
  *
  * Shown on the page ground, not in a filled tile: the mark is a green outline
  * on transparency, and the brand tiles it replaced were `bg-primary` — the

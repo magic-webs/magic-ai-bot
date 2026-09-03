@@ -2,24 +2,11 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Logo } from "@/components/logo";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
-import { Message, MessageContent } from "@/components/ui/message";
-import {
-  Item,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
+import { SmoothScroll } from "@/components/landing/smooth-scroll";
+import { Reveal } from "@/components/landing/reveal";
+import { PhoneChat } from "@/components/landing/phone-chat";
+import { RoutingDiagram } from "@/components/landing/routing-diagram";
 import {
   RobotIcon,
   BooksIcon,
@@ -28,7 +15,6 @@ import {
   WhatsappLogoIcon,
   ReceiptIcon,
   ArrowRightIcon,
-  CheckIcon,
   LightningIcon,
   ProhibitIcon,
   HandshakeIcon,
@@ -36,345 +22,322 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 
 export const metadata: Metadata = {
-  title: "Magic AI Bot — your AI sales assistant on WhatsApp",
+  title: "Magic Agent — your AI sales assistant on WhatsApp",
   description:
     "An AI assistant that answers your customers on WhatsApp, works from your own policies and price list, collects every detail your team needs, and hands you a complete enquiry.",
 };
 
+/**
+ * The landing page.
+ *
+ * A server component, so the metadata above is real metadata and the copy is in
+ * the HTML. Everything that moves is a client component underneath — the page
+ * reads perfectly with JavaScript switched off, which is the only sane way to
+ * add animation to the one page search engines and sceptical buyers actually
+ * read.
+ *
+ * The copy was cut hard rather than restyled. Six three-line paragraphs of
+ * features is not a design problem you can animate your way out of; each claim
+ * is now one line, and the one genuinely hard idea — routing — is a drawing.
+ */
+
+/** `span` is the bento footprint at md and up. */
 const CAPABILITIES = [
   {
     icon: BooksIcon,
-    title: "It answers from your documents",
-    body: "Upload your delivery policy, minimum order, artwork requirements — whatever your team actually answers from. Your assistant quotes those, not the internet.",
+    title: "Answers from your documents",
+    body: "Your delivery policy, your minimum order, your artwork specs. Not the internet.",
+    span: "md:col-span-2",
   },
   {
     icon: PackageIcon,
-    title: "It asks the right questions",
-    body: "Tell it what you need to know for each product — size, quantity, material, finish — and it works through the list one question at a time until nothing is missing.",
-  },
-  {
-    icon: ReceiptIcon,
-    title: "You get a complete enquiry",
-    body: "Every conversation that finishes arrives as a structured order with all the specifications collected, ready for your team to price. No scrolling back through chat.",
+    title: "Asks the right questions",
+    body: "Size, quantity, finish — one at a time, until nothing is missing.",
+    span: "",
   },
   {
     icon: WhatsappLogoIcon,
-    title: "On the number you already use",
-    body: "Connect your own WhatsApp Business number. Your customers message the same place they always did, and get an answer in seconds instead of the next morning.",
+    title: "On your own number",
+    body: "The number your customers already message.",
+    span: "",
+  },
+  {
+    icon: ReceiptIcon,
+    title: "Hands you a complete enquiry",
+    body: "Every specification collected and structured, ready to price. No scrolling back through chat.",
+    span: "md:col-span-2",
   },
   {
     icon: RobotIcon,
-    title: "It sounds like your business",
-    body: "Give it a name, a role and a tone of voice. Set the things it must always say and the things it must never say. Change any of it whenever you like.",
+    title: "Sounds like your business",
+    body: "Its name, its role, its tone. What it must always say, and never.",
+    span: "",
   },
   {
     icon: WrenchIcon,
-    title: "It can check your systems",
-    body: "Need it to look up stock, check a delivery area or fetch an order status? Describe the job in a sentence and the connection is built for you.",
+    title: "Checks your systems",
+    body: "Describe the lookup in a sentence; the connection gets built for you.",
+    span: "md:col-span-2",
   },
 ];
 
 const GUARDRAILS = [
   {
     icon: ProhibitIcon,
-    title: "It never invents a price",
-    body: "If a price is not in your list, it says the team will confirm — it does not guess, estimate, or offer a range.",
+    title: "Never invents a price",
+    body: "Not in your list? The team confirms it. No guessing, no ranges.",
   },
   {
     icon: ClockIcon,
-    title: "It never promises a date",
-    body: "Lead times and delivery dates only come from what you have told it. Nothing is committed on your behalf.",
+    title: "Never promises a date",
+    body: "Lead times come only from what you told it.",
   },
   {
     icon: HandshakeIcon,
-    title: "It knows when to step aside",
-    body: "Complaints, awkward questions and anyone asking for a person are handed straight to your team, with a summary.",
+    title: "Knows when to step aside",
+    body: "Complaints and anyone asking for a person go to your team, with a summary.",
   },
 ];
 
 const STEPS = [
   {
-    title: "Tell it about your business",
-    body: "What you sell, where you deliver, your minimum order. A few minutes of setup.",
+    title: "Describe the business",
+    body: "What you sell, where you deliver, your minimum order.",
   },
   {
-    title: "Add your products and policies",
-    body: "Your price list and the documents your team answers from, so nothing is guessed.",
+    title: "Add products and policies",
+    body: "Your price list and the documents your team answers from.",
   },
   {
-    title: "Try it, then switch it on",
-    body: "Chat to it yourself until you are happy, then connect WhatsApp and let it answer.",
+    title: "Try it, then go live",
+    body: "Chat to it yourself, then connect WhatsApp.",
   },
 ];
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-svh flex-col">
-      {/* ------------------------------------------------------------- header */}
-      <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2">
-            <Logo className="h-7" />
-            <span className="font-heading text-base font-semibold tracking-tight">
-              Magic AI Bot
-            </span>
-          </Link>
+    <SmoothScroll>
+      {/* Without JavaScript nothing lifts the CSS hidden state, so the page
+          would be blank. This is the whole reason the reveals are safe to put
+          in CSS. */}
+      <noscript>
+        <style>{"[data-reveal]{opacity:1!important}"}</style>
+      </noscript>
 
-          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
-            <a href="#what-it-does" className="hover:text-foreground">
-              What it does
-            </a>
-            <a href="#guardrails" className="hover:text-foreground">
-              Guardrails
-            </a>
-            <a href="#how" className="hover:text-foreground">
-              Getting started
-            </a>
-          </nav>
+      <div className="flex min-h-svh flex-col">
+        {/* ----------------------------------------------------------- header */}
+        <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+          <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+            <Link href="/" className="flex items-center gap-2">
+              <Logo className="h-7" />
+              <span className="font-heading text-base font-semibold tracking-tight">
+                Magic Agent
+              </span>
+            </Link>
 
-          <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
-            Sign in <ArrowRightIcon />
-          </Button>
-        </div>
-      </header>
+            <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+              <a href="#what-it-does" className="hover:text-foreground">
+                What it does
+              </a>
+              <a href="#routing" className="hover:text-foreground">
+                Routing
+              </a>
+              <a href="#guardrails" className="hover:text-foreground">
+                Guardrails
+              </a>
+            </nav>
 
-      <main className="flex-1">
-        {/* ----------------------------------------------------------- hero */}
-        <section className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:py-20">
-          <div className="flex flex-col items-start gap-5">
-            <Badge variant="secondary" className="gap-1.5">
-              <LightningIcon className="size-3" />
-              Answers in seconds, day or night
-            </Badge>
-
-            <h1 className="font-heading text-3xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl">
-              Your AI sales assistant, answering on WhatsApp.
-            </h1>
-
-            <p className="max-w-xl text-base/relaxed text-muted-foreground">
-              Every enquiry gets a reply straight away — from your own policies
-              and price list, in your own tone of voice. It asks the questions
-              your team needs answered, then hands you a complete enquiry ready
-              to quote.
-            </p>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
-                Sign in <ArrowRightIcon />
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                nativeButton={false}
-                render={<a href="#what-it-does" />}
-              >
-                See what it does
-              </Button>
-            </div>
-
-            <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
-              {[
-                "Your own WhatsApp number",
-                "Answers from your documents",
-                "Never quotes a price it was not given",
-              ].map((point) => (
-                <li key={point} className="flex items-center gap-1.5">
-                  <CheckIcon className="size-3 text-primary" />
-                  {point}
-                </li>
-              ))}
-            </ul>
+            <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
+              Sign in <ArrowRightIcon />
+            </Button>
           </div>
+        </header>
 
-          {/* A real exchange, rendered with the same chat components the
-              product uses. */}
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b bg-muted/40">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <WhatsappLogoIcon className="size-4" />
-                Your business on WhatsApp
-                <Badge variant="secondary" className="ml-auto">
-                  live
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 py-4">
-              <Message align="end">
-                <MessageContent>
-                  <Bubble>
-                    <BubbleContent>Hi, I need 1000 business cards</BubbleContent>
-                  </Bubble>
-                </MessageContent>
-              </Message>
-
-              <Message align="start">
-                <MessageContent>
-                  <Bubble variant="muted">
-                    <BubbleContent>
-                      Happy to help. Standard size is 55 × 85mm — would you like
-                      silk coated 350gsm, and printed one side or both?
-                    </BubbleContent>
-                  </Bubble>
-                </MessageContent>
-              </Message>
-
-              <Message align="end">
-                <MessageContent>
-                  <Bubble>
-                    <BubbleContent>
-                      Both sides, matt lamination. Do you deliver to Belfast?
-                    </BubbleContent>
-                  </Bubble>
-                </MessageContent>
-              </Message>
-
-              <Message align="start">
-                <MessageContent>
-                  <Bubble variant="muted">
-                    <BubbleContent>
-                      We deliver to UK mainland addresses only, so Belfast is
-                      outside our area. Shall I quote for a mainland address
-                      instead?
-                    </BubbleContent>
-                  </Bubble>
-                </MessageContent>
-              </Message>
-
-              <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
-                <BooksIcon className="size-3" />
-                Answered from your own delivery policy
+        {/* ------------------------------------------------------------- hero */}
+        <section className="bg-grid relative border-b">
+          <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:py-24">
+            <Reveal className="flex flex-col items-start gap-5" stagger>
+              <Badge variant="secondary">
+                <WhatsappLogoIcon /> WhatsApp &amp; website chat
+              </Badge>
+              <h1 className="font-heading text-4xl leading-[1.05] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
+                Your customers get an answer in seconds.
+              </h1>
+              <p className="max-w-md text-base text-muted-foreground sm:text-lg">
+                An assistant that knows your prices, your policies and exactly
+                what to ask — then hands your team a finished enquiry.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="lg"
+                  nativeButton={false}
+                  render={<Link href="/login" />}
+                >
+                  Get started <ArrowRightIcon />
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  nativeButton={false}
+                  render={<a href="#routing" />}
+                >
+                  See how it routes
+                </Button>
               </div>
-            </CardContent>
-          </Card>
+            </Reveal>
+
+            {/* The proof, on a handset. The chat inside is the product's own
+                Bubble/Message under the product's own WhatsApp skin, so this
+                cannot drift from what a customer actually sees. */}
+            <Reveal delay={0.15} distance={32}>
+              <PhoneChat />
+              <p className="mx-auto mt-5 flex max-w-xs items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+                <LightningIcon className="size-3.5 shrink-0" />
+                Answered from the workspace&apos;s own price list and policies
+              </p>
+            </Reveal>
+          </div>
         </section>
 
-        <Separator />
-
-        {/* -------------------------------------------------- what it does */}
+        {/* ---------------------------------------------------- what it does */}
         <section
           id="what-it-does"
-          className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:py-18"
+          className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-20"
         >
-          <div className="max-w-2xl">
-            <h2 className="font-heading text-2xl font-semibold tracking-tight">
-              An assistant that actually knows your business
+          <Reveal className="max-w-2xl">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+              Six things it does that a chat widget does not
             </h2>
-            <p className="mt-2 text-base/relaxed text-muted-foreground">
-              It is not a chatbot with a script. You give it your documents, your
-              products and your rules, and it works from those.
-            </p>
-          </div>
+          </Reveal>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Bento: the two claims that carry the product get the wide cells,
+              so the grid says which matter before anything is read. */}
+          <Reveal className="mt-8 grid gap-3 sm:grid-cols-2 md:grid-cols-3" stagger>
             {CAPABILITIES.map((capability) => {
               const Icon = capability.icon;
               return (
-                <Card key={capability.title} className="h-full">
-                  <CardHeader>
-                    <span className="flex size-8 items-center justify-center rounded-md bg-muted text-foreground">
-                      <Icon className="size-4" />
-                    </span>
-                    <CardTitle className="mt-2">{capability.title}</CardTitle>
-                    <CardDescription className="leading-relaxed">
-                      {capability.body}
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
+                <div
+                  key={capability.title}
+                  className={`group flex flex-col gap-2 rounded-2xl border bg-card p-5 transition-colors hover:border-primary/40 ${capability.span}`}
+                >
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <Icon className="size-4.5" />
+                  </span>
+                  <h3 className="font-heading text-sm font-medium">
+                    {capability.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {capability.body}
+                  </p>
+                </div>
               );
             })}
+          </Reveal>
+        </section>
+
+        {/* --------------------------------------------------------- routing */}
+        <section id="routing" className="border-y bg-muted/30">
+          <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+            <Reveal className="max-w-2xl">
+              <h2 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+                One number. The right person every time.
+              </h2>
+              <p className="mt-3 text-sm text-muted-foreground sm:text-base">
+                A front desk reads every message first and hands it to whichever
+                assistant should deal with it. Silently — your customer never
+                sees a transfer, and never repeats themselves.
+              </p>
+            </Reveal>
+
+            <Reveal className="mt-10" distance={16}>
+              <RoutingDiagram />
+            </Reveal>
           </div>
         </section>
 
-        <Separator />
-
-        {/* ----------------------------------------------------- guardrails */}
+        {/* ------------------------------------------------------ guardrails */}
         <section
           id="guardrails"
-          className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:py-18"
+          className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-20"
         >
-          <div className="max-w-2xl">
-            <h2 className="font-heading text-2xl font-semibold tracking-tight">
-              What it will never do
+          <Reveal className="max-w-2xl">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+              What it will not do
             </h2>
-            <p className="mt-2 text-base/relaxed text-muted-foreground">
-              The risk with an assistant answering for you is that it says
-              something you would not. These limits are built in, not optional.
-            </p>
-          </div>
+          </Reveal>
 
-          <div className="mt-8 flex flex-col gap-2">
+          <Reveal className="mt-8 grid gap-3 md:grid-cols-3" stagger>
             {GUARDRAILS.map((guardrail) => {
               const Icon = guardrail.icon;
               return (
-                <Item key={guardrail.title} variant="outline">
-                  <ItemMedia variant="icon">
-                    <Icon />
-                  </ItemMedia>
-                  <ItemContent>
-                    <ItemTitle>{guardrail.title}</ItemTitle>
-                    <ItemDescription>{guardrail.body}</ItemDescription>
-                  </ItemContent>
-                </Item>
+                <div
+                  key={guardrail.title}
+                  className="flex flex-col gap-2 rounded-2xl border bg-card p-5"
+                >
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                    <Icon className="size-4.5" />
+                  </span>
+                  <h3 className="font-heading text-sm font-medium">
+                    {guardrail.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {guardrail.body}
+                  </p>
+                </div>
               );
             })}
-          </div>
+          </Reveal>
         </section>
 
-        <Separator />
+        {/* ------------------------------------------------------------ steps */}
+        <section className="bg-grid border-t">
+          <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+            <Reveal className="max-w-2xl">
+              <h2 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+                Live this afternoon
+              </h2>
+            </Reveal>
 
-        {/* ------------------------------------------------------ how it works */}
-        <section id="how" className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:py-18">
-          <div className="max-w-2xl">
-            <h2 className="font-heading text-2xl font-semibold tracking-tight">
-              Up and running the same day
-            </h2>
-            <p className="mt-2 text-base/relaxed text-muted-foreground">
-              You do not write any prompts. Describe the job in a sentence and
-              the assistant is drafted for you to review and adjust.
-            </p>
-          </div>
-
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            {STEPS.map((step, index) => (
-              <Card key={step.title} className="h-full">
-                <CardHeader>
-                  <Badge variant="outline" className="w-fit font-mono">
+            <Reveal className="mt-8 grid gap-3 md:grid-cols-3" stagger>
+              {STEPS.map((step, index) => (
+                <div
+                  key={step.title}
+                  className="flex flex-col gap-2 rounded-2xl border bg-card p-5"
+                >
+                  <span className="font-heading text-3xl font-semibold text-primary/25 tabular-nums">
                     {String(index + 1).padStart(2, "0")}
-                  </Badge>
-                  <CardTitle className="mt-2">{step.title}</CardTitle>
-                  <CardDescription className="leading-relaxed">
-                    {step.body}
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
+                  </span>
+                  <h3 className="font-heading text-sm font-medium">
+                    {step.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">{step.body}</p>
+                </div>
+              ))}
+            </Reveal>
 
-          <div className="mt-8 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-5 py-4">
-            <p className="text-base font-medium">
-              Already have your sign-in details?
-            </p>
-            <Button
-              size="lg"
-              className="ml-auto"
-              nativeButton={false}
-              render={<Link href="/login" />}
-            >
-              Open your workspace <ArrowRightIcon />
-            </Button>
+            <Reveal className="mt-10 flex flex-wrap items-center gap-3" distance={16}>
+              <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
+                Get started <ArrowRightIcon />
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                No card. Your workspace, your number, your price list.
+              </span>
+            </Reveal>
           </div>
         </section>
-      </main>
 
-      {/* ------------------------------------------------------------- footer */}
-      <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 sm:px-6 text-xs text-muted-foreground">
-          <span>Magic AI Bot</span>
-          <Link href="/login" className="underline">
-            Sign in
-          </Link>
-        </div>
-      </footer>
-    </div>
+        {/* ----------------------------------------------------------- footer */}
+        <footer className="border-t">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted-foreground sm:px-6">
+            <span className="flex items-center gap-2">
+              <Logo className="h-4" /> Magic Agent
+            </span>
+            <Link href="/login" className="hover:text-foreground">
+              Sign in
+            </Link>
+          </div>
+        </footer>
+      </div>
+    </SmoothScroll>
   );
 }

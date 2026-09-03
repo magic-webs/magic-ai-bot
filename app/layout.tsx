@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Magic AI Bot — agent platform",
+  title: "Magic Agent — agent platform",
   description:
     "Build, configure and deploy AI chat agents per workspace: knowledge bases, tone, catalogues, orders, custom tools and WhatsApp channels.",
 };

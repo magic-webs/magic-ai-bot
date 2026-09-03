@@ -485,3 +485,78 @@
      a column — so the same element also has to know how to be the last row. */
   align-self: flex-end;
 }
+
+/* ---------------------------------------------------------------------------
+   Landing page: the faint graph-paper ground behind the hero and the section
+   headers.
+   ---------------------------------------------------------------------------
+   Two gradients rather than an image: it is two colours and a repeat, so an
+   asset would be a download for something the browser can draw. Ruled off the
+   border token, so it sits at the same weight as every other hairline in the
+   app and follows the theme without a second definition for dark.
+
+   The mask is what keeps it from looking like a spreadsheet — the grid is
+   strongest where content starts and gone by the time the section ends. It has
+   to be masked on a layer of its own; see the note on ::before below.
+   --------------------------------------------------------------------------- */
+
+.bg-grid {
+  position: relative;
+  /* A stacking context, which is what lets the pseudo-element below sit at
+     z-index -1: behind this section's own content, but still in front of the
+     page background rather than lost behind it. */
+  isolation: isolate;
+}
+
+/* The grid and its fade live on a pseudo-element, never on the section itself.
+   mask-image applies to an element AND everything inside it, so a mask on
+   .bg-grid faded out the section's own headings and copy along with the
+   hairlines — the text went grey at the top of the section and was gone
+   entirely by the bottom. Masking a layer behind the content instead keeps the
+   fade on the grid, where it was meant to be. */
+.bg-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  /* Aligned so a line lands on the container edge instead of a half cell. */
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(
+    ellipse 80% 60% at 50% 0%,
+    black 0%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 80% 60% at 50% 0%,
+    black 0%,
+    transparent 100%
+  );
+}
+
+/* A single hairline that draws itself in as a section arrives. Width is driven
+   by GSAP; this only sets the look and the origin. */
+.rule-draw {
+  transform-origin: left center;
+}
+
+/* ---------------------------------------------------------------------------
+   Reveal-on-scroll.
+   ---------------------------------------------------------------------------
+   The hidden state has to be in CSS, not applied by the effect. Set from
+   JavaScript it lands a frame after first paint, so the section renders, then
+   blinks out, then animates in — worse than no animation.
+
+   Which leaves the case of JavaScript never running, where a CSS-hidden page
+   would be a blank one. The <noscript> block in app/page.tsx overrides this,
+   and Reveal itself clears it immediately when the reader has asked for
+   reduced motion. Both paths end with the content on screen.
+   --------------------------------------------------------------------------- */
+
+[data-reveal] {
+  opacity: 0;
+}

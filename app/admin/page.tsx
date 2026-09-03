@@ -358,7 +358,7 @@ export default function AdminWorkspacesPage() {
         <Link href="/" className="flex items-center gap-2">
           <Logo className="h-6" />
           <span className="font-heading text-sm font-semibold tracking-tight">
-            Magic AI Bot
+            Magic Agent
           </span>
           <Badge variant="secondary">administrator</Badge>
         </Link>

@@ -1,4 +1,4 @@
-# Magic AI Bot
+# Magic Agent
 
 A multi-tenant platform for building, configuring and running AI chat agents.
 Where `printly-ai-bot` is one hard-coded bot for one printing company, this is

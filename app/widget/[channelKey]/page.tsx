@@ -555,7 +555,7 @@ function WidgetChat({
           </Button>
         </div>
         <p className="mt-1 text-center text-[10px] text-muted-foreground">
-          Powered by Magic AI Bot
+          Powered by Magic Agent
         </p>
       </div>
     </>

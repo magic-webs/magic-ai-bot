@@ -170,7 +170,7 @@ export const sendTest = action({
       workspaceId: args.workspaceId,
       event: "test",
       data: {
-        message: "This is a test event from your magic-ai-bot workspace.",
+        message: "This is a test event from your Magic Agent workspace.",
       },
     });
   },
