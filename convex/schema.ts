@@ -33,6 +33,10 @@ export const toneConfig = v.object({
   ),
   languages: v.array(v.string()),
   mirrorUserLanguage: v.boolean(),
+  // Replies that read as typed by a colleague rather than composed by an
+  // assistant. Optional because every agent saved before it exists without it,
+  // and absent means off.
+  humanVoice: v.optional(v.boolean()),
 });
 
 // A single question the agent must answer before an order is complete.

@@ -98,6 +98,7 @@ type Draft = {
     responseLength: "short" | "medium" | "detailed";
     languages: string[];
     mirrorUserLanguage: boolean;
+    humanVoice: boolean;
   };
   rules: string[];
   guardrails: string[];
@@ -153,7 +154,8 @@ export default function AgentConfigPage({
       objective: agent.objective,
       jobDescription: agent.jobDescription,
       greeting: agent.greeting ?? "",
-      tone: agent.tone,
+      // Absent on every agent saved before the setting existed.
+      tone: { ...agent.tone, humanVoice: agent.tone.humanVoice ?? false },
       rules: agent.rules,
       guardrails: agent.guardrails,
       escalationPolicy: agent.escalationPolicy ?? "",
@@ -681,6 +683,23 @@ export default function AgentConfigPage({
                     onCheckedChange={(checked) =>
                       setTone("mirrorUserLanguage", checked)
                     }
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+                  <div>
+                    <Label className="text-sm font-medium">Human voice</Label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Short, unpolished replies that read as typed by a
+                      colleague: no &quot;I&apos;m an AI assistant&quot; opener,
+                      no sign-offs, no tidy lists. Reads best with a casual or
+                      neutral formality. Asked outright whether they are talking
+                      to an AI, the agent still says so.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={draft.tone.humanVoice}
+                    onCheckedChange={(checked) => setTone("humanVoice", checked)}
                   />
                 </div>
               </CardContent>

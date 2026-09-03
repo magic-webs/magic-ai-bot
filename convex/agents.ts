@@ -33,6 +33,9 @@ export const DEFAULT_TONE = {
   responseLength: "short" as const,
   languages: ["English"],
   mirrorUserLanguage: true,
+  // Off by default. It is a deliberate choice about how a business sounds, not
+  // a setting to inherit without meaning to.
+  humanVoice: false,
 };
 
 const agentFields = {

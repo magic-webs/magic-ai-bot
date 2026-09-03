@@ -7,30 +7,15 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { SelectField } from "@/components/select-field";
+import {
+  LeadStagesSheet,
+  stageOutcomeBadge,
+  type LeadStage,
+} from "@/components/lead-stages-sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   Empty,
   EmptyContent,
@@ -44,252 +29,13 @@ import { toast } from "@/components/ui/toast";
 import {
   FunnelIcon,
   PlusIcon,
-  PencilSimpleIcon,
-  TrashIcon,
   ChatsIcon,
   WhatsappLogoIcon,
   GlobeIcon,
   SignpostIcon,
   WarningIcon,
-  FloppyDiskIcon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
-
-const OUTCOMES = [
-  { value: "open", label: "Open — still in play" },
-  { value: "won", label: "Won — closes the lead" },
-  { value: "lost", label: "Lost — closes the lead" },
-];
-
-type Stage = {
-  _id: Id<"leadStages">;
-  name: string;
-  description: string;
-  position: number;
-  outcome: "open" | "won" | "lost";
-  leadCount: number;
-};
-
-function outcomeBadge(outcome: Stage["outcome"]) {
-  if (outcome === "won") return <Badge>won</Badge>;
-  if (outcome === "lost") return <Badge variant="secondary">lost</Badge>;
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-
-function StageDialog({
-  workspaceId,
-  stage,
-  trigger,
-}: {
-  workspaceId: Id<"workspaces">;
-  /** Absent when adding. */
-  stage?: Stage;
-  trigger: React.ReactElement;
-}) {
-  const createStage = useMutation(api.leads.createStage);
-  const updateStage = useMutation(api.leads.updateStage);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [name, setName] = useState(stage?.name ?? "");
-  const [description, setDescription] = useState(stage?.description ?? "");
-  const [outcome, setOutcome] = useState(stage?.outcome ?? "open");
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      if (stage) {
-        await updateStage({
-          stageId: stage._id,
-          name,
-          description,
-          outcome: outcome as Stage["outcome"],
-        });
-      } else {
-        await createStage({
-          workspaceId,
-          name,
-          description,
-          outcome: outcome as Stage["outcome"],
-        });
-      }
-      toast.add({ title: stage ? "Stage saved" : "Stage added", type: "success" });
-      setOpen(false);
-      if (!stage) {
-        setName("");
-        setDescription("");
-        setOutcome("open");
-      }
-    } catch (error) {
-      toast.add({
-        title: "Could not save the stage",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={trigger} />
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{stage ? `Edit ${stage.name}` : "Add a stage"}</DialogTitle>
-          <DialogDescription>
-            The description is what the follow-up desk reads when it decides
-            where a conversation belongs, so write it as a test someone could
-            apply — not as a label.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="stage-name">Name</Label>
-            <Input
-              id="stage-name"
-              value={name}
-              placeholder="Site visit booked"
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="stage-description">What belongs here</Label>
-            <Textarea
-              id="stage-description"
-              rows={4}
-              value={description}
-              placeholder="They have agreed a date to visit the site and it has been confirmed with them."
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="stage-outcome">Outcome</Label>
-            <SelectField
-              id="stage-outcome"
-              value={outcome}
-              onValueChange={(next) => setOutcome(next as Stage["outcome"])}
-              options={OUTCOMES}
-            />
-            <p className="text-xs text-muted-foreground">
-              A won or lost stage stops the follow-ups. Nothing is chased once
-              it has been bought or turned down.
-            </p>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={busy || !name.trim() || !description.trim()}>
-            {busy ? <Spinner /> : <FloppyDiskIcon />} Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-function StagesPanel({
-  workspaceId,
-  stages,
-}: {
-  workspaceId: Id<"workspaces">;
-  stages: Stage[];
-}) {
-  const removeStage = useMutation(api.leads.removeStage);
-
-  return (
-    <Card className="shrink-0">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
-          <SignpostIcon className="size-4 shrink-0 text-muted-foreground" />
-          Lead stages
-          <StageDialog
-            workspaceId={workspaceId}
-            trigger={
-              <Button size="lg" variant="outline" className="ml-auto">
-                <PlusIcon /> Add stage
-              </Button>
-            }
-          />
-        </CardTitle>
-        <CardDescription>
-          Seven generalised stages come as standard. Rename them, add your own,
-          or delete what does not apply — the follow-up desk only ever files a
-          conversation into one of these.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1.5">
-        {stages.map((stage) => (
-          <div
-            key={stage._id}
-            className="flex flex-wrap items-start gap-2 rounded-lg border p-2.5"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                {stage.name}
-                {outcomeBadge(stage.outcome)}
-                <Badge variant="ghost" className="tabular-nums">
-                  {stage.leadCount} {stage.leadCount === 1 ? "lead" : "leads"}
-                </Badge>
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {stage.description}
-              </p>
-            </div>
-            <div className="flex shrink-0 gap-1">
-              <StageDialog
-                workspaceId={workspaceId}
-                stage={stage}
-                trigger={
-                  <Button
-                    size="icon-lg"
-                    variant="ghost"
-                    aria-label={`Edit ${stage.name}`}
-                  >
-                    <PencilSimpleIcon />
-                  </Button>
-                }
-              />
-              <Button
-                size="icon-lg"
-                variant="ghost"
-                aria-label={`Delete ${stage.name}`}
-                onClick={async () => {
-                  try {
-                    const result = await removeStage({ stageId: stage._id });
-                    toast.add({
-                      title: `Deleted ${stage.name}`,
-                      description: result.cleared
-                        ? `${result.cleared} lead(s) are now unfiled and will be judged again on the next review.`
-                        : undefined,
-                      type: "success",
-                    });
-                  } catch (error) {
-                    toast.add({
-                      title: "Could not delete the stage",
-                      description:
-                        error instanceof Error ? error.message : String(error),
-                      type: "error",
-                    });
-                  }
-                }}
-              >
-                <TrashIcon />
-              </Button>
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
 
 // ---------------------------------------------------------------------------
 
@@ -317,7 +63,7 @@ function LeadRow({
   base,
 }: {
   lead: Lead;
-  stages: Stage[];
+  stages: LeadStage[];
   base: string;
 }) {
   const setStage = useMutation(api.leads.setStage);
@@ -434,7 +180,7 @@ export default function LeadsPage() {
   const base = `/w/${workspace.slug}`;
   const stages = useQuery(api.leads.listStages, {
     workspaceId: workspace._id,
-  }) as Stage[] | undefined;
+  }) as LeadStage[] | undefined;
   const leads = useQuery(api.leads.pipeline, {
     workspaceId: workspace._id,
   }) as Lead[] | undefined;
@@ -444,7 +190,7 @@ export default function LeadsPage() {
     workspaceId: workspace._id,
   });
 
-  const [showStages, setShowStages] = useState(false);
+  const [stagesOpen, setStagesOpen] = useState(false);
 
   const desk = (agents ?? []).find((agent) => agent.kind === "follow_up");
 
@@ -499,13 +245,22 @@ export default function LeadsPage() {
         </div>
         <Button
           size="lg"
-          variant={showStages ? "secondary" : "outline"}
+          variant="outline"
           className="shrink-0"
-          onClick={() => setShowStages((open) => !open)}
+          onClick={() => setStagesOpen(true)}
         >
-          <SignpostIcon /> {showStages ? "Hide stages" : "Manage stages"}
+          <SignpostIcon /> Manage stages
         </Button>
       </header>
+
+      {stages ? (
+        <LeadStagesSheet
+          workspaceId={workspace._id}
+          stages={stages}
+          open={stagesOpen}
+          onOpenChange={setStagesOpen}
+        />
+      ) : null}
 
       <Separator />
 
@@ -531,10 +286,6 @@ export default function LeadsPage() {
             </Button>
           </AlertDescription>
         </Alert>
-      ) : null}
-
-      {showStages && stages ? (
-        <StagesPanel workspaceId={workspace._id} stages={stages} />
       ) : null}
 
       {loading ? (
@@ -574,7 +325,7 @@ export default function LeadsPage() {
                   <h2 className="font-heading text-sm font-semibold">
                     {group.title}
                   </h2>
-                  {outcomeBadge(group.outcome)}
+                  {stageOutcomeBadge(group.outcome)}
                   <Badge variant="ghost" className="tabular-nums">
                     {group.rows.length}
                   </Badge>

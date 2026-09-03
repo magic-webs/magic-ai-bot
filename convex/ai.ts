@@ -53,6 +53,11 @@ const agentDraftSchema = z.object({
     responseLength: z.enum(["short", "medium", "detailed"]),
     languages: z.array(z.string()).min(1).max(4),
     mirrorUserLanguage: z.boolean(),
+    humanVoice: z
+      .boolean()
+      .describe(
+        "True where a short, unpolished texting register suits the business — retail, food, salons, trades. False for regulated, professional or high-formality work."
+      ),
   }),
   rules: z
     .array(z.string())

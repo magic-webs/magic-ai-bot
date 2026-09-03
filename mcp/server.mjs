@@ -469,6 +469,12 @@ const toneArg = z
     responseLength: z.enum(["short", "medium", "detailed"]).optional(),
     languages: z.array(z.string()).optional(),
     mirrorUserLanguage: z.boolean().optional(),
+    humanVoice: z
+      .boolean()
+      .optional()
+      .describe(
+        "Short, unpolished replies that read as typed by a colleague: no AI self-description, no sign-offs, no tidy lists. A direct question about being an AI is still answered honestly."
+      ),
   })
   .optional()
   .describe(
