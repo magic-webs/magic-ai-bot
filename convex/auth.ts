@@ -488,7 +488,9 @@ export const generateWorkspacePassword = action({
     await ctx.runMutation(internal.authDb.upsertWorkspaceCredential, {
       workspaceId: args.workspaceId,
       passwordHash: await hashPassword(password),
-      mustChangePassword: true,
+      // Not flagged for a forced change: the prompt this drove was advisory
+      // only — nothing gated on it — and it is no longer shown.
+      mustChangePassword: false,
       revokeSessions: true,
     });
 
