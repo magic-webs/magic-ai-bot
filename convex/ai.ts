@@ -6,7 +6,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { aiGateway } from "./lib/gateway";
 import { DEFAULT_CHAT_MODEL } from "./lib/shared";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 import { DEFAULT_BUILTIN_TOOLS, BUILTIN_TOOLS } from "./lib/shared";
 
@@ -107,10 +107,10 @@ export const draftAgent = action({
       { workspaceId: args.workspaceId, limit: 20 }
     );
 
-    const { object, usage } = await generateObject({
+    const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
-      schema: agentDraftSchema,
-      system: [
+      output: Output.object({ schema: agentDraftSchema }),
+      instructions: [
         "You design production chat agents for real businesses.",
         "Write instructions that are specific to the business described — never generic filler.",
         "Assume the agent talks to customers on WhatsApp and web chat, so replies must be short.",
@@ -141,12 +141,12 @@ export const draftAgent = action({
       source: "draft_agent",
       model: DRAFT_MODEL,
       kind: "chat",
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
     });
 
     const validKeys = new Set(BUILTIN_TOOLS.map((t) => t.key));
-    const builtinTools = object.suggestedTools.filter((key) =>
+    const builtinTools = output.suggestedTools.filter((key) =>
       validKeys.has(key as never)
     );
 
@@ -154,23 +154,23 @@ export const draftAgent = action({
     if (args.createIt !== false) {
       agentId = await ctx.runMutation(api.agents.create, {
         workspaceId: args.workspaceId,
-        name: object.name,
-        botName: object.botName,
-        role: object.role,
-        objective: object.objective,
-        jobDescription: object.jobDescription,
-        greeting: object.greeting,
-        tone: object.tone,
-        rules: object.rules,
-        guardrails: object.guardrails,
-        escalationPolicy: object.escalationPolicy,
+        name: output.name,
+        botName: output.botName,
+        role: output.role,
+        objective: output.objective,
+        jobDescription: output.jobDescription,
+        greeting: output.greeting,
+        tone: output.tone,
+        rules: output.rules,
+        guardrails: output.guardrails,
+        escalationPolicy: output.escalationPolicy,
         builtinTools: builtinTools.length
           ? builtinTools
           : [...DEFAULT_BUILTIN_TOOLS],
       });
     }
 
-    return { draft: object, agentId };
+    return { draft: output, agentId };
   },
 });
 
@@ -279,10 +279,10 @@ export const draftTool = action({
     );
     if (!workspace) throw new Error("Workspace not found");
 
-    const { object, usage } = await generateObject({
+    const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
-      schema: toolDraftSchema,
-      system: [
+      output: Output.object({ schema: toolDraftSchema }),
+      instructions: [
         "You design tools for an LLM chat agent. Output a single tool definition.",
         "Keep the parameter list minimal — only what the agent genuinely has to supply.",
         "Parameter descriptions are read by the model, so make them unambiguous.",
@@ -307,20 +307,20 @@ export const draftTool = action({
       source: "draft_tool",
       model: DRAFT_MODEL,
       kind: "chat",
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
     });
 
     // Make sure the config matches the kind the model chose.
-    const kind = object.kind;
+    const kind = output.kind;
     const http =
       kind === "http"
         ? {
-            method: object.http?.method ?? "GET",
+            method: output.http?.method ?? "GET",
             urlTemplate:
-              object.http?.urlTemplate ?? "https://example.com/REPLACE_ME",
-            headers: object.http?.headers ?? [],
-            bodyTemplate: object.http?.bodyTemplate ?? undefined,
+              output.http?.urlTemplate ?? "https://example.com/REPLACE_ME",
+            headers: output.http?.headers ?? [],
+            bodyTemplate: output.http?.bodyTemplate ?? undefined,
             timeoutMs: 12_000,
           }
         : undefined;
@@ -328,12 +328,12 @@ export const draftTool = action({
     const dbQuery =
       kind === "db_query"
         ? {
-            table: object.dbQuery?.table ?? ("products" as const),
+            table: output.dbQuery?.table ?? ("products" as const),
             searchParam:
-              object.dbQuery?.searchParam ??
-              object.parameters.find((p) => p.type === "string")?.name ??
+              output.dbQuery?.searchParam ??
+              output.parameters.find((p) => p.type === "string")?.name ??
               undefined,
-            limit: object.dbQuery?.limit ?? 8,
+            limit: output.dbQuery?.limit ?? 8,
           }
         : undefined;
 
@@ -350,12 +350,12 @@ export const draftTool = action({
       {
         workspaceId: args.workspaceId,
         agentId: args.agentId,
-        name: object.name,
-        displayName: object.displayName,
-        description: object.description,
-        whenToUse: object.whenToUse,
+        name: output.name,
+        displayName: output.displayName,
+        description: output.description,
+        whenToUse: output.whenToUse,
         kind,
-        parameters: object.parameters.map((p) => ({
+        parameters: output.parameters.map((p) => ({
           name: p.name,
           type: p.type,
           description: p.description,
@@ -375,8 +375,8 @@ export const draftTool = action({
       name,
       kind,
       notesForHuman: needsReview
-        ? `${object.notesForHuman} (Left as a draft because the endpoint or credentials still contain placeholders.)`
-        : object.notesForHuman,
+        ? `${output.notesForHuman} (Left as a draft because the endpoint or credentials still contain placeholders.)`
+        : output.notesForHuman,
       status: autoEnable ? "enabled" : "draft",
     };
   },
@@ -439,10 +439,10 @@ export const draftCatalogue = action({
     );
     if (!workspace) throw new Error("Workspace not found");
 
-    const { object, usage } = await generateObject({
+    const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
-      schema: catalogueSchema,
-      system: [
+      output: Output.object({ schema: catalogueSchema }),
+      instructions: [
         "You build product catalogues for quoting bots.",
         "For each product, requirementFields are the questions a sales agent MUST ask before the team can price it.",
         "Do not include price fields — pricing is done by humans.",
@@ -465,15 +465,15 @@ export const draftCatalogue = action({
       source: "draft_catalogue",
       model: DRAFT_MODEL,
       kind: "chat",
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
     });
 
     // `null` is how strict structured outputs express "absent"; the Convex
     // validators want the key omitted instead.
     return await ctx.runMutation(api.products.bulkImport, {
       workspaceId: args.workspaceId,
-      products: object.products.map((product) => ({
+      products: output.products.map((product) => ({
         name: product.name,
         category: product.category,
         description: product.description,

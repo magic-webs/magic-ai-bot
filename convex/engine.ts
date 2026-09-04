@@ -15,7 +15,7 @@ import {
   tool,
   dynamicTool,
   jsonSchema,
-  stepCountIs,
+  isStepCount,
   hasToolCall,
   type ToolSet,
 } from "ai";
@@ -1272,11 +1272,11 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           // Qualified on the way out, so an agent still configured with a bare
           // OpenAI id keeps working through the gateway.
           model: aiGateway()(gatewayModelId(agent.model)),
-          system,
+          instructions: system,
           messages: conversationMessages,
           tools: toolset,
           stopWhen: [
-            stepCountIs(Math.max(1, Math.min(agent.maxSteps, 12))),
+            isStepCount(Math.max(1, Math.min(agent.maxSteps, 12))),
             // Once the handover is requested there is nothing left for this
             // agent to say, so do not pay for another step.
             hasToolCall("transfer_to_agent"),
@@ -1284,11 +1284,11 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           temperature: agent.temperature,
         });
 
-        stepText = result.text?.trim() ?? "";
+        stepText = result.text.trim();
 
-        // totalUsage, not usage: the agent loop can run several steps and only
-        // the total covers all of them. Attributed to the agent that spent it,
-        // so a routed conversation splits its cost correctly.
+        // `usage` is the sum across every step, which is what this loop needs:
+        // it can run several. Attributed to the agent that spent it, so a
+        // routed conversation splits its cost correctly.
         await ctx.runMutation(internal.usage.record, {
           workspaceId: workspace._id,
           agentId: agent._id,
@@ -1297,8 +1297,8 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           channelType: args.channelType,
           model: agent.model,
           kind: "chat",
-          inputTokens: result.totalUsage?.inputTokens ?? 0,
-          outputTokens: result.totalUsage?.outputTokens ?? 0,
+          inputTokens: result.usage.inputTokens ?? 0,
+          outputTokens: result.usage.outputTokens ?? 0,
         });
 
         // When the loop stops on a tool call the final text can be empty —

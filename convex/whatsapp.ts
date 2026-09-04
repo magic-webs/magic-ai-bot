@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { buildMessage, type Outbound } from "./lib/whatsappSend";
-import { experimental_transcribe as transcribeAudio } from "ai";
+import { transcribe as transcribeAudio } from "ai";
 import { aiGateway, TRANSCRIPTION_MODEL } from "./lib/gateway";
 
 // WhatsApp caps a text body at 4096 characters.

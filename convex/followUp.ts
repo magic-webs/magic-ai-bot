@@ -24,7 +24,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 import { aiGateway, gatewayModelId } from "./lib/gateway";
 import {
@@ -188,19 +188,22 @@ export const review = internalAction({
 
       for (const attempt of [0, 1]) {
         try {
-          const result = await generateObject({
+          const result = await generateText({
             model: aiGateway()(model),
-            schema: reviewSchema,
-            system:
+            output: Output.object({ schema: reviewSchema }),
+            instructions:
               attempt === 0
                 ? system
                 : `${system}\n\nReturn only the object. No preamble, no commentary outside the fields, and no markdown fence around it.`,
             prompt,
             temperature: attempt === 0 ? (deskAgent?.temperature ?? 0.2) : 0.5,
           });
-          object = result.object;
-          inputTokens += result.usage?.inputTokens ?? 0;
-          outputTokens += result.usage?.outputTokens ?? 0;
+          // Tokens first: `result.output` is a getter that throws when the
+          // step finished without a parsable object, and the attempt is
+          // billable either way.
+          inputTokens += result.usage.inputTokens ?? 0;
+          outputTokens += result.usage.outputTokens ?? 0;
+          object = result.output;
           break;
         } catch (attemptError) {
           lastError = attemptError;
