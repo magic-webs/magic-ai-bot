@@ -41,3 +41,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agent skills
+# The skills themselves live in .agents/ and are committed. .claude/skills is
+# only a set of symlinks into it, written with absolute paths, so it is valid
+# on exactly one machine.
+/.claude/skills/
