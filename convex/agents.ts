@@ -38,11 +38,14 @@ export const DEFAULT_TONE = {
   humanVoice: false,
 };
 
+const genderValidator = v.union(v.literal("male"), v.literal("female"));
+
 const agentFields = {
   name: v.optional(v.string()),
   routingDescription: v.optional(v.string()),
   acceptsHandoff: v.optional(v.boolean()),
   botName: v.optional(v.string()),
+  gender: v.optional(genderValidator),
   role: v.optional(v.string()),
   objective: v.optional(v.string()),
   jobDescription: v.optional(v.string()),
@@ -403,6 +406,7 @@ export const create = mutation({
     workspaceId: v.id("workspaces"),
     name: v.string(),
     botName: v.optional(v.string()),
+    gender: v.optional(genderValidator),
     role: v.optional(v.string()),
     objective: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
@@ -428,6 +432,7 @@ export const create = mutation({
       routingDescription: args.routingDescription?.trim() || undefined,
       name: args.name.trim(),
       botName: args.botName?.trim() || args.name.trim(),
+      gender: args.gender,
       role: args.role?.trim() || "AI assistant",
       objective:
         args.objective?.trim() ||

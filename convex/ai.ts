@@ -31,6 +31,11 @@ const agentDraftSchema = z.object({
   botName: z
     .string()
     .describe("The human first name the customer sees, e.g. 'Priya' or 'John'"),
+  gender: z
+    .enum(["male", "female"])
+    .describe(
+      "Which the botName reads as. Presentation only — clients use it to pick an avatar, and nothing in the prompt or routing reads it. Pick whichever fits the name you chose."
+    ),
   role: z
     .string()
     .describe("Job title, e.g. 'AI Sales Consultant' or 'Support Assistant'"),
@@ -156,6 +161,7 @@ export const draftAgent = action({
         workspaceId: args.workspaceId,
         name: output.name,
         botName: output.botName,
+        gender: output.gender,
         role: output.role,
         objective: output.objective,
         jobDescription: output.jobDescription,

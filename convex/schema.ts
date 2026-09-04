@@ -191,6 +191,11 @@ export default defineSchema({
     acceptsHandoff: v.optional(v.boolean()),
     name: v.string(), // internal name, e.g. "Sales qualifier"
     botName: v.string(), // the name the customer sees, e.g. "John"
+    // Presentation only: which set of avatars a client should draw this agent
+    // from. Nothing in the prompt or the routing reads it, and it is optional
+    // so every agent that predates it keeps validating — a client with no
+    // value falls back to picking a face off the bot name.
+    gender: v.optional(v.union(v.literal("male"), v.literal("female"))),
     role: v.string(), // e.g. "AI Sales Consultant"
     objective: v.string(), // what success looks like
     jobDescription: v.string(), // free text: what this agent does, step by step

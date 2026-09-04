@@ -405,6 +405,7 @@ const agentBrief = (agent) => ({
   id: agent._id,
   name: agent.name,
   botName: agent.botName,
+  gender: agent.gender ?? null,
   role: agent.role,
   kind: agent.kind ?? "specialist",
   status: agent.status,
@@ -727,6 +728,12 @@ export function buildServer() {
           .string()
           .optional()
           .describe("The name customers see, e.g. 'Priya'"),
+        gender: z
+          .enum(["male", "female"])
+          .optional()
+          .describe(
+            "Which the botName reads as. Presentation only — clients use it to pick an avatar; nothing in the prompt or routing reads it."
+          ),
         role: z.string().optional().describe("e.g. 'AI Sales Consultant'"),
         routingDescription: z
           .string()
@@ -778,6 +785,10 @@ export function buildServer() {
         agent: z.string().describe("Agent name, customer-facing name, or id"),
         name: z.string().optional(),
         botName: z.string().optional(),
+        gender: z
+          .enum(["male", "female"])
+          .optional()
+          .describe("Which the botName reads as. Picks the client's avatar."),
         role: z.string().optional(),
         routingDescription: z.string().optional(),
         acceptsHandoff: z
