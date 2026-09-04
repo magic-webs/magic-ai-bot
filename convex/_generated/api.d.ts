@@ -32,6 +32,7 @@ import type * as lib_toolSchema from "../lib/toolSchema.js";
 import type * as lib_whatsappSend from "../lib/whatsappSend.js";
 import type * as orders from "../orders.js";
 import type * as products from "../products.js";
+import type * as speech from "../speech.js";
 import type * as tools from "../tools.js";
 import type * as usage from "../usage.js";
 import type * as webhooks from "../webhooks.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   "lib/whatsappSend": typeof lib_whatsappSend;
   orders: typeof orders;
   products: typeof products;
+  speech: typeof speech;
   tools: typeof tools;
   usage: typeof usage;
   webhooks: typeof webhooks;

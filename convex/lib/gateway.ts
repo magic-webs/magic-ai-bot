@@ -30,6 +30,15 @@ export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 /** Voice notes. The same Whisper the direct OpenAI call used. */
 export const TRANSCRIPTION_MODEL = "openai/whisper-1";
 
+/**
+ * Spoken replies. Fish Audio's S2.1, on the gateway's free tier.
+ *
+ * Text-to-speech is not token-priced, so — like `TRANSCRIPTION_MODEL` — a call
+ * to it records no usage row: `usage.record` costs from a per-token table and
+ * would price every greeting at zero.
+ */
+export const SPEECH_MODEL = "fish-audio/s2.1-pro-free";
+
 export function aiGateway() {
   const apiKey = process.env.AI_GATEWAY_API_KEY;
   if (!apiKey) {
