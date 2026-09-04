@@ -593,6 +593,7 @@ export function buildServer() {
       return ok({
         slug: found.slug,
         name: found.name,
+        ownerName: found.ownerName ?? null,
         tagline: found.tagline ?? null,
         description: found.description ?? null,
         industry: found.industry ?? null,
@@ -621,6 +622,12 @@ export function buildServer() {
       inputSchema: {
         ...workspaceArg,
         name: z.string().optional(),
+        ownerName: z
+          .string()
+          .optional()
+          .describe(
+            "Who runs the workspace, as they want to be addressed. Used when an agent speaks to the operator rather than a customer — the spoken introduction greets this name. Send an empty string to clear it."
+          ),
         tagline: z.string().optional(),
         description: z.string().optional(),
         industry: z.string().optional(),
@@ -1802,6 +1809,12 @@ export function buildServer() {
         "Onboard a new company. This is the first step for a new customer: the workspace holds its own agents, catalogue, knowledge and channels, and nothing is shared with any other workspace. Fill in description, industry and facts properly — they reach every agent's system prompt, so a well-described workspace produces better agents before any of them is configured. Follow with issue_workspace_password to give the company its own login.",
       inputSchema: {
         name: z.string().describe("The company name. The slug is derived from it."),
+        ownerName: z
+          .string()
+          .optional()
+          .describe(
+            "Who runs the company, as they want to be addressed. Agents greet this name when they speak to the operator."
+          ),
         tagline: z.string().optional(),
         description: z
           .string()

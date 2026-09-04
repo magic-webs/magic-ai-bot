@@ -141,6 +141,11 @@ export default defineSchema({
   workspaces: defineTable({
     name: v.string(),
     slug: v.string(),
+    // Who runs this workspace, as they would like to be addressed. Used when an
+    // agent speaks to the operator rather than to a customer — the spoken
+    // introduction on the agent screen greets this name. Absent falls back to
+    // the company name, which is why it is not required.
+    ownerName: v.optional(v.string()),
     tagline: v.optional(v.string()),
     description: v.optional(v.string()),
     industry: v.optional(v.string()),

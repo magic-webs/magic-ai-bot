@@ -15,6 +15,7 @@ import {
 
 const workspaceFields = {
   name: v.string(),
+  ownerName: v.optional(v.string()),
   tagline: v.optional(v.string()),
   description: v.optional(v.string()),
   industry: v.optional(v.string()),
@@ -121,6 +122,7 @@ export const create = mutation({
     const workspaceId = await ctx.db.insert("workspaces", {
       name: args.name.trim(),
       slug,
+      ownerName: args.ownerName?.trim() || undefined,
       tagline: args.tagline,
       description: args.description,
       industry: args.industry,
@@ -161,8 +163,13 @@ export const update = mutation({
     }
     // An omitted field means "leave it alone", so there is no way to clear one
     // by omission. `theme: ""` is how the picker says "back to the default",
-    // and that has to become an actual unset or the choice is one-way.
+    // and that has to become an actual unset or the choice is one-way. The
+    // owner's name is the same: clearing the box has to fall the greeting back
+    // to the company name rather than store a blank.
     if (rest.theme === "") patch.theme = undefined;
+    if (rest.ownerName !== undefined) {
+      patch.ownerName = rest.ownerName.trim() || undefined;
+    }
     await ctx.db.patch(workspaceId, patch);
     return { success: true };
   },
