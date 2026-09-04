@@ -15,7 +15,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import {
-  Message,  MessageContent,
+  Message,
+  MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
 import {
@@ -28,7 +29,8 @@ import { toast } from "@/components/ui/toast";
 import {
   PaperPlaneRightIcon,
   ArrowLeftIcon,
-  ArrowsClockwiseIcon,  WarningIcon,
+  ArrowsClockwiseIcon,
+  WarningIcon,
   SlidersIcon,
 } from "@phosphor-icons/react";
 
@@ -322,8 +324,7 @@ export default function AgentTestPage({
           </Button>
         </div>
         <p className="mx-auto mt-1.5 w-full max-w-3xl text-xs text-muted-foreground">
-          Enter to send · Shift+Enter for a new line. This conversation is stored
-          against a web contact, so orders and escalations it triggers are real.
+          Enter to send · Shift+Enter for a new line.
         </p>
       </div>
     </div>
