@@ -87,6 +87,17 @@ export const deliver = internalAction({
     });
     if (!workspace) return { success: false, reason: "workspace_missing" };
 
+    /* Push first, and above the webhook-URL check on purpose: this is the one
+       place every platform event passes through, and a workspace with no
+       webhook configured still has an operator holding a phone. `notify`
+       swallows its own failures, so a push outage cannot fail the tool call
+       that got here. */
+    await ctx.runAction(internal.push.notify, {
+      workspaceId: args.workspaceId,
+      event: args.event,
+      data: args.data,
+    });
+
     const body = JSON.stringify({
       event: args.event,
       workspace: {

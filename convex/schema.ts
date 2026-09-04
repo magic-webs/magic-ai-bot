@@ -677,4 +677,31 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_event", ["workspaceId", "event"]),
+
+  // -------------------------------------------------------------------------
+  // Push tokens — one row per installed app, so an operator with a phone and a
+  // tablet gets told on both.
+  // -------------------------------------------------------------------------
+  pushTokens: defineTable({
+    workspaceId: v.id("workspaces"),
+    // The Expo push token, "ExponentPushToken[...]". Unique per install, and
+    // the natural key: a reinstall issues a new one and the old one starts
+    // coming back as DeviceNotRegistered.
+    token: v.string(),
+    platform: v.union(
+      v.literal("ios"),
+      v.literal("android"),
+      v.literal("web")
+    ),
+    // For the settings screen, so a row is recognisable as "your" device.
+    deviceName: v.optional(v.string()),
+    // Cleared by Expo telling us the install is gone. Kept rather than deleted
+    // so a device that re-registers keeps one row.
+    disabledAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_workspace", ["workspaceId"]),
 });
