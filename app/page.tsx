@@ -328,13 +328,29 @@ export default function LandingPage() {
 
         {/* ----------------------------------------------------------- footer */}
         <footer className="border-t">
-          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted-foreground sm:px-6">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-6 text-xs text-muted-foreground sm:px-6">
             <span className="flex items-center gap-2">
               <Logo className="h-4" /> Magic Agent
             </span>
-            <Link href="/login" className="hover:text-foreground">
-              Sign in
-            </Link>
+            {/* The store listing points at these, so they have to be reachable
+                from the site's front door and not only from each other. */}
+            <nav className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <Link href="/privacy" className="hover:text-foreground">
+                Privacy
+              </Link>
+              <Link href="/terms" className="hover:text-foreground">
+                Terms
+              </Link>
+              <Link href="/support" className="hover:text-foreground">
+                Support
+              </Link>
+              <Link href="/delete-account" className="hover:text-foreground">
+                Delete account
+              </Link>
+              <Link href="/login" className="hover:text-foreground">
+                Sign in
+              </Link>
+            </nav>
           </div>
         </footer>
       </div>
