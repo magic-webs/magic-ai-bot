@@ -643,7 +643,11 @@ export default defineSchema({
       v.literal("draft_tool"),
       v.literal("draft_catalogue"),
       // The follow-up desk reading a dormant conversation.
-      v.literal("review")
+      v.literal("review"),
+      // An agent answering the operator about their own workspace, from the
+      // agent screen. Its own source so operator questions do not inflate the
+      // per-conversation chat cost the dashboard reports.
+      v.literal("assistant")
     ),
     channelType: v.optional(
       v.union(v.literal("whatsapp"), v.literal("web"))
@@ -677,6 +681,25 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_event", ["workspaceId", "event"]),
+
+  // -------------------------------------------------------------------------
+  // The operator's own thread with an agent — "how did today go?", not a
+  // customer conversation.
+  //
+  // Its own table on purpose. `conversations` and `messages` are what the
+  // dashboard counts, what the lead pipeline files and what the follow-up desk
+  // reviews, so putting an owner asking about their week in there would inflate
+  // every one of those figures with traffic that was never a customer.
+  // -------------------------------------------------------------------------
+  assistantMessages: defineTable({
+    workspaceId: v.id("workspaces"),
+    // Per agent: asking the front desk and asking a specialist are separate
+    // threads, the way they are separate people.
+    agentId: v.id("agents"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    text: v.string(),
+    createdAt: v.number(),
+  }).index("by_agent", ["workspaceId", "agentId"]),
 
   // -------------------------------------------------------------------------
   // Push tokens — one row per installed app, so an operator with a phone and a

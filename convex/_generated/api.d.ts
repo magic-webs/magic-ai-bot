@@ -11,6 +11,8 @@
 import type * as agents from "../agents.js";
 import type * as ai from "../ai.js";
 import type * as analytics from "../analytics.js";
+import type * as assistant from "../assistant.js";
+import type * as assistantDb from "../assistantDb.js";
 import type * as auth from "../auth.js";
 import type * as authDb from "../authDb.js";
 import type * as channels from "../channels.js";
@@ -51,6 +53,8 @@ declare const fullApi: ApiFromModules<{
   agents: typeof agents;
   ai: typeof ai;
   analytics: typeof analytics;
+  assistant: typeof assistant;
+  assistantDb: typeof assistantDb;
   auth: typeof auth;
   authDb: typeof authDb;
   channels: typeof channels;
