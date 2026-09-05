@@ -22,6 +22,31 @@ import { aiGateway, SPEECH_MODEL } from "./lib/gateway";
 /** A greeting is one or two sentences; anything longer is a mistake upstream. */
 const MAX_GREETING_CHARS = 240;
 
+/**
+ * Which voice reads the greeting.
+ *
+ * Fish Audio has no named voices — `voice` is a reference id from its library,
+ * a hash that means nothing outside an account. So the two ids live in the
+ * deployment's environment rather than in this file:
+ *
+ *   npx convex env set FISH_VOICE_FEMALE <reference_id>
+ *   npx convex env set FISH_VOICE_MALE   <reference_id>
+ *
+ * Unset simply omits `voice` and the provider picks its own, which is the
+ * behaviour this had before the agent record carried a gender at all — so a
+ * deployment that has not configured them keeps working, it just does not
+ * match.
+ */
+function voiceFor(gender: "male" | "female" | undefined): string | undefined {
+  const id =
+    gender === "male"
+      ? process.env.FISH_VOICE_MALE
+      : gender === "female"
+        ? process.env.FISH_VOICE_FEMALE
+        : undefined;
+  return id?.trim() || undefined;
+}
+
 export const greet = action({
   args: {
     agentId: v.id("agents"),
@@ -67,6 +92,8 @@ export const greet = action({
     const result = await generateSpeech({
       model: aiGateway().speech(SPEECH_MODEL),
       text,
+      // Follows the agent's own gender, so the face and the voice agree.
+      voice: voiceFor(agent.gender),
       // mp3 rather than wav: this is streamed to a phone, and the difference is
       // roughly tenfold for speech.
       outputFormat: "mp3",
