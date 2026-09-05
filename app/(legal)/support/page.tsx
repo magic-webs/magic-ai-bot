@@ -53,7 +53,7 @@ export default function SupportPage() {
         <dl className="mt-3 space-y-2 text-sm">
           <div className="flex gap-2">
             <dt className="w-28 shrink-0 text-muted-foreground">Email</dt>
-            <dd className="font-medium">[SUPPORT EMAIL]</dd>
+            <dd className="font-medium">support@magicwebs.ai</dd>
           </div>
           <div className="flex gap-2">
             <dt className="w-28 shrink-0 text-muted-foreground">Phone</dt>

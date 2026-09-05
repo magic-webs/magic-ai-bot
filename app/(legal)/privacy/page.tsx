@@ -55,20 +55,13 @@ export default function PrivacyPage() {
         Last updated {UPDATED}
       </p>
 
-      <div className="mt-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
-        <strong className="font-semibold">Before publishing:</strong> replace
-        every <code>[SQUARE BRACKET]</code> below with your operating entity,
-        address, contact address and governing law, then have it reviewed. The
-        factual sections — what is collected and who processes it — are accurate
-        to the software as built.
-      </div>
 
       <Section title="Who we are">
         <p>
           Magic Agent (&ldquo;we&rdquo;) is operated by{" "}
           <strong>Magic Webs Technologies Pvt Ltd</strong>, <strong>Office No. 705, ABC Tower-1, Sector 135, Noida, Uttar Pradesh 201305, India</strong>.
           For anything in this policy, write to{" "}
-          <strong>[PRIVACY CONTACT EMAIL]</strong>.
+          <strong>privacy@magicwebs.ai</strong>.
         </p>
         <p>
           Magic Agent is a business tool. Our customer is the business that
@@ -182,7 +175,7 @@ export default function PrivacyPage() {
           workspace and its conversations, contacts, orders, knowledge base and
           files are deleted with it. Session tokens expire on their own.
           Aggregate usage and cost records may be retained for billing and
-          accounting for <strong>[RETENTION PERIOD]</strong>.
+          accounting for <strong>8 years</strong>.
         </p>
       </Section>
 
@@ -191,7 +184,7 @@ export default function PrivacyPage() {
           Depending on where you live, you may have the right to access,
           correct, export or erase your personal data, and to object to or
           restrict its processing. Write to{" "}
-          <strong>[PRIVACY CONTACT EMAIL]</strong> and we will respond within
+          <strong>privacy@magicwebs.ai</strong> and we will respond within
           30 days.
         </p>
         <p>

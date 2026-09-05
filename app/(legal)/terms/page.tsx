@@ -32,11 +32,6 @@ export default function TermsPage() {
         Last updated 5 September 2026
       </p>
 
-      <div className="mt-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
-        <strong className="font-semibold">Before publishing:</strong> replace
-        every <code>[SQUARE BRACKET]</code> and have this reviewed. It describes
-        the service accurately but is not legal advice.
-      </div>
 
       <Section title="The agreement">
         <p>
@@ -128,7 +123,7 @@ export default function TermsPage() {
           To the extent the law allows, we are not liable for indirect or
           consequential loss, lost profits or lost data, and our total liability
           is limited to the fees you paid in the{" "}
-          <strong>[LIABILITY PERIOD]</strong> before the claim.
+          <strong>12 months</strong> before the claim.
         </p>
       </Section>
 

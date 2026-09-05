@@ -37,7 +37,7 @@ export default function DeleteAccountPage() {
         <h2 className="font-heading text-xl font-semibold">How to ask</h2>
         <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
           <p>
-            Email <strong>[SUPPORT EMAIL]</strong> from the address that
+            Email <strong>support@magicwebs.ai</strong> from the address that
             registered the workspace, with the workspace name in the subject.
             We will confirm and then delete it.
           </p>
@@ -82,13 +82,13 @@ export default function DeleteAccountPage() {
           <p>
             Records we are required to keep — invoices and the usage totals they
             are based on — are retained for{" "}
-            <strong>[RETENTION PERIOD]</strong> to meet accounting and tax
+            <strong>8 years</strong> to meet accounting and tax
             obligations. They contain no message content, no contact details and
             no customer data: model name, token counts, cost and date.
           </p>
           <p>
             Routine backups are overwritten on their own cycle and are purged
-            within <strong>[BACKUP WINDOW]</strong> of deletion.
+            within <strong>30 days</strong> of deletion.
           </p>
         </div>
       </section>
