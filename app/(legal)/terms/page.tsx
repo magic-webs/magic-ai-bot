@@ -40,7 +40,7 @@ export default function TermsPage() {
 
       <Section title="The agreement">
         <p>
-          These terms are between <strong>[LEGAL ENTITY NAME]</strong> and the
+          These terms are between <strong>Magic Webs Technologies Pvt Ltd</strong> and the
           business that opens a Magic Agent workspace. Using the service means
           accepting them.
         </p>
@@ -135,7 +135,7 @@ export default function TermsPage() {
       <Section title="Governing law">
         <p>
           These terms are governed by the laws of{" "}
-          <strong>[JURISDICTION]</strong>, and its courts have exclusive
+          <strong>India</strong>, and its courts have exclusive
           jurisdiction.
         </p>
       </Section>

@@ -66,7 +66,7 @@ export default function PrivacyPage() {
       <Section title="Who we are">
         <p>
           Magic Agent (&ldquo;we&rdquo;) is operated by{" "}
-          <strong>[LEGAL ENTITY NAME]</strong>, <strong>[REGISTERED ADDRESS]</strong>.
+          <strong>Magic Webs Technologies Pvt Ltd</strong>, <strong>Office No. 705, ABC Tower-1, Sector 135, Noida, Uttar Pradesh 201305, India</strong>.
           For anything in this policy, write to{" "}
           <strong>[PRIVACY CONTACT EMAIL]</strong>.
         </p>
@@ -234,7 +234,7 @@ export default function PrivacyPage() {
       <Section title="Governing law">
         <p>
           This policy is governed by the laws of{" "}
-          <strong>[JURISDICTION]</strong>.
+          <strong>India</strong>.
         </p>
       </Section>
     </article>

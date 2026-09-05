@@ -53,10 +53,14 @@ export default function LegalLayout({
 
       <footer className="border-t">
         <div className="mx-auto w-full max-w-3xl px-6 py-6 text-sm text-muted-foreground">
-          © {new Date().getFullYear()} Magic Agent.{" "}
-          <Link href="/" className="hover:text-foreground">
-            magicagent.ai
-          </Link>
+          © {new Date().getFullYear()} Magic Webs Technologies Pvt Ltd.{" "}
+          <a
+            href="https://www.magicwebs.in/"
+            className="hover:text-foreground"
+            rel="noreferrer"
+          >
+            magicwebs.in
+          </a>
         </div>
       </footer>
     </div>

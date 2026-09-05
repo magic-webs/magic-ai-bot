@@ -56,8 +56,12 @@ export default function SupportPage() {
             <dd className="font-medium">[SUPPORT EMAIL]</dd>
           </div>
           <div className="flex gap-2">
+            <dt className="w-28 shrink-0 text-muted-foreground">Phone</dt>
+            <dd className="font-medium">9999-064-055</dd>
+          </div>
+          <div className="flex gap-2">
             <dt className="w-28 shrink-0 text-muted-foreground">Hours</dt>
-            <dd>[SUPPORT HOURS, TIMEZONE]</dd>
+            <dd>Monday to Sunday, 9am – 6pm IST</dd>
           </div>
         </dl>
         <p className="mt-3 text-sm text-muted-foreground">
