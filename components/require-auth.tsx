@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { useSession } from "@/components/use-session";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -22,6 +22,10 @@ import { LockKeyIcon } from "@phosphor-icons/react";
  * proxy.ts keeps unauthenticated visitors off these routes; this handles the
  * remaining case of a cookie that is present but no longer valid — an expired
  * session, or a company whose access was revoked mid-visit.
+ *
+ * The way out signs out rather than linking to /login: the dead cookie is what
+ * puts someone here, and proxy.ts reads that same cookie as "signed in", so a
+ * bare link would bounce straight back. Clearing it is what lets the form load.
  */
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   return (
@@ -46,9 +50,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <Button nativeButton={false} render={<Link href="/login" />}>
-                Go to sign in
-              </Button>
+              <SignInAgainButton />
             </EmptyContent>
           </Empty>
         </div>
@@ -57,4 +59,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
       <Authenticated>{children}</Authenticated>
     </>
   );
+}
+
+function SignInAgainButton() {
+  const { signOut } = useSession();
+  return <Button onClick={() => void signOut()}>Go to sign in</Button>;
 }

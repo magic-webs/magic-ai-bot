@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/components/workspace-provider";
 import { SelectField } from "@/components/select-field";
 import { useHourBucket } from "@/components/use-now";
@@ -16,15 +17,13 @@ import {
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import { DashboardSkeleton } from "@/components/skeletons";
 import {
   Item,
@@ -35,14 +34,16 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import {
-  RobotIcon,
   BooksIcon,
-  PackageIcon,
-  WrenchIcon,
-  WhatsappLogoIcon,
+  CaretRightIcon,
   ChatsIcon,
-  ArrowRightIcon,
+  CheckCircleIcon,
+  CircleIcon,
+  PackageIcon,
+  RobotIcon,
   WarningIcon,
+  WhatsappLogoIcon,
+  WrenchIcon,
 } from "@phosphor-icons/react";
 
 const RANGES = [
@@ -121,42 +122,38 @@ export default function WorkspaceOverviewPage() {
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             {workspace.name}
           </h1>
-          {/* Tagline first: it is one line by design, where the description
-              is a paragraph written for the agents' system prompt and ran to
-              six lines across the top of the dashboard. */}
-          <p className="mt-1 line-clamp-2 max-w-2xl text-sm text-muted-foreground">
-            {workspace.tagline ??
-              workspace.description ??
-              "Add a description in Settings so agents know what this business does."}
-          </p>
+          {/* One line, clamped. The tagline is written to be one; the
+              description is a paragraph for the agents' system prompt and ran
+              to six lines across the top of the dashboard. */}
+          {workspace.tagline ? (
+            <p className="mt-0.5 line-clamp-1 max-w-2xl text-sm text-muted-foreground">
+              {workspace.tagline}
+            </p>
+          ) : null}
         </div>
 
-        {/* One filter row, above everything it scopes. */}
-        <div className="flex items-center gap-2">
-          <Label htmlFor="range" className="text-sm">
-            Period
-          </Label>
-          <SelectField
-            id="range"
-            value={range}
-            onValueChange={setRange}
-            options={RANGES}
-          />
-        </div>
+        {/* The label was the word "Period" next to a control that already
+            reads "Last 14 days". Kept for screen readers only. */}
+        <SelectField
+          id="range"
+          aria-label="Period"
+          value={range}
+          onValueChange={setRange}
+          options={RANGES}
+        />
       </header>
 
+      {/* Was a three-line alert at the top of every visit. The same fact
+          fits on one line, and the link is the part that matters. */}
       {!workspace.description ? (
         <Alert>
           <WarningIcon />
-          <AlertTitle>No company description yet</AlertTitle>
-          <AlertDescription>
-            Agents are grounded in the workspace description and facts. Fill them
-            in under{" "}
+          <AlertTitle>
+            Agents answer better with a company description —{" "}
             <Link href={`${base}/settings`} className="underline">
-              Settings
-            </Link>{" "}
-            for noticeably better answers.
-          </AlertDescription>
+              add one in Settings
+            </Link>
+          </AlertTitle>
         </Alert>
       ) : null}
 
@@ -211,9 +208,6 @@ export default function WorkspaceOverviewPage() {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Messages per day</CardTitle>
-                <CardDescription>
-                  Inbound and outbound, every channel.
-                </CardDescription>
               </CardHeader>
               <CardContent>
                 <ActivityChart
@@ -226,8 +220,7 @@ export default function WorkspaceOverviewPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Where conversations arrive</CardTitle>
-                <CardDescription>All time, by channel.</CardDescription>
+                <CardTitle>Channels</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChannelSplit
@@ -242,9 +235,6 @@ export default function WorkspaceOverviewPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Orders by status</CardTitle>
-                <CardDescription>
-                  All time.
-                </CardDescription>
               </CardHeader>
               <CardContent>
                 <RankedBars
@@ -261,9 +251,6 @@ export default function WorkspaceOverviewPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Most-used tools</CardTitle>
-                <CardDescription>
-                  Calls your agents actually made.
-                </CardDescription>
               </CardHeader>
               <CardContent>
                 <RankedBars
@@ -282,56 +269,55 @@ export default function WorkspaceOverviewPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  Setup checklist
-                  {remaining === 0 ? (
-                    <Badge variant="secondary">complete</Badge>
-                  ) : (
-                    <Badge variant="outline">{remaining} left</Badge>
-                  )}
+                  Setup
+                  <Badge variant={remaining === 0 ? "secondary" : "outline"}>
+                    {setupSteps.length - remaining}/{setupSteps.length}
+                  </Badge>
                 </CardTitle>
-                <CardDescription>
-                  What this workspace still needs before it can go live.
-                </CardDescription>
               </CardHeader>
               <CardContent>
-                <ItemGroup>
+                {/* Each step is one row and the row is the link. It used to be
+                    a title, a sentence explaining it and a button beside it —
+                    three pieces of text per step, twelve for four steps, to
+                    say what a tick and a name say on their own. */}
+                <ul className="flex flex-col">
                   {setupSteps.map((step) => {
                     const Icon = step.icon;
                     return (
-                      <Item key={step.label} variant="outline">
-                        <ItemMedia variant="icon">
-                          <Icon />
-                        </ItemMedia>
-                        <ItemContent>
-                          <ItemTitle className="flex items-center gap-2">
-                            {step.label}
-                            {step.done ? (
-                              <Badge variant="secondary">done</Badge>
-                            ) : null}
-                          </ItemTitle>
-                          <ItemDescription>{step.description}</ItemDescription>
-                        </ItemContent>
-                        <Button
-                          size="lg"
-                          variant={step.done ? "ghost" : "outline"}
-                          nativeButton={false}
-                          render={<Link href={step.href} />}
+                      <li key={step.label}>
+                        <Link
+                          href={step.href}
+                          className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/60"
                         >
-                          {step.done ? "Review" : "Set up"} <ArrowRightIcon />
-                        </Button>
-                      </Item>
+                          {step.done ? (
+                            <CheckCircleIcon
+                              weight="fill"
+                              className="size-4.5 shrink-0 text-primary"
+                            />
+                          ) : (
+                            <CircleIcon className="size-4.5 shrink-0 text-muted-foreground/50" />
+                          )}
+                          <Icon className="size-4 shrink-0 text-muted-foreground" />
+                          <span
+                            className={cn(
+                              "truncate text-sm",
+                              step.done && "text-muted-foreground"
+                            )}
+                          >
+                            {step.label}
+                          </span>
+                          <CaretRightIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                        </Link>
+                      </li>
                     );
                   })}
-                </ItemGroup>
+                </ul>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>Agents</CardTitle>
-                <CardDescription>
-                  Open one to configure it, or test it in the web playground.
-                </CardDescription>
               </CardHeader>
               <CardContent>
                 {agents === undefined ? (
@@ -356,35 +342,40 @@ export default function WorkspaceOverviewPage() {
                         <ItemMedia variant="icon">
                           <RobotIcon />
                         </ItemMedia>
-                        <ItemContent>
-                          <ItemTitle className="flex items-center gap-2">
-                            {agent.botName}
-                            <Badge
-                              variant={
-                                agent.status === "active"
-                                  ? "default"
-                                  : "secondary"
-                              }
-                            >
-                              {agent.status}
-                            </Badge>
+                        <ItemContent className="min-w-0">
+                          <ItemTitle className="flex min-w-0 items-center gap-2">
+                            <span className="truncate">{agent.botName}</span>
+                            {/* Only the exception is worth a word. An agent
+                                that is live is the normal case and said so
+                                five times down this list. */}
+                            {agent.status !== "active" ? (
+                              <Badge variant="secondary">{agent.status}</Badge>
+                            ) : null}
                           </ItemTitle>
-                          <ItemDescription>{agent.role}</ItemDescription>
+                          <ItemDescription className="truncate">
+                            {agent.role}
+                          </ItemDescription>
                         </ItemContent>
-                        <div className="flex gap-1">
+                        {/* Icon-only, with the label on hover: the two words
+                            were repeated on every row. */}
+                        <div className="flex shrink-0 gap-1">
                           <Button
-                            size="lg"
+                            size="icon-lg"
                             variant="outline"
+                            aria-label={`Test ${agent.botName}`}
+                            title="Test in the playground"
                             nativeButton={false}
                             render={
                               <Link href={`${base}/agents/${agent._id}/test`} />
                             }
                           >
-                            <ChatsIcon /> Test
+                            <ChatsIcon />
                           </Button>
                           <Button
-                            size="lg"
+                            size="icon-lg"
                             variant="ghost"
+                            aria-label={`Configure ${agent.botName}`}
+                            title="Configure"
                             nativeButton={false}
                             render={
                               <Link href={`${base}/agents/${agent._id}`} />

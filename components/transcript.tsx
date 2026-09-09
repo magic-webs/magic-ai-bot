@@ -30,6 +30,8 @@ import {
   WrenchIcon,
   CaretRightIcon,
   ArrowsSplitIcon,
+  ClipboardTextIcon,
+  UserIcon,
 } from "@phosphor-icons/react";
 
 function timeOf(createdAt: number): string {
@@ -111,6 +113,37 @@ function HandoffMarker({ message }: { message: Doc<"messages"> }) {
           Handed over: {summary}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// An internal note on the thread — the follow-up desk filing the conversation
+// at a lead stage and saying why.
+//
+// Deliberately not a bubble. It used to fall through to the ordinary message
+// branch, which put the desk's private reasoning on the left in the same
+// outline bubble an agent's reply uses: it read as though "Filed at New
+// enquiry · No nudge needed" had been sent to the customer. Nothing here was
+// ever sent anywhere, so it is set apart from the conversation instead of
+// dressed up as part of it.
+// ---------------------------------------------------------------------------
+
+function NoteMarker({ message }: { message: Doc<"messages"> }) {
+  return (
+    <div className="mx-auto flex w-full max-w-xl gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2">
+      <ClipboardTextIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Internal note · not sent to the customer
+        </p>
+        <p className="mt-0.5 text-xs whitespace-pre-wrap text-muted-foreground">
+          {message.text}
+        </p>
+      </div>
+      <span className="shrink-0 text-xs text-muted-foreground/70">
+        {timeOf(message.createdAt)}
+      </span>
     </div>
   );
 }
@@ -199,6 +232,18 @@ export function TranscriptView({
                 );
               }
 
+              if (message.kind === "note") {
+                return (
+                  <MessageScrollerItem
+                    key={message._id}
+                    messageId={message._id}
+                    className="mx-auto w-full"
+                  >
+                    <NoteMarker message={message} />
+                  </MessageScrollerItem>
+                );
+              }
+
               if (message.kind === "error") {
                 return (
                   <MessageScrollerItem
@@ -239,6 +284,14 @@ export function TranscriptView({
                         </BubbleContent>
                       </Bubble>
                       <MessageFooter>
+                        {/* Who wrote it, when a person did. An unmarked
+                            outgoing message is the agent's, as before. */}
+                        {message.sentByHuman ? (
+                          <span className="flex items-center gap-1">
+                            <UserIcon className="size-3" />
+                            Sent by your team ·
+                          </span>
+                        ) : null}
                         {timeOf(message.createdAt)}
                         {message.latencyMs
                           ? ` · ${(message.latencyMs / 1000).toFixed(1)}s`

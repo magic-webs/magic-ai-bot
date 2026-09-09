@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/components/workspace-provider";
 import { SelectField } from "@/components/select-field";
 import { TranscriptView } from "@/components/transcript";
+import { ManualReply } from "@/components/manual-reply";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,8 @@ import {
   EnvelopeIcon,
   PhoneIcon,
   BuildingsIcon,
+  UserIcon,
+  RobotIcon,
 } from "@phosphor-icons/react";
 
 const STATUS_OPTIONS = [
@@ -98,6 +101,7 @@ function ConversationDetail({
   const detail = useQuery(api.conversations.getWithContact, { conversationId });
   const messages = useQuery(api.conversations.listMessages, { conversationId });
   const setStatus = useMutation(api.conversations.setStatus);
+  const setHumanHandling = useMutation(api.conversations.setHumanHandling);
   const removeConversation = useMutation(api.conversations.remove);
   const [showTools, setShowTools] = useState(true);
 
@@ -157,6 +161,14 @@ function ConversationDetail({
             >
               {conversation.status}
             </Badge>
+            {/* Only while a person holds the thread. Nothing is shown in the
+                ordinary case, which is the agent answering. */}
+            {conversation.humanHandling ? (
+              <Badge variant="outline" className="gap-1">
+                <UserIcon className="size-3" />
+                You have this thread
+              </Badge>
+            ) : null}
           </p>
 
           {/* Everything the agent learned about this person. */}
@@ -217,6 +229,22 @@ function ConversationDetail({
               Tool trace
             </Label>
           </div>
+          {conversation.humanHandling ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                await setHumanHandling({ conversationId, handling: false });
+                toast.add({
+                  title: "Agent resumed",
+                  description: `${agent?.botName ?? "The agent"} will answer ${label} again.`,
+                  type: "success",
+                });
+              }}
+            >
+              <RobotIcon /> Resume agent
+            </Button>
+          ) : null}
           <SelectField
             size="sm"
             aria-label="Conversation status"
@@ -284,6 +312,18 @@ function ConversationDetail({
             This conversation has no messages yet.
           </p>
         }
+      />
+
+      {/* Below the transcript, not inside it: the reader scrolls, this does
+          not. Absent from the agent playground, which is a test harness with
+          nobody on the other end to reply to. */}
+      <ManualReply
+        conversationId={conversationId}
+        windowClosed={detail.freeFormWindowClosed}
+        neverWritten={detail.lastInboundAt === null}
+        humanHandling={conversation.humanHandling ?? false}
+        agentName={agent?.botName ?? "The agent"}
+        contactLabel={label}
       />
     </>
   );

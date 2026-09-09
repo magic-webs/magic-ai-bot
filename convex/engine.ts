@@ -1078,6 +1078,13 @@ export type TurnResult = {
   agentBotName?: string;
   /** Every hop this message took, oldest first, e.g. ["Front desk", "Priya"]. */
   handoffPath?: string[];
+  /**
+   * The customer's message was stored but deliberately left unanswered,
+   * because a colleague has taken the thread over. Distinct from `text: null`
+   * with an error, which means the turn broke: callers must not report this
+   * one as a failure or write it to the channel's error log.
+   */
+  heldForHuman?: boolean;
   error?: string;
 };
 
@@ -1153,6 +1160,19 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       text: message,
       historyLimit: entryAgent.historyLimit,
     });
+
+    // A colleague is dealing with this thread by hand. The message is already
+    // recorded by startTurn above — it belongs in the transcript either way,
+    // and the person replying needs to see it — but no agent answers it.
+    if (session.humanHandling) {
+      return {
+        ok: true,
+        text: null,
+        conversationId: session.conversationId,
+        toolCalls: [],
+        heldForHuman: true,
+      };
+    }
 
     // A previous turn may have left a specialist in charge. Pick the
     // conversation up where it was left, falling back to the entry agent if

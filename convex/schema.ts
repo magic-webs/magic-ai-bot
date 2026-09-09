@@ -403,6 +403,13 @@ export default defineSchema({
     activeAgentId: v.optional(v.id("agents")),
     handoffCount: v.optional(v.number()),
     contactId: v.id("contacts"),
+    /**
+     * A person has taken this thread over from the agent, by replying to the
+     * customer by hand. Inbound messages are still recorded while this is set,
+     * but no agent answers them — otherwise the AI talks over the colleague
+     * who is dealing with it. Cleared by "Resume agent" on the thread.
+     */
+    humanHandling: v.optional(v.boolean()),
     channelId: v.optional(v.id("channels")),
     channelType: v.union(v.literal("whatsapp"), v.literal("web")),
     status: v.union(
@@ -472,6 +479,14 @@ export default defineSchema({
     // Which agent produced an assistant message, or took over on a handoff.
     // Optional because messages written before routing existed have no answer.
     agentId: v.optional(v.id("agents")),
+    /**
+     * Set on an outgoing message a person typed themselves from the
+     * dashboard, rather than one an agent generated. Stored as `assistant`
+     * either way, because that is what it is from the customer's side and what
+     * the model must replay as its own words — this only says who wrote it, so
+     * the transcript can show a colleague's reply as a colleague's.
+     */
+    sentByHuman: v.optional(v.boolean()),
     // Populated on kind === "tool" so the playground can show the tool trace
     toolName: v.optional(v.string()),
     toolInput: v.optional(v.string()), // JSON

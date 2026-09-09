@@ -316,6 +316,7 @@ export const handleInbound = internalAction({
       ok: boolean;
       text: string | null;
       toolCalls: string[];
+      heldForHuman?: boolean;
       error?: string;
     } = await ctx.runAction(internal.engine.respond, {
       agentId: channel.agentId,
@@ -326,6 +327,13 @@ export const handleInbound = internalAction({
       contactPhone: from,
       text: text.trim(),
     });
+
+    // Nothing to send, and nothing wrong: a colleague has the thread. Kept
+    // above the error branch so a deliberate silence is not logged on the
+    // channel as a failure to reply.
+    if (result.heldForHuman) {
+      return { handled: true, reason: "human_handling" };
+    }
 
     if (!result.text) {
       await ctx.runMutation(internal.channels.touchInbound, {

@@ -332,6 +332,13 @@ export const MAX_FOLLOW_UPS = 2;
  */
 export const WHATSAPP_FREE_FORM_WINDOW_HOURS = 24;
 
+/**
+ * WhatsApp's own ceiling on a text message body. Applied when a person types
+ * a reply by hand, which is the only path where the length is not already
+ * bounded by a model's output.
+ */
+export const WHATSAPP_TEXT_LIMIT = 4096;
+
 export const FOLLOW_UP_DEFAULTS = {
   name: "Follow-up desk",
   role: "Follow-up desk",

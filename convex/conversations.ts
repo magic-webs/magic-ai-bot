@@ -2,12 +2,18 @@ import { v } from "convex/values";
 import {
   query,
   mutation,
+  action,
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
 import { historyText, type Outbound } from "./lib/whatsappSend";
+import {
+  WHATSAPP_FREE_FORM_WINDOW_HOURS,
+  WHATSAPP_TEXT_LIMIT,
+} from "./lib/shared";
 import {
   requireAgent,
   requireContact,
@@ -119,7 +125,31 @@ export const getWithContact = query({
     if (!conversation) return null;
     const contact = await ctx.db.get("contacts", conversation.contactId);
     const agent = await ctx.db.get("agents", conversation.agentId);
-    return { conversation, contact, agent };
+
+    // When the customer last spoke. WhatsApp only allows a free-form reply
+    // within 24 hours of that, so the composer has to be able to say so
+    // before someone types a message that cannot be delivered.
+    const inbound = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversationId", args.conversationId)
+      )
+      .order("desc")
+      .take(100);
+    const lastInboundAt =
+      inbound.find((message) => message.role === "user")?.createdAt ?? null;
+
+    // Judged here rather than in the browser: the server's clock is the one
+    // the send path will be measured against, and a component cannot read a
+    // clock during render without breaking the purity rule the lint config
+    // enforces.
+    const freeFormWindowClosed =
+      conversation.channelType === "whatsapp" &&
+      (lastInboundAt === null ||
+        Date.now() - lastInboundAt >
+          WHATSAPP_FREE_FORM_WINDOW_HOURS * 60 * 60_000);
+
+    return { conversation, contact, agent, lastInboundAt, freeFormWindowClosed };
   },
 });
 
@@ -186,6 +216,155 @@ export const remove = mutation({
     for (const message of messages) await ctx.db.delete(message._id);
     await ctx.db.delete(args.conversationId);
     return { success: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Replying by hand
+//
+// A person taking a thread over from the agent — the customer asked something
+// the agent should not answer, or escalated and is waiting on a colleague.
+// The message goes out over the same channel the agent uses and is recorded as
+// an ordinary outgoing message, so the customer sees one voice and the model
+// replays it as its own words. `sentByHuman` is the only difference, and it
+// exists so the transcript can attribute it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything a manual reply needs, behind the same guard as the rest of the
+ * page. An internal query rather than a public one only because nothing but
+ * the action below should call it — the caller's identity still propagates
+ * here, so `requireConversation` is a real check.
+ */
+export const manualSendContext = internalQuery({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    await requireConversation(ctx, args.conversationId);
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (!conversation) return null;
+    const contact = await ctx.db.get("contacts", conversation.contactId);
+
+    return {
+      workspaceId: conversation.workspaceId,
+      channelType: conversation.channelType,
+      channelId: conversation.channelId ?? null,
+      externalId: contact?.externalId ?? null,
+      // Attributed to whoever holds the thread, so the message sits with the
+      // rest of that agent's replies rather than looking like it came from the
+      // entry point.
+      agentId: conversation.activeAgentId ?? conversation.agentId,
+    };
+  },
+});
+
+/** Files a hand-typed reply on the thread. Mirrors `leads.recordFollowUp`. */
+export const recordManualReply = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    agentId: v.optional(v.id("agents")),
+    text: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.insert("messages", {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      role: "assistant",
+      kind: "text",
+      text: args.text,
+      agentId: args.agentId,
+      sentByHuman: true,
+      createdAt: now,
+    });
+
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (conversation) {
+      await ctx.db.patch(args.conversationId, {
+        messageCount: conversation.messageCount + 1,
+        lastMessageAt: now,
+        lastMessagePreview: args.text.slice(0, 140),
+        // Replying by hand is the takeover. Anything else would have the agent
+        // answer the customer's next message over the top of a colleague who
+        // is mid-conversation with them.
+        humanHandling: true,
+      });
+    }
+    return { success: true };
+  },
+});
+
+/** Hands the thread back to the agent, or takes it over without replying. */
+export const setHumanHandling = mutation({
+  args: {
+    conversationId: v.id("conversations"),
+    handling: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await requireConversation(ctx, args.conversationId);
+    await ctx.db.patch(args.conversationId, { humanHandling: args.handling });
+    return { success: true };
+  },
+});
+
+/**
+ * Sends a message a person typed, and records it.
+ *
+ * An action rather than a mutation because WhatsApp has to be called: the row
+ * is only written once the send succeeded, so a transcript never shows a
+ * colleague's reply that never arrived. Failures come back as `error` for the
+ * composer to show — the commonest by far being WhatsApp's 24-hour rule, which
+ * no amount of retrying will get around.
+ */
+export const sendManualReply = action({
+  args: {
+    conversationId: v.id("conversations"),
+    text: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
+    const body = args.text.trim().slice(0, WHATSAPP_TEXT_LIMIT);
+    if (!body) return { ok: false, error: "Type a message first." };
+
+    const context = await ctx.runQuery(internal.conversations.manualSendContext, {
+      conversationId: args.conversationId,
+    });
+    if (!context) return { ok: false, error: "This conversation no longer exists." };
+
+    if (context.channelType === "whatsapp") {
+      if (!context.channelId || !context.externalId) {
+        return {
+          ok: false,
+          error:
+            "This thread has no WhatsApp channel attached, so there is nowhere to send it.",
+        };
+      }
+      const sent: { ok: boolean; error?: string } = await ctx.runAction(
+        internal.whatsapp.sendOutbound,
+        {
+          channelId: context.channelId,
+          to: context.externalId,
+          message: { kind: "text", body },
+        }
+      );
+      if (!sent.ok) {
+        return {
+          ok: false,
+          error: sent.error ?? "WhatsApp rejected the message.",
+        };
+      }
+    }
+    // On the web widget there is nothing to post to: recording the message is
+    // the delivery, and the visitor's open subscription renders it. Same
+    // reasoning as the follow-up desk in convex/followUp.ts.
+
+    await ctx.runMutation(internal.conversations.recordManualReply, {
+      workspaceId: context.workspaceId,
+      conversationId: args.conversationId,
+      agentId: context.agentId,
+      text: body,
+    });
+
+    return { ok: true };
   },
 });
 
@@ -329,6 +508,9 @@ export const startTurn = internalMutation({
       // Whoever the last handoff left in charge. The engine runs this agent,
       // not necessarily the one the channel points at.
       activeAgentId: conversation.activeAgentId ?? conversation.agentId,
+      // Set when a colleague has taken the thread over. The inbound message
+      // above is still recorded; the engine reads this and does not answer.
+      humanHandling: conversation.humanHandling ?? false,
       contact: {
         name: contact.name,
         phone: contact.phone,
