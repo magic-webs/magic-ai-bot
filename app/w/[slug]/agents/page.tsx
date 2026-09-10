@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useWorkspace } from "@/components/workspace-provider";
-import { AgentFlow } from "@/components/agent-flow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -400,14 +399,6 @@ export default function AgentsPage() {
 
       <Separator />
 
-      {/* The topology first, then the cards. It shows what the paragraph above
-          used to describe — what arrives where, and who the front desk can
-          actually hand to — so the routing is legible before anyone reads a
-          word. Only drawn once there is something to draw. */}
-      {agents !== undefined && (router || specialists.length > 0) ? (
-        <AgentFlow agents={agents} base={base} />
-      ) : null}
-
       {router ? (
         <FrontDeskCard
           router={router}
@@ -432,44 +423,6 @@ export default function AgentsPage() {
             </Button>
           </AlertDescription>
         </Alert>
-      ) : null}
-
-      {followUpDesk ? (
-        <Card className="shrink-0 bg-muted/40">
-          <CardHeader>
-            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <FunnelIcon className="size-4" />
-              </span>
-              <span className="truncate">{followUpDesk.name}</span>
-              <Badge variant="secondary">Lead pipeline</Badge>
-            </CardTitle>
-            <CardDescription className="max-w-prose">
-              Reads a conversation an hour after it goes quiet, files it at a
-              lead stage and sends one nudge if it is worth sending. It never
-              takes a live turn, so it is not in the front desk&apos;s roster
-              and cannot be transferred to.
-            </CardDescription>
-            <CardAction className="flex flex-wrap gap-1 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-start">
-              <Button
-                size="lg"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href={`${base}/leads`} />}
-              >
-                <FunnelIcon /> Leads
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href={`${base}/agents/${followUpDesk._id}`} />}
-              >
-                <SlidersIcon /> Configure
-              </Button>
-            </CardAction>
-          </CardHeader>
-        </Card>
       ) : null}
 
       {router && routable.length === 0 && specialists.length > 0 ? (
@@ -589,6 +542,44 @@ export default function AgentsPage() {
           ))}
         </div>
       )}
+      {followUpDesk ? (
+        <Card className="shrink-0 bg-muted/40">
+          <CardHeader>
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <FunnelIcon className="size-4" />
+              </span>
+              <span className="truncate">{followUpDesk.name}</span>
+              <Badge variant="secondary">Lead pipeline</Badge>
+            </CardTitle>
+            <CardDescription className="max-w-prose">
+              Reads a conversation an hour after it goes quiet, files it at a
+              lead stage and sends one nudge if it is worth sending. It never
+              takes a live turn, so it is not in the front desk&apos;s roster
+              and cannot be transferred to.
+            </CardDescription>
+            <CardAction className="flex flex-wrap gap-1 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-start">
+              <Button
+                size="lg"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href={`${base}/leads`} />}
+              >
+                <FunnelIcon /> Leads
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href={`${base}/agents/${followUpDesk._id}`} />}
+              >
+                <SlidersIcon /> Configure
+              </Button>
+            </CardAction>
+          </CardHeader>
+        </Card>
+      ) : null}
+
     </div>
   );
 }
