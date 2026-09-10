@@ -20,7 +20,23 @@ export function describeSession(): string;
  * The account a request acts as. `null` means the environment-configured one,
  * which is what the stdio server and the deployment-wide token both use.
  */
-export type McpIdentity = { kind: "token"; token: string } | null;
+export type McpSession = {
+  sessionToken: string;
+  role: "workspace" | "admin";
+  label: string;
+  workspaceSlug: string | null;
+};
+
+export type McpIdentity =
+  | { kind: "token"; token: string }
+  | { kind: "session"; session: McpSession }
+  | null;
+
+/**
+ * Verifies a connector token and returns its session, or null when no such
+ * token was issued. Call it before serving MCP to a URL-supplied token.
+ */
+export function verifyConnectorToken(token: string): Promise<McpSession | null>;
 
 /**
  * Runs `fn` with its own identity and its own derived state — Convex client,

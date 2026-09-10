@@ -23,7 +23,11 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { buildServer, runWithIdentity } from "@/mcp/server.mjs";
+import {
+  buildServer,
+  runWithIdentity,
+  verifyConnectorToken,
+} from "@/mcp/server.mjs";
 
 // A tool call can wait on an OpenAI round trip through Convex — chat_with_agent
 // and the draft_* tools especially.
@@ -64,21 +68,26 @@ async function handle(
 
   // Two kinds of caller. The deployment-wide token from the environment acts
   // as whatever MAGIC_AI_BOT_USERNAME names — unchanged, including its admin
-  // option. Anything else is treated as a company's own connector token and
-  // resolved against the database by mcpLogin, which scopes the request to
-  // that one workspace.
+  // option. Anything else is a company's own connector token, resolved against
+  // the database here.
   //
-  // The env token is checked first and in constant time, so adding per-company
-  // tokens has not made it guessable.
-  const identity = tokenMatches(token)
-    ? null
-    : token.length >= MIN_TOKEN_CHARS
-      ? ({ kind: "token" as const, token })
-      : null;
+  // The env token is checked first and in constant time, so per-company tokens
+  // have not made it guessable.
+  let identity: Parameters<typeof runWithIdentity>[0] = null;
 
-  // Neither: no endpoint. Same 404 as a wrong env token, so a stranger cannot
-  // tell a bad token from MCP being switched off.
-  if (identity === null && !tokenMatches(token)) return notFound();
+  if (!tokenMatches(token)) {
+    // Verified at the door, not on the first tool call. Lazily, a stranger
+    // with any long-enough URL still completed the handshake and could read
+    // the entire tool list — only a tool call failed. The 404 exists to
+    // withhold exactly that, so nothing is served until the token resolves.
+    const session =
+      token.length >= MIN_TOKEN_CHARS
+        ? await verifyConnectorToken(token)
+        : null;
+    if (!session) return notFound();
+    // Handed on so the server does not exchange the token a second time.
+    identity = { kind: "session", session };
+  }
 
   try {
     // Stateless: a fresh server and transport per request, with no session id.

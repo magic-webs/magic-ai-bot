@@ -166,6 +166,24 @@ function state() {
   return requestState.getStore() ?? processState;
 }
 
+/**
+ * Exchanges a connector token for a workspace session, or null if it is not a
+ * token anybody issued.
+ *
+ * Exists so an HTTP caller can be turned away *before* being handed an MCP
+ * server. Checking lazily on the first tool call meant a stranger with any
+ * long-enough URL still got a successful handshake and the whole tool list
+ * back, which is exactly what the 404 is supposed to withhold.
+ */
+export async function verifyConnectorToken(token) {
+  const client = new ConvexHttpClient(CONVEX_URL);
+  try {
+    return await client.action(api.auth.mcpLogin, { token });
+  } catch {
+    return null;
+  }
+}
+
 /** Runs `fn` with its own identity, and its own everything derived from it. */
 export function runWithIdentity(identity, fn) {
   return requestState.run(newState(identity), fn);
@@ -190,12 +208,17 @@ async function signIn() {
   if (!identity) assertConfigured(null);
 
   st.session =
-    identity.kind === "token"
-      ? await convex().action(api.auth.mcpLogin, { token: identity.token })
-      : await convex().action(api.auth.login, {
-          username: identity.username,
-          password: identity.password,
-        });
+    // Already signed in by whoever verified the token at the door. Reused
+    // rather than exchanged again: two logins per request would issue two
+    // sessions and double the round trips.
+    identity.kind === "session"
+      ? identity.session
+      : identity.kind === "token"
+        ? await convex().action(api.auth.mcpLogin, { token: identity.token })
+        : await convex().action(api.auth.login, {
+            username: identity.username,
+            password: identity.password,
+          });
   st.access = null;
 }
 
