@@ -34,6 +34,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import {
   ArrowsClockwiseIcon,
@@ -111,6 +112,50 @@ const TOOL_GROUPS = [
   },
 ];
 
+/** Three short steps. Deliberately not prose: this is a form to fill in. */
+function Steps({ items, note }: { items: string[]; note?: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ol>
+      {note ? (
+        <p className="text-xs text-muted-foreground">{note}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A copyable command. */
+function Snippet({ label, code }: { label: string; code: string }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(code);
+              toast.add({ title: "Copied", type: "success" });
+            } catch {
+              toast.add({ title: "Copy failed", type: "error" });
+            }
+          }}
+        >
+          <CopyIcon /> Copy
+        </Button>
+      </div>
+      <pre className="overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">
+        {code}
+      </pre>
+    </div>
+  );
+}
+
 function when(timestamp: number | null): string {
   if (!timestamp) return "never";
   return new Date(timestamp).toLocaleString();
@@ -119,10 +164,10 @@ function when(timestamp: number | null): string {
 /**
  * The workspace's MCP connector.
  *
- * One URL, which is itself the credential: claude.ai's connector form has a
- * URL field and nowhere to put a header, so the token lives in the path.
- * Everything on this card follows from that — it is shown once, only its hash
- * is stored, and rotating stops the old URL working immediately.
+ * One URL, which is itself the credential: a connector form — claude.ai's,
+ * ChatGPT's — has a URL field and nowhere to put a header, so the token lives
+ * in the path. Everything on this card follows from that: it is shown once,
+ * only its hash is stored, and rotating stops the old URL working immediately.
  */
 export function McpConnectorCard({
   workspaceId,
@@ -173,9 +218,9 @@ export function McpConnectorCard({
           {connector ? <Badge variant="secondary">active</Badge> : null}
         </CardTitle>
         <CardDescription>
-          Give Claude a connector for {workspaceName} and it can build and check
-          this workspace for you — agents, the catalogue, knowledge, channels
-          and custom tools.
+          Give an assistant a connector for {workspaceName} and it can build
+          and check this workspace for you — agents, the catalogue, knowledge,
+          channels and custom tools.
         </CardDescription>
       </CardHeader>
 
@@ -315,15 +360,64 @@ export function McpConnectorCard({
         <Separator />
 
         <div className="flex flex-col gap-2">
-          <Label>Adding it in Claude</Label>
-          <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
-            <li>Customize → Connectors → “+” → Add custom connector.</li>
-            <li>Paste the URL. Leave the OAuth fields empty.</li>
-            <li>Add, then enable it in a new chat and ask “list my agents”.</li>
-          </ol>
+          <Label>Where are you adding it?</Label>
+          <Tabs defaultValue="claude">
+            <TabsList className="w-full">
+              <TabsTrigger value="claude">Claude.ai</TabsTrigger>
+              <TabsTrigger value="chatgpt">ChatGPT</TabsTrigger>
+              <TabsTrigger value="code">Claude Code</TabsTrigger>
+              <TabsTrigger value="other">Other</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="claude" className="pt-3">
+              <Steps
+                items={[
+                  "Customize → Connectors → “+” → Add custom connector.",
+                  "Paste the URL. Leave the OAuth fields under Advanced empty — the token in the URL is the credential.",
+                  "Add, then enable it in a new chat and ask “list my agents”.",
+                ]}
+                note="On Team and Enterprise an Owner adds it under Organization settings → Connectors first, and members then enable it."
+              />
+            </TabsContent>
+
+            <TabsContent value="chatgpt" className="pt-3">
+              <Steps
+                items={[
+                  "Settings → Connectors → Create.",
+                  "Name it, keep Connection on “Server URL”, and paste the URL.",
+                  "Leave Authentication on “No Auth”, tick the risk acknowledgement, then Create.",
+                ]}
+                note="This endpoint speaks Streamable HTTP, the current MCP transport, and also opens an event stream on GET. If ChatGPT rejects the URL, tell us — the server can expose a legacy /sse endpoint as well."
+              />
+            </TabsContent>
+
+            <TabsContent value="code" className="pt-3">
+              <Snippet
+                label="Run this once"
+                code={`claude mcp add --transport http magic-agent ${
+                  freshUrl ?? "<your connector URL>"
+                }`}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Add <span className="font-mono">--scope user</span> to reach it
+                from every project rather than this one.
+              </p>
+            </TabsContent>
+
+            <TabsContent value="other" className="pt-3">
+              <Steps
+                items={[
+                  "Add it as a remote MCP server over Streamable HTTP.",
+                  "No headers and no OAuth: the token in the path is the whole credential.",
+                  "POST carries the calls; GET opens the event stream.",
+                ]}
+              />
+            </TabsContent>
+          </Tabs>
+
           <p className="text-xs text-muted-foreground">
-            Claude reaches this URL from Anthropic&apos;s servers, so it has to
-            be a public address — a connector will not reach{" "}
+            The assistant reaches this URL from its own servers, so it has to be
+            a public address — no connector will reach{" "}
             <span className="font-mono">localhost</span>.
           </p>
         </div>

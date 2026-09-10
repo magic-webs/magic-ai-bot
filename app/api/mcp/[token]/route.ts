@@ -121,6 +121,8 @@ async function handle(
 export const POST = handle;
 
 // Stateless mode has no stream to resume and no session to delete, but the spec
-// expects these verbs to answer rather than 404 — the transport replies 405.
+// expects these verbs to answer rather than 404. GET is not refused: the
+// transport opens an event stream on it (`text/event-stream`), which is what
+// lets a client expecting the older SSE shape connect to the same URL.
 export const GET = handle;
 export const DELETE = handle;
