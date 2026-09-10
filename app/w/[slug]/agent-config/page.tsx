@@ -129,7 +129,9 @@ function Inspector({
         <SheetDescription className="truncate">{agent.role}</SheetDescription>
       </SheetHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
+      {/* min-w-0 as well as min-h-0: a flex child defaults to its content's
+          width, which is how one long label got to widen the whole sheet. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
         {/* --- status ------------------------------------------------------ */}
         <div className="flex flex-col gap-1.5">
           <Label>Status</Label>
@@ -279,6 +281,13 @@ function Inspector({
           <Label htmlFor="model">Model</Label>
           <SelectField
             id="model"
+            // SelectTrigger is `w-fit whitespace-nowrap`, so a long label —
+            // "Ling 3.0 Flash Fin — finance-tuned, 256K context, free" — grew
+            // the trigger past the panel and set the whole sheet scrolling
+            // sideways. Full width with min-w-0 lets it shrink instead, and
+            // the value's own line-clamp then does the trimming. The dropdown
+            // still opens at its natural width, so nothing is unreadable.
+            className="w-full min-w-0"
             value={draft.model}
             onValueChange={(value) => set("model", value)}
             options={[
@@ -329,28 +338,30 @@ function Inspector({
       {/* An explicit save, not autosave: these are live agents answering
           customers, and a half-typed routing note saved on every keystroke
           would be in the front desk's routing table while you typed it. */}
-      <SheetFooter
-        className={cn(
-          "flex-row items-center gap-2 border-t transition-opacity",
-          !dirty && "pointer-events-none opacity-0"
-        )}
-        aria-hidden={!dirty}
-      >
-        <Button
-          className="flex-1"
-          disabled={!dirty || saving}
-          onClick={() => void save()}
-        >
-          {saving ? <Spinner /> : null} Save changes
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!dirty || saving}
-          onClick={() => setDraft(draftOf(agent))}
-        >
-          Discard
-        </Button>
-      </SheetFooter>
+      {/* Rendered only when there is something to save. It used to sit there
+          at opacity-0, which kept its padding, its buttons' height and its
+          top border in the layout — an empty band with a divider across the
+          bottom of every panel that had no unsaved edit. */}
+      {dirty ? (
+        <SheetFooter className="flex-row items-center gap-2 border-t">
+          {/* No `!dirty` on these any more: the whole footer is gone in that
+              case, so the only thing left to guard is a save in flight. */}
+          <Button
+            className="flex-1"
+            disabled={saving}
+            onClick={() => void save()}
+          >
+            {saving ? <Spinner /> : null} Save changes
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={saving}
+            onClick={() => setDraft(draftOf(agent))}
+          >
+            Discard
+          </Button>
+        </SheetFooter>
+      ) : null}
     </>
   );
 }
@@ -429,7 +440,7 @@ export default function AgentConfigPage() {
             never in flow, so nothing else can make room for it. Below sm the
             sheet is three-quarter width and overlays instead. */}
         {active ? (
-          <div className="hidden w-96 shrink-0 sm:block" aria-hidden />
+          <div className="hidden w-[28rem] shrink-0 sm:block" aria-hidden />
         ) : null}
 
         <Sheet
@@ -455,7 +466,22 @@ export default function AgentConfigPage() {
             side="right"
             container={dockRef}
             showOverlay={false}
-            className="absolute inset-y-0 right-0 h-full gap-0 border-l p-0 shadow-none sm:max-w-96"
+            // 28rem, matched by the spacer above so the graph gives up
+            // exactly this much room — wide enough for the tool chips and the
+            // model label without either being clipped.
+            //
+            // It has to be written with SheetContent's own variant chain,
+            // not a plain `sm:`. It sets `data-[side=right]:sm:max-w-sm`, and
+            // tailwind-merge only drops a class when the variants match too —
+            // so a bare `sm:max-w-[28rem]` was kept *alongside* it and then
+            // lost on specificity to the attribute selector. The sheet stayed
+            // 24rem while the spacer below was 28rem, which is where the empty
+            // 4rem strip beside it came from.
+            //
+            // The width is scoped to sm and up so the component's `w-3/4`
+            // still governs phones, where the spacer is hidden and this
+            // overlays instead.
+            className="absolute inset-y-0 right-0 h-full gap-0 border-l p-0 shadow-none data-[side=right]:sm:w-[28rem] data-[side=right]:sm:max-w-[28rem]"
           >
             {/* Mounted only while something is picked, and keyed on it, so the
                 draft is built from the agent in front of you rather than

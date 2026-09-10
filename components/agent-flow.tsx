@@ -408,7 +408,8 @@ export function AgentFlow({
         nodesConnectable={false}
         edgesFocusable={false}
         // The page scrolls; the graph must not eat the wheel to zoom, or
-        // scrolling past this card traps the reader inside it.
+        // scrolling past this card traps the reader inside it. Zoom lives on
+        // the controls instead.
         zoomOnScroll={false}
         preventScrolling={false}
         panOnDrag
