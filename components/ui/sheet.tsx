@@ -41,14 +41,25 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  container,
+  showOverlay = true,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /**
+   * Portal target. Given one, the sheet renders inside that element instead of
+   * the document body, so a `position: absolute` override can dock it to a
+   * panel rather than the viewport edge. Used by the agent map, whose sheet
+   * sits beside the graph like a sidebar.
+   */
+  container?: React.ComponentProps<typeof SheetPortal>["container"]
+  /** Off for a non-modal sheet, which should not dim what it sits beside. */
+  showOverlay?: boolean
 }) {
   return (
-    <SheetPortal>
-      <SheetOverlay />
+    <SheetPortal container={container}>
+      {showOverlay && <SheetOverlay />}
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
