@@ -156,6 +156,88 @@ export const assertAgent = internalQuery({
 // Internals used by the Node-runtime actions in convex/auth.ts
 // ---------------------------------------------------------------------------
 
+/**
+ * The MCP connector token for one workspace, as the dashboard may see it:
+ * when it was issued, when it was last used, and enough of it to recognise
+ * which token is live. Never the hash — there is nothing a browser can do with
+ * that but leak it.
+ */
+export const mcpConnector = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const row = await ctx.db
+      .query("mcpTokens")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (!row) return null;
+    return {
+      prefix: row.prefix,
+      issuedAt: row.issuedAt,
+      lastUsedAt: row.lastUsedAt ?? null,
+    };
+  },
+});
+
+/** Resolves a connector token to its workspace. Internal: the hash is the key. */
+export const workspaceByMcpTokenHash = internalQuery({
+  args: { tokenHash: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("mcpTokens")
+      .withIndex("by_hash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique();
+    if (!row) return null;
+    const workspace = await ctx.db.get("workspaces", row.workspaceId);
+    if (!workspace) return null;
+    return { tokenId: row._id, workspace };
+  },
+});
+
+/** One token per workspace: issuing replaces whatever was there. */
+export const setMcpToken = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    tokenHash: v.string(),
+    prefix: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("mcpTokens")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+
+    await ctx.db.insert("mcpTokens", {
+      workspaceId: args.workspaceId,
+      tokenHash: args.tokenHash,
+      prefix: args.prefix,
+      issuedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const clearMcpToken = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("mcpTokens")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+    return { removed: Boolean(existing) };
+  },
+});
+
+export const touchMcpToken = internalMutation({
+  args: { tokenId: v.id("mcpTokens") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.tokenId, { lastUsedAt: Date.now() });
+    return { success: true };
+  },
+});
+
 export const countAdmins = internalQuery({
   args: {},
   handler: async (ctx) => (await ctx.db.query("admins").take(1)).length,

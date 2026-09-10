@@ -467,6 +467,132 @@ export const mintAccessToken = action({
 // Workspace access management (admin)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// MCP connector tokens
+//
+// A company connects an assistant by pasting a URL into claude.ai, which has
+// nowhere to put a header — so the token sits in the URL path and is the whole
+// credential. That shapes everything here: it is issued once and only hashed
+// afterwards, rotating invalidates the old URL on the spot, and signing in with
+// it produces an ordinary workspace session, so every `requireWorkspace` guard
+// in convex/ applies to it unchanged. It is not a new permission level; it is
+// another way to hold the same one.
+// ---------------------------------------------------------------------------
+
+const MCP_TOKEN_BYTES = 32;
+/** Enough to recognise which token is live, too little to guess the rest. */
+const MCP_PREFIX_CHARS = 6;
+
+export const issueMcpToken = action({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ token: string; prefix: string; slug: string }> => {
+    // The workspace's own guard: a company may issue its own connector, and an
+    // admin may issue one for any workspace. Same rule as the rest of the
+    // dashboard rather than a special case.
+    await ctx.runQuery(internal.authDb.assertWorkspace, {
+      workspaceId: args.workspaceId,
+    });
+
+    const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
+      internal.workspaces.getInternal,
+      { workspaceId: args.workspaceId }
+    );
+    if (!workspace) throw new Error("Workspace not found");
+
+    const token = randomToken(MCP_TOKEN_BYTES);
+    const prefix = token.slice(0, MCP_PREFIX_CHARS);
+
+    await ctx.runMutation(internal.authDb.setMcpToken, {
+      workspaceId: args.workspaceId,
+      tokenHash: await sha256Hex(token),
+      prefix,
+    });
+
+    // Returned once. Only the hash is kept, so a lost URL is reissued rather
+    // than recovered.
+    return { token, prefix, slug: workspace.slug };
+  },
+});
+
+export const revokeMcpToken = action({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<{ removed: boolean }> => {
+    await ctx.runQuery(internal.authDb.assertWorkspace, {
+      workspaceId: args.workspaceId,
+    });
+    return await ctx.runMutation(internal.authDb.clearMcpToken, {
+      workspaceId: args.workspaceId,
+    });
+  },
+});
+
+/**
+ * Signs in a connector token, for the MCP endpoint.
+ *
+ * Deliberately says nothing useful on failure: this is reached by whatever URL
+ * a stranger cares to try, and the route answers 404 either way, so a specific
+ * error here would only tell a prober which part they got right.
+ */
+export const mcpLogin = action({
+  args: { token: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    sessionToken: string;
+    expiresAt: number;
+    role: "workspace";
+    label: string;
+    workspaceSlug: string;
+  }> => {
+    const generic = "Invalid connector token.";
+    const token = args.token.trim();
+    if (token.length < 24) throw new Error(generic);
+
+    const found: {
+      tokenId: Id<"mcpTokens">;
+      workspace: Doc<"workspaces">;
+    } | null = await ctx.runQuery(internal.authDb.workspaceByMcpTokenHash, {
+      tokenHash: await sha256Hex(token),
+    });
+    if (!found) throw new Error(generic);
+
+    const { workspace } = found;
+    if (workspace.status === "archived") {
+      throw new Error("This workspace has been archived.");
+    }
+
+    // A company whose dashboard access was revoked must not keep a working
+    // connector. The session guards would refuse every call anyway — this
+    // fails at the door instead of on the first tool.
+    const credential: Doc<"workspaceCredentials"> | null = await ctx.runQuery(
+      internal.authDb.credentialForWorkspace,
+      { workspaceId: workspace._id }
+    );
+    if (!credential || credential.status !== "active") {
+      throw new Error(generic);
+    }
+
+    await ctx.runMutation(internal.authDb.touchMcpToken, {
+      tokenId: found.tokenId,
+    });
+
+    const session = await issueSession(ctx, {
+      role: "workspace",
+      workspaceId: workspace._id,
+    });
+    return {
+      ...session,
+      role: "workspace",
+      label: workspace.name,
+      workspaceSlug: workspace.slug,
+    };
+  },
+});
+
 export const generateWorkspacePassword = action({
   args: { workspaceId: v.id("workspaces") },
   handler: async (

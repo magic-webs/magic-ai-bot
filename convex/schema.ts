@@ -369,6 +369,30 @@ export default defineSchema({
     }),
 
   // -------------------------------------------------------------------------
+  // MCP connector tokens — one per workspace.
+  //
+  // Its own table, not a field on `workspaces`, for the same reason
+  // `workspaceCredentials` is: `workspaces.getBySlug` hands the whole document
+  // to the browser, so a secret stored there would ride along with it.
+  //
+  // Only the hash is kept. claude.ai has nowhere to put a header, so the token
+  // lives in the connector's URL path and *is* the credential — whoever holds
+  // that URL gets this workspace. It is shown once, at issue, and rotating
+  // replaces the row so the previous URL stops working immediately.
+  // -------------------------------------------------------------------------
+  mcpTokens: defineTable({
+    workspaceId: v.id("workspaces"),
+    tokenHash: v.string(),
+    /** First few characters, so the dashboard can say which token is live. */
+    prefix: v.string(),
+    issuedAt: v.number(),
+    /** Stamped on each connector sign-in, so a stale token is recognisable. */
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_hash", ["tokenHash"]),
+
+  // -------------------------------------------------------------------------
   // Contacts — the people talking to the agents.
   // -------------------------------------------------------------------------
   contacts: defineTable({

@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { useWorkspace } from "@/components/workspace-provider";
 import { KeyValueEditor, type KeyValue } from "@/components/editors";
 import { WorkspaceAccessCard } from "@/components/workspace-access";
+import { McpConnectorCard } from "@/components/mcp-connector-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -168,6 +169,7 @@ export default function WorkspaceSettingsPage() {
             <TabsTrigger value="profile">Company</TabsTrigger>
             <TabsTrigger value="access">Access</TabsTrigger>
             <TabsTrigger value="webhook">Webhook</TabsTrigger>
+            <TabsTrigger value="assistant">Assistant</TabsTrigger>
             <TabsTrigger value="theme">Theme</TabsTrigger>
             <TabsTrigger value="danger">Danger zone</TabsTrigger>
           </TabsList>
@@ -440,6 +442,12 @@ export default function WorkspaceSettingsPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="assistant">
+            <McpConnectorCard
+              workspaceId={workspace._id}
+              workspaceName={workspace.name}
+            />
           </TabsContent>
           <TabsContent value="theme">
             <Card>

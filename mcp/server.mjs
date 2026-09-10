@@ -32,6 +32,7 @@
  * See mcp/README.md for client configuration.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,7 +105,11 @@ const APP_URL = (
  * imported by app/api/mcp/[token]/route.ts — a serverless bundle must not be
  * able to kill the process just by loading a file.
  */
-function assertConfigured() {
+function assertConfigured(identity) {
+  // A connector token carries its own credential, so it needs the deployment
+  // and nothing else. Only the env-configured identity needs a username and
+  // password to be present.
+  if (CONVEX_URL && identity?.kind === "token") return;
   if (CONVEX_URL && USERNAME && PASSWORD) return;
   throw new Error(
     [
@@ -127,31 +132,79 @@ function assertConfigured() {
 
 const REFRESH_MARGIN_MS = 60_000;
 
-let client = null;
-let session = null; // { sessionToken, role, label, workspaceSlug }
-let access = null; // { token, expiresAt }
+/**
+ * Who this server is acting as, and everything derived from that — the Convex
+ * client, the session, the access token, the resolved-workspace cache.
+ *
+ * Per request, not per module, because the HTTP route now serves more than one
+ * identity. A warm serverless instance reuses the module, so module scope is
+ * shared between invocations: with a single env-configured account that is
+ * only a useful cache, but once each company has its own connector token it
+ * would mean the second request reusing the first company's session and its
+ * cached workspace documents. The stdio server is one process for one identity
+ * and keeps using `processState`.
+ */
+const requestState = new AsyncLocalStorage();
+
+function newState(identity) {
+  return {
+    identity,
+    client: null,
+    session: null, // { sessionToken, role, label, workspaceSlug }
+    access: null, // { token, expiresAt }
+    workspaces: new Map(), // slug -> workspace document
+  };
+}
+
+const processState = newState(
+  USERNAME && PASSWORD
+    ? { kind: "password", username: USERNAME, password: PASSWORD }
+    : null
+);
+
+function state() {
+  return requestState.getStore() ?? processState;
+}
+
+/** Runs `fn` with its own identity, and its own everything derived from it. */
+export function runWithIdentity(identity, fn) {
+  return requestState.run(newState(identity), fn);
+}
 
 function convex() {
-  if (!client) {
-    assertConfigured();
-    client = new ConvexHttpClient(CONVEX_URL);
+  const st = state();
+  if (!st.client) {
+    assertConfigured(st.identity);
+    st.client = new ConvexHttpClient(CONVEX_URL);
   }
-  return client;
+  return st.client;
 }
 
 async function signIn() {
-  session = await convex().action(api.auth.login, {
-    username: USERNAME,
-    password: PASSWORD,
-  });
-  access = null;
+  const st = state();
+  const identity =
+    st.identity ??
+    (USERNAME && PASSWORD
+      ? { kind: "password", username: USERNAME, password: PASSWORD }
+      : null);
+  if (!identity) assertConfigured(null);
+
+  st.session =
+    identity.kind === "token"
+      ? await convex().action(api.auth.mcpLogin, { token: identity.token })
+      : await convex().action(api.auth.login, {
+          username: identity.username,
+          password: identity.password,
+        });
+  st.access = null;
 }
 
 export async function authorize() {
-  assertConfigured();
-  if (!session) await signIn();
-  if (access && access.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
-    convex().setAuth(access.token);
+  const st = state();
+  assertConfigured(st.identity);
+  if (!st.session) await signIn();
+  if (st.access && st.access.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
+    convex().setAuth(st.access.token);
     return;
   }
 
@@ -164,23 +217,31 @@ export async function authorize() {
   convex().clearAuth();
 
   let minted = await convex().action(api.auth.mintAccessToken, {
-    sessionToken: session.sessionToken,
+    sessionToken: st.session.sessionToken,
   });
   if (!minted) {
     // The session was revoked or expired — sign in again before giving up.
     await signIn();
     minted = await convex().action(api.auth.mintAccessToken, {
-      sessionToken: session.sessionToken,
+      sessionToken: st.session.sessionToken,
     });
   }
   if (!minted) throw new Error("Could not authenticate with Magic Agent.");
 
-  access = { token: minted.token, expiresAt: minted.expiresAt };
-  convex().setAuth(access.token);
+  st.access = { token: minted.token, expiresAt: minted.expiresAt };
+  convex().setAuth(st.access.token);
+}
+
+/** The signed-in principal for this request, once `authorize()` has run. */
+function currentSession() {
+  const { session } = state();
+  if (!session) throw new Error("Not signed in.");
+  return session;
 }
 
 /** Who this server is signed in as, for a startup log line. */
 export function describeSession() {
+  const { session } = state();
   return session ? `${session.label} (${session.role})` : "not signed in";
 }
 
@@ -207,10 +268,9 @@ const call = {
 // names one, sets MAGIC_AI_BOT_WORKSPACE, or is told which are available.
 // ---------------------------------------------------------------------------
 
-const workspaceCache = new Map(); // slug -> workspace document
-
 async function reachableWorkspaces() {
   await authorize();
+  const session = currentSession();
   if (session.role === "admin") return await call.query(api.workspaces.list, {});
   const own = await call.query(api.workspaces.getBySlug, {
     slug: session.workspaceSlug,
@@ -220,10 +280,15 @@ async function reachableWorkspaces() {
 
 async function resolveWorkspace(slug) {
   await authorize();
-  const wanted = slug?.trim() || DEFAULT_WORKSPACE || session.workspaceSlug;
+  const st = state();
+  const wanted =
+    slug?.trim() || DEFAULT_WORKSPACE || currentSession().workspaceSlug;
 
   if (wanted) {
-    const cached = workspaceCache.get(wanted);
+    // The cache lives on the request's state, not the module: a document
+    // resolved for one company must not be handed to the next request, which
+    // would be returning a workspace nobody checked this caller may read.
+    const cached = st.workspaces.get(wanted);
     if (cached) return cached;
     const found = await call.query(api.workspaces.getBySlug, { slug: wanted });
     if (!found) {
@@ -231,14 +296,14 @@ async function resolveWorkspace(slug) {
         `No workspace with the slug "${wanted}". Call list_workspaces to see what is available.`
       );
     }
-    workspaceCache.set(found.slug, found);
+    st.workspaces.set(found.slug, found);
     return found;
   }
 
   // An admin with no default: pick for them only when the choice is obvious.
   const all = await reachableWorkspaces();
   if (all.length === 1) {
-    workspaceCache.set(all[0].slug, all[0]);
+    state().workspaces.set(all[0].slug, all[0]);
     return all[0];
   }
   throw new Error(
@@ -538,6 +603,7 @@ export function buildServer() {
     handler(async () => {
       await authorize();
       const all = await reachableWorkspaces();
+      const session = currentSession();
       return ok({
         signedInAs: session.label,
         role: session.role,
@@ -656,7 +722,7 @@ export function buildServer() {
         workspaceId: found._id,
         ...fields,
       });
-      workspaceCache.delete(found.slug);
+      state().workspaces.delete(found.slug);
       return ok(`Updated ${found.name}.`);
     })
   );
@@ -1914,7 +1980,7 @@ export function buildServer() {
         workspaceId: found._id,
         status,
       });
-      workspaceCache.delete(found.slug);
+      state().workspaces.delete(found.slug);
       return ok(`${found.name} is now ${status}.`);
     })
   );
@@ -1946,7 +2012,7 @@ export function buildServer() {
         workspaceId: found._id,
       });
       await call.mutation(api.workspaces.remove, { workspaceId: found._id });
-      workspaceCache.delete(found.slug);
+      state().workspaces.delete(found.slug);
       return ok({
         deleted: found.name,
         slug: found.slug,

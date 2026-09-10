@@ -23,7 +23,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { buildServer } from "@/mcp/server.mjs";
+import { buildServer, runWithIdentity } from "@/mcp/server.mjs";
 
 // A tool call can wait on an OpenAI round trip through Convex — chat_with_agent
 // and the draft_* tools especially.
@@ -61,7 +61,24 @@ async function handle(
   { params }: { params: Promise<{ token: string }> }
 ): Promise<Response> {
   const { token } = await params;
-  if (!tokenMatches(token)) return notFound();
+
+  // Two kinds of caller. The deployment-wide token from the environment acts
+  // as whatever MAGIC_AI_BOT_USERNAME names — unchanged, including its admin
+  // option. Anything else is treated as a company's own connector token and
+  // resolved against the database by mcpLogin, which scopes the request to
+  // that one workspace.
+  //
+  // The env token is checked first and in constant time, so adding per-company
+  // tokens has not made it guessable.
+  const identity = tokenMatches(token)
+    ? null
+    : token.length >= MIN_TOKEN_CHARS
+      ? ({ kind: "token" as const, token })
+      : null;
+
+  // Neither: no endpoint. Same 404 as a wrong env token, so a stranger cannot
+  // tell a bad token from MCP being switched off.
+  if (identity === null && !tokenMatches(token)) return notFound();
 
   try {
     // Stateless: a fresh server and transport per request, with no session id.
@@ -74,13 +91,18 @@ async function handle(
       enableJsonResponse: true,
     });
 
-    const server = buildServer();
-    await server.connect(transport);
-
-    const response = await transport.handleRequest(request);
-    // The instance is per-request, so it is closed once the response is built.
-    // Left open, each invocation would leak one.
-    void server.close();
+    // Everything the server derives from an identity — the session, the
+    // access token, the workspace cache — is scoped to this callback, so a
+    // warm instance serving two companies cannot mix them up.
+    const response = await runWithIdentity(identity, async () => {
+      const server = buildServer();
+      await server.connect(transport);
+      const result = await transport.handleRequest(request);
+      // The instance is per-request, so it is closed once the response is
+      // built. Left open, each invocation would leak one.
+      void server.close();
+      return result;
+    });
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

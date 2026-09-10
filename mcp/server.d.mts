@@ -15,3 +15,22 @@ export function authorize(): Promise<void>;
 
 /** Who the server is signed in as — for a log line. */
 export function describeSession(): string;
+
+/**
+ * The account a request acts as. `null` means the environment-configured one,
+ * which is what the stdio server and the deployment-wide token both use.
+ */
+export type McpIdentity = { kind: "token"; token: string } | null;
+
+/**
+ * Runs `fn` with its own identity and its own derived state — Convex client,
+ * session, access token, workspace cache.
+ *
+ * Required for anything serving more than one account from one process: those
+ * are per-module by default, and a warm serverless instance reuses the module
+ * between invocations.
+ */
+export function runWithIdentity<T>(
+  identity: McpIdentity,
+  fn: () => Promise<T>
+): Promise<T>;
