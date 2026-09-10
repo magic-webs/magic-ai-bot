@@ -34,6 +34,13 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   "openai/gpt-4o-mini": { input: 0.15, output: 0.6, kind: "chat" },
   "openai/o4-mini": { input: 1.1, output: 4.4, kind: "chat" },
   "anthropic/claude-haiku-4.5": { input: 1.0, output: 5.0, kind: "chat" },
+  // Zero because it is free, not because nobody looked it up: the gateway
+  // catalogue returns input and output of 0 for this one, tagged "free", with
+  // `varies_by_provider: true`. Listed rather than left out so its usage reads
+  // as costing nothing rather than as an unpriced gap — but re-check the
+  // catalogue if it ever leaves the free tier, because these zeros would then
+  // be the silent kind this file exists to avoid.
+  "inclusionai/ling-3.0-flash-fin": { input: 0, output: 0, kind: "chat" },
   "openai/text-embedding-3-small": { input: 0.02, output: 0, kind: "embedding" },
   "openai/text-embedding-3-large": { input: 0.13, output: 0, kind: "embedding" },
 

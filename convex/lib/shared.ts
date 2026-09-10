@@ -228,6 +228,10 @@ export const CHAT_MODELS = [
     label: "DeepSeek V4 Pro — stronger reasoning, dearer",
   },
   {
+    id: "inclusionai/ling-3.0-flash-fin",
+    label: "Ling 3.0 Flash Fin — finance-tuned, 256K context, free",
+  },
+  {
     id: "openai/gpt-4.1-mini",
     label: "gpt-4.1-mini — the previous default",
   },
