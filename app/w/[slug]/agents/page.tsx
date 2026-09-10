@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useWorkspace } from "@/components/workspace-provider";
+import { AgentFlow } from "@/components/agent-flow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -378,15 +379,34 @@ export default function AgentsPage() {
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Agents
           </h1>
+          {/* The second sentence described the routing the diagram below now
+              draws, so it has gone. */}
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Persona, tone, knowledge scope and tools. The front desk takes every
-            new conversation and routes it to the right agent.
+            Persona, tone, knowledge scope and tools.
           </p>
         </div>
-        <NewAgentDialog />
+        <div className="flex items-center gap-2">
+          {/* The other way of doing this page, for comparison. */}
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`${base}/agent-config`} />}
+          >
+            <ArrowsSplitIcon /> Map view
+          </Button>
+          <NewAgentDialog />
+        </div>
       </header>
 
       <Separator />
+
+      {/* The topology first, then the cards. It shows what the paragraph above
+          used to describe — what arrives where, and who the front desk can
+          actually hand to — so the routing is legible before anyone reads a
+          word. Only drawn once there is something to draw. */}
+      {agents !== undefined && (router || specialists.length > 0) ? (
+        <AgentFlow agents={agents} base={base} />
+      ) : null}
 
       {router ? (
         <FrontDeskCard
