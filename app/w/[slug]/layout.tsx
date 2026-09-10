@@ -42,13 +42,23 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import {
+  BooksIcon,
   CaretRightIcon,
+  ChartLineUpIcon,
   ChatsIcon,
   FunnelIcon,
   GaugeIcon,
   GearIcon,
+  GraphIcon,
+  PackageIcon,
+  ReceiptIcon,
   RobotIcon,
+  ToolboxIcon,
+  TrayIcon,
+  UsersIcon,
   WarningIcon,
+  WhatsappLogoIcon,
+  WrenchIcon,
 } from "@phosphor-icons/react";
 
 // Five rows where there were sixteen. Sections that hold more than one page
@@ -59,35 +69,39 @@ const NAV: Array<{
   icon: typeof GaugeIcon;
   /** A section's own page, or the destination when it has no children. */
   href?: string;
-  items?: Array<{ href: string; label: string }>;
+  items?: Array<{ href: string; label: string; icon: typeof GaugeIcon }>;
 }> = [
   { label: "Dashboard", icon: GaugeIcon, href: "" },
   {
+    // A section's own icon is never one of its children's: with the section
+    // open the two sit a row apart, and the same glyph twice reads as a
+    // mistake rather than a grouping.
     label: "Build",
-    icon: RobotIcon,
+    icon: ToolboxIcon,
     items: [
-      { href: "/agents", label: "Agents" },
-      { href: "/knowledge", label: "Knowledge base" },
-      { href: "/products", label: "Catalogue" },
-      { href: "/tools", label: "Custom tools" },
+      { href: "/agents", label: "Agents", icon: RobotIcon },
+      { href: "/agent-config", label: "Agent map", icon: GraphIcon },
+      { href: "/knowledge", label: "Knowledge base", icon: BooksIcon },
+      { href: "/products", label: "Catalogue", icon: PackageIcon },
+      { href: "/tools", label: "Custom tools", icon: WrenchIcon },
     ],
   },
   {
     label: "Inbox",
-    icon: ChatsIcon,
+    icon: TrayIcon,
     items: [
-      { href: "/conversations", label: "Conversations" },
-      { href: "/channels", label: "Channels" },
+      { href: "/conversations", label: "Conversations", icon: ChatsIcon },
+      { href: "/channels", label: "Channels", icon: WhatsappLogoIcon },
     ],
   },
   {
     // In the order the work happens: a lead becomes a contact, then an order.
     label: "Sales",
-    icon: FunnelIcon,
+    icon: ChartLineUpIcon,
     items: [
-      { href: "/leads", label: "Leads" },
-      { href: "/contacts", label: "Contacts" },
-      { href: "/orders", label: "Orders" },
+      { href: "/leads", label: "Leads", icon: FunnelIcon },
+      { href: "/contacts", label: "Contacts", icon: UsersIcon },
+      { href: "/orders", label: "Orders", icon: ReceiptIcon },
     ],
   },
   { label: "Settings", icon: GearIcon, href: "/settings" },
@@ -116,7 +130,7 @@ function NavSection({
 }: {
   label: string;
   icon: typeof GaugeIcon;
-  items: Array<{ href: string; label: string }>;
+  items: Array<{ href: string; label: string; icon: typeof GaugeIcon }>;
   base: string;
   pathname: string;
 }) {
@@ -155,12 +169,16 @@ function NavSection({
           <SidebarMenuSub>
             {items.map((item) => {
               const href = `${base}${item.href}`;
+              const ItemIcon = item.icon;
               return (
                 <SidebarMenuSubItem key={item.href}>
                   <SidebarMenuSubButton
                     isActive={pathname.startsWith(href)}
                     render={<Link href={href} />}
                   >
+                    {/* SidebarMenuSubButton already sizes a direct svg child,
+                        so the icon needs no class of its own. */}
+                    <ItemIcon />
                     <span>{item.label}</span>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
