@@ -50,6 +50,25 @@ differs. The two local modes exit immediately with a readable message if they
 cannot sign in, so a bad config shows up when the client connects rather than on
 the first tool call.
 
+## Layout
+
+`mcp/server.mjs` is only the entry point — a process when run directly, a module
+when the Next route imports it. The code lives in `mcp/src/`:
+
+| Path | What is in it |
+| --- | --- |
+| `src/config.mjs` | Environment, with `.env.local` as a fallback |
+| `src/convex.mjs` | Signing in, token refresh, the authenticated `call` helpers |
+| `src/workspaces.mjs` | Turning an optional slug into a workspace |
+| `src/lookup.mjs` | Turning a name — "the Sales agent" — into a document |
+| `src/results.mjs` | Tool results, and the shapes documents are cut down to |
+| `src/args.mjs` | Zod fragments shared between tools |
+| `src/build-server.mjs` | The factory: instructions, then every tool group |
+| `src/tools/*.mjs` | One module per group, each exporting `register(server)` |
+| `src/tools/index.mjs` | The registration order |
+| `src/transports/` | `stdio.mjs` and `http.mjs` |
+| `src/cli.mjs` | Sign in, then pick a transport |
+
 ## Claude Code
 
 `.mcp.json` in the repo root already registers it for this project — no secrets
@@ -64,9 +83,9 @@ confirm it connected.
 ```json
 {
   "mcpServers": {
-    "magic-ai-bot": {
+    "magic-agent": {
       "command": "C:\\Program Files\\nodejs\\node.exe",
-      "args": ["C:\\development\\magic-ai-bot\\mcp\\server.mjs"]
+      "args": ["C:\\development\\magic-agent\\magic-agent-web\\mcp\\server.mjs"]
     }
   }
 }
@@ -172,7 +191,7 @@ bun run mcp:http
 It binds to `127.0.0.1:8787` by default. Check it:
 
 ```bash
-curl http://127.0.0.1:8787/health     # {"ok":true,"server":"magic-ai-bot"}
+curl http://127.0.0.1:8787/health     # {"ok":true,"server":"magic-agent"}
 ```
 
 ### 3. Put it on a public HTTPS URL
@@ -331,11 +350,14 @@ list_channels      → copy the embed snippet into the site
 ## Adding a tool
 
 Tools are thin wrappers over the Convex functions in `convex/`. To add one,
-register it next to its siblings in `mcp/server.mjs` and call through the
-`call.query` / `call.mutation` / `call.action` helpers so it picks up
-authentication and token refresh. Keep the description written for a model
+register it next to its siblings in the matching `mcp/src/tools/*.mjs` and call
+through the `call.query` / `call.mutation` / `call.action` helpers so it picks
+up authentication and token refresh. Keep the description written for a model
 deciding whether to call it — that text is the whole interface.
 
-One duplication to know about: `BUILTIN_TOOL_KEYS` in `server.mjs` mirrors
+A whole new group is a new file in `src/tools/` exporting `register(server)`,
+added to `src/tools/index.mjs`. Nothing else needs to know about it.
+
+One duplication to know about: `BUILTIN_TOOL_KEYS` in `src/args.mjs` mirrors
 `BUILTIN_TOOLS` in `convex/lib/shared.ts`, because a `.mjs` file cannot import
 the TypeScript source. Add a builtin tool in both places.

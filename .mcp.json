@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "magic-ai-bot": {
+    "magic-agent": {
       "command": "node",
       "args": ["mcp/server.mjs"]
     }
