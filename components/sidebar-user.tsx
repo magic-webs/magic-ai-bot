@@ -16,12 +16,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useSession } from "@/components/use-session";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  CaretUpDownIcon,
-  GearIcon,
-  BuildingsIcon,
-  SignOutIcon,
-} from "@phosphor-icons/react";
+  Building03Icon,
+  Logout01Icon,
+  Settings01Icon,
+  UnfoldMoreIcon,
+} from "@hugeicons/core-free-icons";
 
 /** Two letters for the avatar: initials where there are two words, else one. */
 function initialsOf(label: string): string {
@@ -83,7 +84,11 @@ export function SidebarUser({ settingsHref }: { settingsHref: string }) {
                 </span>
               )}
             </div>
-            <CaretUpDownIcon className="ml-auto shrink-0" />
+            <HugeiconsIcon
+              icon={UnfoldMoreIcon}
+              strokeWidth={2}
+              className="ml-auto shrink-0"
+            />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -113,12 +118,12 @@ export function SidebarUser({ settingsHref }: { settingsHref: string }) {
 
             <DropdownMenuSeparator />
             <DropdownMenuItem render={<Link href={settingsHref} />}>
-              <GearIcon />
+              <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
               Workspace settings
             </DropdownMenuItem>
             {session.isAdmin ? (
               <DropdownMenuItem render={<Link href="/admin" />}>
-                <BuildingsIcon />
+                <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
                 All workspaces
               </DropdownMenuItem>
             ) : null}
@@ -128,7 +133,7 @@ export function SidebarUser({ settingsHref }: { settingsHref: string }) {
               variant="destructive"
               onClick={() => void session.signOut()}
             >
-              <SignOutIcon />
+              <HugeiconsIcon icon={Logout01Icon} strokeWidth={2} />
               Log out
             </DropdownMenuItem>
           </DropdownMenuContent>

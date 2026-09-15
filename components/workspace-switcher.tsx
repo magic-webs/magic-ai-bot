@@ -20,11 +20,12 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  CaretUpDownIcon,
-  CheckIcon,
-  BuildingsIcon,
-} from "@phosphor-icons/react";
+  Building03Icon,
+  Tick02Icon,
+  UnfoldMoreIcon,
+} from "@hugeicons/core-free-icons";
 
 /**
  * The workspace this sidebar belongs to, and — for an administrator — the way
@@ -108,7 +109,11 @@ export function WorkspaceSwitcher({
           >
             {tile}
             {identity}
-            <CaretUpDownIcon className="ml-auto shrink-0" />
+            <HugeiconsIcon
+              icon={UnfoldMoreIcon}
+              strokeWidth={2}
+              className="ml-auto shrink-0"
+            />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -132,14 +137,18 @@ export function WorkspaceSwitcher({
                 >
                   <span className="truncate">{row.name}</span>
                   {row.slug === workspace.slug ? (
-                    <CheckIcon className="ml-auto" />
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      strokeWidth={2}
+                      className="ml-auto"
+                    />
                   ) : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem render={<Link href="/admin" />}>
-              <BuildingsIcon />
+              <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
               All workspaces
             </DropdownMenuItem>
           </DropdownMenuContent>

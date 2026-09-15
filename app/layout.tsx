@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, IBM_Plex_Sans, Space_Grotesk, Inter } from "next/font/google";
+import { Geist, Geist_Mono, IBM_Plex_Sans, Space_Grotesk, Inter, Instrument_Sans } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Providers } from "./providers";

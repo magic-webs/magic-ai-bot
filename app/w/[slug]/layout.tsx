@@ -41,37 +41,38 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
-  BooksIcon,
-  CaretRightIcon,
-  ChartLineUpIcon,
-  ChatsIcon,
+  Alert02Icon,
+  ArrowRight01Icon,
+  BubbleChatIcon,
+  ChartUpIcon,
+  DashboardSpeed02Icon,
   FunnelIcon,
-  GaugeIcon,
-  GearIcon,
-  GraphIcon,
-  PackageIcon,
+  InboxIcon,
+  LibraryIcon,
+  Package01Icon,
   ReceiptIcon,
-  RobotIcon,
+  Robot01Icon,
+  Settings01Icon,
   ToolboxIcon,
-  TrayIcon,
-  UsersIcon,
-  WarningIcon,
-  WhatsappLogoIcon,
-  WrenchIcon,
-} from "@phosphor-icons/react";
+  UserMultipleIcon,
+  WhatsappIcon,
+  WorkflowSquare01Icon,
+  Wrench01Icon,
+} from "@hugeicons/core-free-icons";
 
 // Five rows where there were sixteen. Sections that hold more than one page
 // are collapsed behind their own name and open themselves when you are inside
 // one, so the sidebar shows where you are rather than everything there is.
 const NAV: Array<{
   label: string;
-  icon: typeof GaugeIcon;
+  icon: IconSvgElement;
   /** A section's own page, or the destination when it has no children. */
   href?: string;
-  items?: Array<{ href: string; label: string; icon: typeof GaugeIcon }>;
+  items?: Array<{ href: string; label: string; icon: IconSvgElement }>;
 }> = [
-  { label: "Dashboard", icon: GaugeIcon, href: "" },
+  { label: "Dashboard", icon: DashboardSpeed02Icon, href: "" },
   {
     // A section's own icon is never one of its children's: with the section
     // open the two sit a row apart, and the same glyph twice reads as a
@@ -79,32 +80,32 @@ const NAV: Array<{
     label: "Build",
     icon: ToolboxIcon,
     items: [
-      { href: "/agents", label: "Agents", icon: RobotIcon },
-      { href: "/agent-config", label: "Agent map", icon: GraphIcon },
-      { href: "/knowledge", label: "Knowledge base", icon: BooksIcon },
-      { href: "/products", label: "Catalogue", icon: PackageIcon },
-      { href: "/tools", label: "Custom tools", icon: WrenchIcon },
+      { href: "/agents", label: "Agents", icon: Robot01Icon },
+      { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
+      { href: "/knowledge", label: "Knowledge base", icon: LibraryIcon },
+      { href: "/products", label: "Catalogue", icon: Package01Icon },
+      { href: "/tools", label: "Custom tools", icon: Wrench01Icon },
     ],
   },
   {
     label: "Inbox",
-    icon: TrayIcon,
+    icon: InboxIcon,
     items: [
-      { href: "/conversations", label: "Conversations", icon: ChatsIcon },
-      { href: "/channels", label: "Channels", icon: WhatsappLogoIcon },
+      { href: "/conversations", label: "Conversations", icon: BubbleChatIcon },
+      { href: "/channels", label: "Channels", icon: WhatsappIcon },
     ],
   },
   {
     // In the order the work happens: a lead becomes a contact, then an order.
     label: "Sales",
-    icon: ChartLineUpIcon,
+    icon: ChartUpIcon,
     items: [
       { href: "/leads", label: "Leads", icon: FunnelIcon },
-      { href: "/contacts", label: "Contacts", icon: UsersIcon },
+      { href: "/contacts", label: "Contacts", icon: UserMultipleIcon },
       { href: "/orders", label: "Orders", icon: ReceiptIcon },
     ],
   },
-  { label: "Settings", icon: GearIcon, href: "/settings" },
+  { label: "Settings", icon: Settings01Icon, href: "/settings" },
 ];
 
 /**
@@ -123,14 +124,14 @@ const NAV: Array<{
  */
 function NavSection({
   label,
-  icon: Icon,
+  icon,
   items,
   base,
   pathname,
 }: {
   label: string;
-  icon: typeof GaugeIcon;
-  items: Array<{ href: string; label: string; icon: typeof GaugeIcon }>;
+  icon: IconSvgElement;
+  items: Array<{ href: string; label: string; icon: IconSvgElement }>;
   base: string;
   pathname: string;
 }) {
@@ -161,15 +162,18 @@ function NavSection({
             />
           }
         >
-          <Icon />
+          <HugeiconsIcon icon={icon} strokeWidth={2} />
           <span>{label}</span>
-          <CaretRightIcon className="ml-auto transition-transform duration-200 group-data-panel-open/section:rotate-90" />
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            strokeWidth={2}
+            className="ml-auto transition-transform duration-200 group-data-panel-open/section:rotate-90"
+          />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <SidebarMenuSub>
             {items.map((item) => {
               const href = `${base}${item.href}`;
-              const ItemIcon = item.icon;
               return (
                 <SidebarMenuSubItem key={item.href}>
                   <SidebarMenuSubButton
@@ -178,7 +182,7 @@ function NavSection({
                   >
                     {/* SidebarMenuSubButton already sizes a direct svg child,
                         so the icon needs no class of its own. */}
-                    <ItemIcon />
+                    <HugeiconsIcon icon={item.icon} strokeWidth={2} />
                     <span>{item.label}</span>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
@@ -213,7 +217,7 @@ export default function WorkspaceLayout({
         <Empty className="max-w-md border border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon">
-              <WarningIcon />
+              <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} />
             </EmptyMedia>
             <EmptyTitle>Not your workspace</EmptyTitle>
             <EmptyDescription>
@@ -243,7 +247,7 @@ export default function WorkspaceLayout({
         <Empty className="border border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon">
-              <WarningIcon />
+              <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} />
             </EmptyMedia>
             <EmptyTitle>Workspace not found</EmptyTitle>
             <EmptyDescription>
@@ -289,8 +293,6 @@ export default function WorkspaceLayout({
               <SidebarGroupContent>
                 <SidebarMenu>
                   {NAV.map((section) => {
-                    const Icon = section.icon;
-
                     // A leaf: Dashboard and Settings have no children, so they
                     // stay ordinary rows rather than sections that open onto
                     // one item.
@@ -307,7 +309,10 @@ export default function WorkspaceLayout({
                             tooltip={section.label}
                             render={<Link href={href} />}
                           >
-                            <Icon />
+                            <HugeiconsIcon
+                              icon={section.icon}
+                              strokeWidth={2}
+                            />
                             <span>{section.label}</span>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
@@ -318,7 +323,7 @@ export default function WorkspaceLayout({
                       <NavSection
                         key={section.label}
                         label={section.label}
-                        icon={Icon}
+                        icon={section.icon}
                         items={section.items}
                         base={base}
                         pathname={pathname}
