@@ -126,11 +126,12 @@ export const listAdmins = query({
 // sees the same principal the action was invoked with.
 // ---------------------------------------------------------------------------
 
+/** Returns who it let through, so an action can store something against them. */
 export const assertAdmin = internalQuery({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    return null;
+    const principal = await requireAdmin(ctx);
+    return { adminId: principal.adminId };
   },
 });
 
@@ -232,6 +233,94 @@ export const clearMcpToken = internalMutation({
 
 export const touchMcpToken = internalMutation({
   args: { tokenId: v.id("mcpTokens") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.tokenId, { lastUsedAt: Date.now() });
+    return { success: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// The administrator's own connector. Same shape as above, keyed by the admin
+// rather than a workspace, and only ever read by the admin it belongs to.
+// ---------------------------------------------------------------------------
+
+/** The signed-in administrator's connector, or null if they have not made one. */
+export const adminMcpConnector = query({
+  args: {},
+  handler: async (ctx) => {
+    const principal = await requireAdmin(ctx);
+    const row = await ctx.db
+      .query("adminMcpTokens")
+      .withIndex("by_admin", (q) => q.eq("adminId", principal.adminId))
+      .unique();
+    if (!row) return null;
+    return {
+      prefix: row.prefix,
+      issuedAt: row.issuedAt,
+      lastUsedAt: row.lastUsedAt ?? null,
+    };
+  },
+});
+
+/** Resolves an admin connector token to its administrator. */
+export const adminByMcpTokenHash = internalQuery({
+  args: { tokenHash: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("adminMcpTokens")
+      .withIndex("by_hash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique();
+    if (!row) return null;
+    // Deleting an administrator has to kill their connector with them, so the
+    // record is re-read rather than trusted from the token row.
+    const admin = await ctx.db.get("admins", row.adminId);
+    if (!admin) return null;
+    return {
+      tokenId: row._id,
+      adminId: row.adminId,
+      label: admin.name?.trim() || admin.email,
+    };
+  },
+});
+
+/** One token per administrator: issuing replaces whatever was there. */
+export const setAdminMcpToken = internalMutation({
+  args: {
+    adminId: v.id("admins"),
+    tokenHash: v.string(),
+    prefix: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("adminMcpTokens")
+      .withIndex("by_admin", (q) => q.eq("adminId", args.adminId))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+
+    await ctx.db.insert("adminMcpTokens", {
+      adminId: args.adminId,
+      tokenHash: args.tokenHash,
+      prefix: args.prefix,
+      issuedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const clearAdminMcpToken = internalMutation({
+  args: { adminId: v.id("admins") },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("adminMcpTokens")
+      .withIndex("by_admin", (q) => q.eq("adminId", args.adminId))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+    return { removed: Boolean(existing) };
+  },
+});
+
+export const touchAdminMcpToken = internalMutation({
+  args: { tokenId: v.id("adminMcpTokens") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.tokenId, { lastUsedAt: Date.now() });
     return { success: true };

@@ -68,8 +68,8 @@ async function handle(
 
   // Two kinds of caller. The deployment-wide token from the environment acts
   // as whatever MAGIC_AI_BOT_USERNAME names — unchanged, including its admin
-  // option. Anything else is a company's own connector token, resolved against
-  // the database here.
+  // option. Anything else is a connector token issued from the dashboard —
+  // a company's, or an administrator's — resolved against the database here.
   //
   // The env token is checked first and in constant time, so per-company tokens
   // have not made it guessable.

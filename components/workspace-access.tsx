@@ -19,6 +19,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -445,5 +446,58 @@ export function WorkspaceAccessCard({
         </>
       ) : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * The same card behind a button.
+ *
+ * Both admin pages that hand out a password — the workspace grid and the
+ * access table — want it as a dialog rather than inline, so the trigger lives
+ * here next to the card instead of being written twice.
+ */
+export function WorkspaceAccessDialog({
+  workspaceId,
+  name,
+  slug,
+  trigger,
+}: {
+  workspaceId: Id<"workspaces">;
+  name: string;
+  slug: string;
+  /** Defaults to a ghost "Access" button. */
+  trigger?: React.ReactElement;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          trigger ?? (
+            <Button size="lg" variant="ghost">
+              <KeyIcon /> Access
+            </Button>
+          )
+        }
+      />
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Workspace access — {name}</DialogTitle>
+          <DialogDescription>
+            Issue the company a password for this workspace, or revoke it. They
+            sign in with the workspace ID and the password you generate.
+          </DialogDescription>
+        </DialogHeader>
+        <WorkspaceAccessCard workspaceId={workspaceId} workspaceName={slug} />
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

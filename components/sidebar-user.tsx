@@ -40,7 +40,18 @@ function initialsOf(label: string): string {
  * spends: three permanent rows become one, and the two that only an
  * administrator can use stop taking up space for everyone else.
  */
-export function SidebarUser({ settingsHref }: { settingsHref: string }) {
+export function SidebarUser({
+  settingsHref,
+  settingsLabel = "Workspace settings",
+  showPlatformLink = true,
+}: {
+  settingsHref: string;
+  /** The platform console names its own settings; a workspace names theirs. */
+  settingsLabel?: string;
+  /** Off inside /admin, where "All workspaces" would point at the page you
+      are already on. */
+  showPlatformLink?: boolean;
+}) {
   const { isMobile } = useSidebar();
   const session = useSession();
 
@@ -119,10 +130,10 @@ export function SidebarUser({ settingsHref }: { settingsHref: string }) {
             <DropdownMenuSeparator />
             <DropdownMenuItem render={<Link href={settingsHref} />}>
               <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
-              Workspace settings
+              {settingsLabel}
             </DropdownMenuItem>
-            {session.isAdmin ? (
-              <DropdownMenuItem render={<Link href="/admin" />}>
+            {session.isAdmin && showPlatformLink ? (
+              <DropdownMenuItem render={<Link href="/admin/workspaces" />}>
                 <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
                 All workspaces
               </DropdownMenuItem>

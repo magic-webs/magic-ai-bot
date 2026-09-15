@@ -147,7 +147,7 @@ export function WorkspaceSwitcher({
               ))}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem render={<Link href="/admin" />}>
+            <DropdownMenuItem render={<Link href="/admin/workspaces" />}>
               <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
               All workspaces
             </DropdownMenuItem>

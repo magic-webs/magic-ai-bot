@@ -530,6 +530,42 @@ export const revokeMcpToken = action({
 });
 
 /**
+ * The administrator's own connector.
+ *
+ * Unlike a workspace's, this one reaches every tenant and unlocks the platform
+ * tools — so it is issued to the administrator asking for it, not to a
+ * workspace, and each admin holds at most one.
+ */
+export const issueAdminMcpToken = action({
+  args: {},
+  handler: async (ctx): Promise<{ token: string; prefix: string }> => {
+    const { adminId } = await ctx.runQuery(internal.authDb.assertAdmin, {});
+
+    const token = randomToken(MCP_TOKEN_BYTES);
+    const prefix = token.slice(0, MCP_PREFIX_CHARS);
+
+    await ctx.runMutation(internal.authDb.setAdminMcpToken, {
+      adminId,
+      tokenHash: await sha256Hex(token),
+      prefix,
+    });
+
+    // Returned once, like the workspace one. Only the hash is kept.
+    return { token, prefix };
+  },
+});
+
+export const revokeAdminMcpToken = action({
+  args: {},
+  handler: async (ctx): Promise<{ removed: boolean }> => {
+    const { adminId } = await ctx.runQuery(internal.authDb.assertAdmin, {});
+    return await ctx.runMutation(internal.authDb.clearAdminMcpToken, {
+      adminId,
+    });
+  },
+});
+
+/**
  * Signs in a connector token, for the MCP endpoint.
  *
  * Deliberately says nothing useful on failure: this is reached by whatever URL
@@ -544,19 +580,48 @@ export const mcpLogin = action({
   ): Promise<{
     sessionToken: string;
     expiresAt: number;
-    role: "workspace";
+    role: "admin" | "workspace";
     label: string;
-    workspaceSlug: string;
+    // Null for an administrator, who is not in a workspace: the MCP server
+    // reads this to decide whether a tool may assume one.
+    workspaceSlug: string | null;
   }> => {
     const generic = "Invalid connector token.";
     const token = args.token.trim();
     if (token.length < 24) throw new Error(generic);
 
+    const tokenHash = await sha256Hex(token);
+
+    // An administrator's connector first: the two live in different tables, and
+    // this one is the rarer of the two, so a miss costs one indexed read.
+    const asAdmin: {
+      tokenId: Id<"adminMcpTokens">;
+      adminId: Id<"admins">;
+      label: string;
+    } | null = await ctx.runQuery(internal.authDb.adminByMcpTokenHash, {
+      tokenHash,
+    });
+    if (asAdmin) {
+      await ctx.runMutation(internal.authDb.touchAdminMcpToken, {
+        tokenId: asAdmin.tokenId,
+      });
+      const session = await issueSession(ctx, {
+        role: "admin",
+        adminId: asAdmin.adminId,
+      });
+      return {
+        ...session,
+        role: "admin",
+        label: asAdmin.label,
+        workspaceSlug: null,
+      };
+    }
+
     const found: {
       tokenId: Id<"mcpTokens">;
       workspace: Doc<"workspaces">;
     } | null = await ctx.runQuery(internal.authDb.workspaceByMcpTokenHash, {
-      tokenHash: await sha256Hex(token),
+      tokenHash,
     });
     if (!found) throw new Error(generic);
 

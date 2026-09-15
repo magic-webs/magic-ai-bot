@@ -80,7 +80,15 @@ export function assertConfigured(identity) {
   // A connector token carries its own credential, so it needs the deployment
   // and nothing else. Only the env-configured identity needs a username and
   // password to be present.
-  if (CONVEX_URL && identity?.kind === "token") return;
+  //
+  // "session" counts too: the HTTP route exchanges the token at the door and
+  // hands the session on, so by the time this runs the caller has already
+  // proved who they are. Demanding MAGIC_AI_BOT_USERNAME here as well would
+  // mean a deployment that issues connectors from the dashboard — the only way
+  // to get an administrator's — still could not serve one.
+  if (identity?.kind === "token" || identity?.kind === "session") {
+    if (CONVEX_URL) return;
+  }
   if (CONVEX_URL && USERNAME && PASSWORD) return;
   throw new Error(
     [

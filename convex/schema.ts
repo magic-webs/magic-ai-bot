@@ -392,6 +392,27 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_hash", ["tokenHash"]),
 
+  // The same thing for an administrator: one connector that reaches every
+  // workspace and unlocks the platform tools — creating tenants, issuing their
+  // logins, archiving and deleting them.
+  //
+  // A separate table rather than a nullable `workspaceId` on the one above,
+  // because the two are looked up by different keys and answer to different
+  // guards, and because a token that can delete a company should never be one
+  // missing field away from being read as a tenant's.
+  //
+  // Per administrator, not per deployment: revoking one person's connector must
+  // not cut off everybody else's.
+  adminMcpTokens: defineTable({
+    adminId: v.id("admins"),
+    tokenHash: v.string(),
+    prefix: v.string(),
+    issuedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_admin", ["adminId"])
+    .index("by_hash", ["tokenHash"]),
+
   // -------------------------------------------------------------------------
   // Contacts — the people talking to the agents.
   // -------------------------------------------------------------------------

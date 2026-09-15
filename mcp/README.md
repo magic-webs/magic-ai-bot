@@ -22,6 +22,12 @@ an **admin** (email + password) to reach every workspace and unlock the
 platform-administration tools — creating tenants, issuing their logins,
 suspending and deleting them.
 
+Over HTTP there is a second way in: a **connector token**, issued from the
+dashboard and carried in the URL path. It is exchanged for a session of the
+account it was issued to — an administrator's from the platform console, a
+company's from their workspace settings — so the sentence above still holds
+exactly. Only the hash is stored; rotating replaces it, revoking removes it.
+
 ## Configuration
 
 | Variable | Required | Meaning |
@@ -105,6 +111,19 @@ nor will anything behind a VPN or firewall.
 If the app is already deployed, that is the public HTTPS URL. The route at
 `app/api/mcp/[token]/route.ts` serves MCP from it, so there is no second process
 to host and no tunnel to keep alive, and the URL never changes.
+
+### The short way: issue one from the dashboard
+
+Nothing below is needed for an ordinary connector. **Platform console → MCP
+connector** issues an administrator one — signed in as you, every workspace,
+platform tools unlocked — and a company issues their own, scoped to them, from
+**Workspace settings → Connect an AI assistant**. Both are stored hashed, shown
+exactly once, and rotated or revoked from the page that issued them, which no
+environment variable can be.
+
+The environment route below is for the other case: a connector that belongs to
+the deployment rather than to an account, surviving any change in who
+administers the platform.
 
 ### 1. Generate a token
 

@@ -1,17 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { RankedBars, StatTile } from "@/components/dashboard-charts";
+import { DashboardSkeleton } from "@/components/skeletons";
+import { useHourBucket } from "@/components/use-now";
 import { Badge } from "@/components/ui/badge";
-import { Logo } from "@/components/logo";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -20,15 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -36,451 +23,234 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UsagePanel } from "@/components/usage-panel";
 import { Separator } from "@/components/ui/separator";
-import { useSession } from "@/components/use-session";
-import { WorkspaceAccessCard } from "@/components/workspace-access";
-import { SelectField } from "@/components/select-field";
-import { toast } from "@/components/ui/toast";
-import { CardGridSkeleton } from "@/components/skeletons";
 import {
-  BuildingsIcon,
-  CoinsIcon,
-  PlusIcon,
   ArrowRightIcon,
-  SparkleIcon,
-  KeyIcon,
-  SignOutIcon,
+  BuildingsIcon,
+  CheckCircleIcon,
 } from "@phosphor-icons/react";
 
-const LOCALES = ["en-GB", "en-US", "en-IN", "en-AU", "de-DE", "fr-FR", "es-ES"];
-const CURRENCIES = ["GBP", "USD", "EUR", "INR", "AUD", "CAD", "AED"];
-const TIMEZONES = [
-  "Europe/London",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Asia/Kolkata",
-  "Asia/Dubai",
-  "Australia/Sydney",
-];
+const NANO = 1_000_000_000;
+const WINDOW_DAYS = 30;
 
-function CreateWorkspaceDialog() {
-  const router = useRouter();
-  const createWorkspace = useMutation(api.workspaces.create);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    tagline: "",
-    industry: "",
-    description: "",
-    website: "",
-    supportEmail: "",
-    locale: "en-GB",
-    currency: "GBP",
-    timezone: "Europe/London",
-  });
-
-  const set = (key: keyof typeof form) => (value: string) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-
-  const submit = async () => {
-    if (!form.name.trim()) {
-      toast.add({ title: "A workspace name is required", type: "error" });
-      return;
-    }
-    setBusy(true);
-    try {
-      const { slug } = await createWorkspace({
-        name: form.name,
-        tagline: form.tagline || undefined,
-        industry: form.industry || undefined,
-        description: form.description || undefined,
-        website: form.website || undefined,
-        supportEmail: form.supportEmail || undefined,
-        locale: form.locale,
-        currency: form.currency,
-        timezone: form.timezone,
-        facts: [],
-      });
-      toast.add({ title: `${form.name} created`, type: "success" });
-      setOpen(false);
-      router.push(`/w/${slug}`);
-    } catch (error) {
-      toast.add({
-        title: "Could not create the workspace",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon /> New workspace</Button>} />
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create a workspace</DialogTitle>
-          <DialogDescription>
-            A workspace is one company or project. Its agents, knowledge,
-            catalogue, orders and channels all live inside it.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ws-name">Company or project name</Label>
-            <Input
-              id="ws-name"
-              value={form.name}
-              placeholder="Northwind Print Co"
-              onChange={(event) => set("name")(event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-tagline">Tagline</Label>
-              <Input
-                id="ws-tagline"
-                value={form.tagline}
-                placeholder="Commercial print & packaging"
-                onChange={(event) => set("tagline")(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-industry">Industry</Label>
-              <Input
-                id="ws-industry"
-                value={form.industry}
-                placeholder="Commercial printing"
-                onChange={(event) => set("industry")(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ws-description">
-              What the business does
-              <span className="ml-1 font-normal text-muted-foreground">
-                — agents are grounded in this
-              </span>
-            </Label>
-            <Textarea
-              id="ws-description"
-              rows={3}
-              value={form.description}
-              placeholder="Northwind supplies business stationery, marketing print and branded merchandise to UK businesses. Quotes are prepared by the sales team."
-              onChange={(event) => set("description")(event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-website">Website</Label>
-              <Input
-                id="ws-website"
-                value={form.website}
-                placeholder="https://example.com"
-                onChange={(event) => set("website")(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-email">Support email</Label>
-              <Input
-                id="ws-email"
-                value={form.supportEmail}
-                placeholder="hello@example.com"
-                onChange={(event) => set("supportEmail")(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-locale">Locale</Label>
-              <SelectField
-                id="ws-locale"
-                className="w-full"
-                value={form.locale}
-                onValueChange={set("locale")}
-                options={LOCALES.map((locale) => ({
-                  value: locale,
-                  label: locale,
-                }))}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-currency">Currency</Label>
-              <SelectField
-                id="ws-currency"
-                className="w-full"
-                value={form.currency}
-                onValueChange={set("currency")}
-                options={CURRENCIES.map((currency) => ({
-                  value: currency,
-                  label: currency,
-                }))}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-tz">Timezone</Label>
-              <SelectField
-                id="ws-tz"
-                className="w-full"
-                value={form.timezone}
-                onValueChange={set("timezone")}
-                options={TIMEZONES.map((timezone) => ({
-                  value: timezone,
-                  label: timezone,
-                }))}
-              />
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={busy}>
-            {busy ? <Spinner /> : <PlusIcon />} Create workspace
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+/** Small sums need decimals a cent cannot carry — the usage page's rule. */
+function usd(nano: number): string {
+  const value = nano / NANO;
+  if (value === 0) return "$0";
+  if (value < 0.0001) return "<$0.0001";
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  if (value < 1) return `$${value.toFixed(3)}`;
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
-function AccessDialog({
-  workspaceId,
-  name,
-  slug,
-}: {
-  workspaceId: Id<"workspaces">;
-  name: string;
-  slug: string;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button size="lg" variant="ghost">
-            <KeyIcon /> Access
-          </Button>
-        }
-      />
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Workspace access — {name}</DialogTitle>
-          <DialogDescription>
-            Issue the company a password for this workspace, or revoke it. They
-            sign in with the workspace ID and the password you generate.
-          </DialogDescription>
-        </DialogHeader>
-        <WorkspaceAccessCard workspaceId={workspaceId} workspaceName={slug} />
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function tokens(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) return `${(count / 1000).toFixed(1)}k`;
+  return `${(count / 1_000_000).toFixed(2)}M`;
 }
 
-export default function AdminWorkspacesPage() {
-  const session = useSession();
-  // Only an administrator may list every workspace, so don't even ask
-  // otherwise — the hint cookie that routed us here is not authoritative.
-  const workspaces = useQuery(
-    api.workspaces.list,
-    session.isAdmin ? {} : "skip"
-  );
-  const seedDemo = useMutation(api.workspaces.seedDemo);
-  const router = useRouter();
-  const [seeding, setSeeding] = useState(false);
+/**
+ * The platform at a glance.
+ *
+ * Deliberately not a second usage page: the tiles say what the estate is and
+ * what it costs, and everything that needs doing is a row that links to the
+ * page where it is done. The detail lives one click away, under Tokens & cost.
+ */
+export default function AdminOverviewPage() {
+  const now = useHourBucket();
+  const workspaces = useQuery(api.workspaces.list, {});
+  const access = useQuery(api.authDb.accessSummary, {});
+  const usage = useQuery(api.usage.adminSummary, { days: WINDOW_DAYS, now });
 
-  if (session.isLoading) {
+  if (workspaces === undefined || access === undefined || usage === undefined) {
     return (
-      <main className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Spinner /> Loading…
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
+        <DashboardSkeleton />
+      </div>
     );
   }
 
-  if (!session.isAdmin) {
+  if (workspaces.length === 0) {
     return (
-      <main className="flex min-h-svh items-center justify-center p-8">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-8">
         <Empty className="max-w-md border border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <BuildingsIcon />
             </EmptyMedia>
-            <EmptyTitle>This area is for administrators</EmptyTitle>
+            <EmptyTitle>Nothing running yet</EmptyTitle>
             <EmptyDescription>
-              You are signed in to a single workspace. Open it to manage its
-              agents, knowledge and channels.
+              A workspace is one company or project, with its own agents,
+              catalogue and channels. Create the first one and this page starts
+              reporting on it.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <div className="flex gap-2">
-              {session.me?.workspaceSlug ? (
-                <Button
-                  nativeButton={false}
-                  render={<Link href={`/w/${session.me.workspaceSlug}`} />}
-                >
-                  Open my workspace <ArrowRightIcon />
-                </Button>
-              ) : null}
-              <Button variant="outline" onClick={() => void session.signOut()}>
-                Sign out
-              </Button>
-            </div>
+            <Button
+              nativeButton={false}
+              render={<Link href="/admin/workspaces" />}
+            >
+              Go to workspaces <ArrowRightIcon />
+            </Button>
           </EmptyContent>
         </Empty>
-      </main>
+      </div>
     );
   }
 
+  const accessById = new Map(
+    access.map((row) => [row.workspaceId as string, row])
+  );
+  const active = workspaces.filter((row) => row.status !== "archived");
+  const costSeries = usage.daily.map((day) => ({
+    date: day.date,
+    cost: day.costNanoUsd / NANO,
+    tokens: day.totalTokens,
+  }));
+
+  // What an operator would otherwise have to go looking for: a tenant that
+  // cannot sign in, or one that has been put on ice.
+  const attention = [
+    ...workspaces
+      .filter((row) => !accessById.has(row._id as string))
+      .map((row) => ({
+        id: `${row._id}-nopass`,
+        name: row.name,
+        slug: row.slug,
+        note: "No sign-in issued",
+      })),
+    ...workspaces
+      .filter((row) => accessById.get(row._id as string)?.status === "revoked")
+      .map((row) => ({
+        id: `${row._id}-revoked`,
+        name: row.name,
+        slug: row.slug,
+        note: "Access revoked",
+      })),
+    ...workspaces
+      .filter((row) => row.status === "archived")
+      .map((row) => ({
+        id: `${row._id}-archived`,
+        name: row.name,
+        slug: row.slug,
+        note: "Archived",
+      })),
+  ];
+
   return (
-    <div className="flex min-h-svh min-w-0 flex-col">
-      {/* Full-bleed and sticky, so the console fills the screen the way the
-          workspace shell does instead of sitting in a centred column with the
-          tables squeezed into half the width. */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
-        <Link href="/" className="flex items-center gap-2">
-          <Logo className="h-6" />
-          <span className="font-heading text-sm font-semibold tracking-tight">
-            Magic Agent
-          </span>
-          <Badge variant="secondary">administrator</Badge>
-        </Link>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {session.me?.label ?? ""}
-          </span>
-          <Button size="lg" variant="ghost" onClick={() => void session.signOut()}>
-            <SignOutIcon /> Sign out
-          </Button>
+    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
+            Overview
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Every workspace on this deployment, and what they have spent over
+            the last {WINDOW_DAYS} days.
+          </p>
         </div>
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/admin/workspaces" />}
+        >
+          <BuildingsIcon /> Workspaces
+        </Button>
       </header>
 
-      <main className="flex min-w-0 flex-1 flex-col p-4 sm:p-6">
-        <Tabs defaultValue="workspaces" className="gap-5">
-        <TabsList>
-          <TabsTrigger value="workspaces">
-            <BuildingsIcon /> Workspaces
-          </TabsTrigger>
-          <TabsTrigger value="usage">
-            <CoinsIcon /> Tokens &amp; cost
-          </TabsTrigger>
-        </TabsList>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label="Workspaces" value={workspaces.length} previous={null} />
+        <StatTile label="Active" value={active.length} previous={null} />
+        <StatTile
+          label={`Cost · ${WINDOW_DAYS}d`}
+          value={usage.totals.costNanoUsd}
+          previous={usage.previous.costNanoUsd}
+          data={costSeries}
+          dataKey="cost"
+          format={usd}
+        />
+        <StatTile
+          label={`Tokens · ${WINDOW_DAYS}d`}
+          value={usage.totals.totalTokens}
+          previous={usage.previous.totalTokens}
+          data={costSeries}
+          dataKey="tokens"
+          format={tokens}
+        />
+      </div>
 
-        <TabsContent value="workspaces" className="flex flex-col gap-6">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="font-heading text-2xl font-semibold tracking-tight">
-              Workspaces
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              One company or project each, with its own agents and data.
-            </p>
-          </div>
-          <CreateWorkspaceDialog />
-        </header>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Token use by workspace</CardTitle>
+            <CardDescription>
+              Tokens spent over {WINDOW_DAYS} days, per company.{" "}
+              <Link href="/admin/usage" className="underline">
+                Cost breakdown
+              </Link>
+              .
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RankedBars
+              data={usage.byWorkspace.slice(0, 8).map((row) => ({
+                workspace: row.name,
+                tokens: row.totalTokens,
+              }))}
+              categoryKey="workspace"
+              valueKey="tokens"
+              valueLabel="Tokens"
+              emptyLabel="No model calls in this period."
+              formatValue={tokens}
+            />
+          </CardContent>
+        </Card>
 
-        {workspaces === undefined ? (
-          <CardGridSkeleton count={4} className="sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" />
-        ) : workspaces.length === 0 ? (
-          <Empty className="border border-dashed">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <BuildingsIcon />
-              </EmptyMedia>
-              <EmptyTitle>No workspaces yet</EmptyTitle>
-              <EmptyDescription>
-                Create one for the company or project you want a bot for, or start
-                from a sample workspace to see how it fits together.
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <div className="flex flex-wrap justify-center gap-2">
-                <CreateWorkspaceDialog />
-                <Button
-                  variant="outline"
-                  disabled={seeding}
-                  onClick={async () => {
-                    setSeeding(true);
-                    try {
-                      const { slug } = await seedDemo({});
-                      router.push(`/w/${slug}`);
-                    } finally {
-                      setSeeding(false);
-                    }
-                  }}
-                >
-                  {seeding ? <Spinner /> : <SparkleIcon />} Start from a sample
-                </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Needs attention</CardTitle>
+            <CardDescription>
+              Tenants that cannot sign in, or are not meant to.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {attention.length === 0 ? (
+              <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                <CheckCircleIcon className="size-4" />
+                Every workspace is active and has a password.
               </div>
-            </EmptyContent>
-          </Empty>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {workspaces.map((workspace) => (
-              <Card key={workspace._id} className="flex flex-col">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between gap-2">
-                    <span className="truncate">{workspace.name}</span>
-                    {workspace.status === "archived" ? (
-                      <Badge variant="secondary">archived</Badge>
-                    ) : null}
-                  </CardTitle>
-                  <CardDescription className="line-clamp-2">
-                    {workspace.tagline ||
-                      workspace.description ||
-                      workspace.industry ||
-                      "No description yet"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="mt-auto flex flex-col gap-2">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    /{workspace.slug}
-                  </span>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-1">
-                    <AccessDialog
-                      workspaceId={workspace._id}
-                      name={workspace.name}
-                      slug={workspace.slug}
-                    />
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      nativeButton={false}
-                      render={<Link href={`/w/${workspace.slug}`} />}
+            ) : (
+              attention.slice(0, 8).map((item, index) => (
+                <div key={item.id} className="flex flex-col gap-2">
+                  {index > 0 ? <Separator /> : null}
+                  <div className="flex items-center justify-between gap-2">
+                    <Link
+                      href={`/w/${item.slug}`}
+                      className="min-w-0 truncate text-sm font-medium hover:underline"
                     >
-                      Open <ArrowRightIcon />
-                    </Button>
+                      {item.name}
+                    </Link>
+                    <Badge variant="outline" className="shrink-0">
+                      {item.note}
+                    </Badge>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-        </TabsContent>
-
-          <TabsContent value="usage">
-            <UsagePanel />
-          </TabsContent>
-        </Tabs>
-      </main>
+                </div>
+              ))
+            )}
+            {attention.length > 0 ? (
+              <Link
+                href="/admin/access"
+                className="pt-1 text-xs text-muted-foreground underline"
+              >
+                Manage access
+              </Link>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
