@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useRef, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -24,11 +25,17 @@ import {
 } from "@/components/ui/message-scroller";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
+  ArrowRightIcon,
   PaperPlaneRightIcon,
-  RobotIcon,
+  PhoneIcon,
+  UserIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
+// The same agent icon the console's sidebar carries, so the chat a customer
+// sees and the Agents page a workspace edits are one product.
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Robot01Icon } from "@hugeicons/core-free-icons";
 import { toast } from "@/components/ui/toast";
 import { RichMessage, parseRichPayload } from "@/components/rich-message";
 import { TypingBubble } from "@/components/typing-bubble";
@@ -175,6 +182,29 @@ function prefillFromQuery(): { name?: string; phone?: string } {
   }
 }
 
+/**
+ * The attribution line, linked to the product's own site.
+ *
+ * A plain anchor with target="_blank", not next/link: the widget is an iframe
+ * on someone else's page, so a client-side route would load the landing page
+ * inside the chat panel. rel="noopener" because the new tab must not get a
+ * handle on this window.
+ */
+function PoweredBy({ className }: { className?: string }) {
+  return (
+    <p className={`text-center text-[10px] text-muted-foreground ${className ?? ""}`}>
+      <a
+        href="/?utm_source=widget"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="rounded-sm underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        Powered by Magic Agent
+      </a>
+    </p>
+  );
+}
+
 function WidgetShell({
   title,
   embedded,
@@ -186,13 +216,19 @@ function WidgetShell({
 }) {
   return (
     <div className="flex h-svh w-full flex-col bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b bg-primary px-4 py-3 text-primary-foreground">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-foreground/20">
-          <RobotIcon className="size-5" />
+      <header className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-primary px-4 py-3 text-primary-foreground">
+        <div className="relative shrink-0">
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary-foreground/20 ring-1 ring-primary-foreground/25">
+            <HugeiconsIcon icon={Robot01Icon} size={20} strokeWidth={2} />
+          </div>
+          {/* Says someone is there before a word has been typed. The ring is
+              --primary, so it reads as a hole punched in the header whatever
+              colour the site chose. */}
+          <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-emerald-400 ring-2 ring-primary" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-medium">{title}</h1>
-          <p className="truncate text-xs opacity-90">Assistant</p>
+          <h1 className="truncate font-semibold tracking-tight">{title}</h1>
+          <p className="truncate text-xs opacity-90">Online &middot; replies instantly</p>
         </div>
         {embedded ? (
           <Button
@@ -334,47 +370,101 @@ function RegisterForm({
     }
   };
 
+  // m-auto rather than justify-center: auto margins centre the card on a tall
+  // phone screen but still let it scroll when the keyboard halves the panel,
+  // where justify-center would clip the top of the form instead.
   return (
-    <div className="flex flex-1 flex-col justify-center overflow-y-auto p-5">
-      <div className="mx-auto w-full max-w-sm">
-        <h2 className="text-center text-lg font-semibold">
-          Chat with {workspaceName}
-        </h2>
-        <p className="mt-1 mb-5 text-center text-sm text-muted-foreground">
-          Leave your name and number and we&apos;ll pick up right away.
-        </p>
-        <form onSubmit={submit} className="flex flex-col gap-4">
+    <div className="flex flex-1 flex-col overflow-y-auto bg-linear-to-b from-primary/8 via-background to-background">
+      <div className="m-auto w-full max-w-sm px-5 py-5 duration-500 animate-in fade-in slide-in-from-bottom-2">
+        <div className="flex flex-col items-center text-center">
+          {/* The illustration carries its own greeting and "Quick responses"
+              bubbles, which is why neither is repeated below it. Sized in vh
+              as well as px: the panel is 620px on a desktop and the whole
+              screen on a phone, and a fixed-height hero either crowds the
+              form on the short one or looks lost on the tall one. */}
+          <Image
+            src="/images/web-widget-agent.png"
+            alt=""
+            width={1240}
+            height={1268}
+            priority
+            className="mb-2 h-auto w-[min(12rem,22vh)] max-w-full select-none"
+          />
+          <h2 className="text-xl font-semibold tracking-tight">
+            Chat with {workspaceName}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Leave your name and number and we&apos;ll pick up right away.
+          </p>
+        </div>
+
+        <form
+          onSubmit={submit}
+          className="mt-5 flex flex-col gap-4 rounded-2xl border bg-card p-4 shadow-sm"
+        >
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="widget-name">Name</Label>
-            <Input
-              id="widget-name"
-              autoComplete="name"
-              placeholder="Your name"
-              value={form.name}
-              disabled={submitting}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, name: event.target.value }))
-              }
-            />
+            <Label
+              htmlFor="widget-name"
+              className="text-xs text-muted-foreground"
+            >
+              Name
+            </Label>
+            <div className="relative">
+              <UserIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="widget-name"
+                autoComplete="name"
+                placeholder="Your name"
+                className="h-11 rounded-xl pl-9"
+                value={form.name}
+                disabled={submitting}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, name: event.target.value }))
+                }
+              />
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="widget-phone">Phone number</Label>
-            <Input
-              id="widget-phone"
-              type="tel"
-              autoComplete="tel"
-              placeholder="Your phone number"
-              value={form.phone}
-              disabled={submitting}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, phone: event.target.value }))
-              }
-            />
+            <Label
+              htmlFor="widget-phone"
+              className="text-xs text-muted-foreground"
+            >
+              Phone number
+            </Label>
+            <div className="relative">
+              <PhoneIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="widget-phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="Your phone number"
+                className="h-11 rounded-xl pl-9"
+                value={form.phone}
+                disabled={submitting}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, phone: event.target.value }))
+                }
+              />
+            </div>
           </div>
-          <Button type="submit" className="mt-1 w-full" disabled={submitting}>
-            {submitting ? <Spinner /> : "Start chat"}
+          <Button
+            type="submit"
+            size="lg"
+            className="mt-1 h-11 w-full gap-2 rounded-xl text-sm font-semibold shadow-sm shadow-primary/20"
+            disabled={submitting}
+          >
+            {submitting ? (
+              <Spinner />
+            ) : (
+              <>
+                Start chat
+                <ArrowRightIcon weight="bold" />
+              </>
+            )}
           </Button>
         </form>
+
+        <PoweredBy className="mt-4" />
       </div>
     </div>
   );
@@ -554,9 +644,7 @@ function WidgetChat({
             {sending ? <Spinner /> : <PaperPlaneRightIcon />}
           </Button>
         </div>
-        <p className="mt-1 text-center text-[10px] text-muted-foreground">
-          Powered by Magic Agent
-        </p>
+        <PoweredBy className="mt-1" />
       </div>
     </>
   );
