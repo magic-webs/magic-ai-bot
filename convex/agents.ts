@@ -648,3 +648,156 @@ export const getInternal = internalQuery({
     return { agent, workspace };
   },
 });
+
+// ---------------------------------------------------------------------------
+// Roster stats — the numbers the Agents page prints on each card.
+// ---------------------------------------------------------------------------
+
+/**
+ * Messages are the highest-volume table, so the latency sample is capped the
+ * way analytics.dashboard caps its own. A busier workspace averages its
+ * response time over the most recent slice rather than all of history.
+ */
+const AGENT_MESSAGE_SCAN_CAP = 4000;
+
+/**
+ * Everything the Agents page counts, in one read.
+ *
+ * `now` is an argument for the same reason analytics.dashboard takes one:
+ * a Convex query is not re-run because time passed, so a `Date.now()` inside
+ * would go stale and poison the cache key. The client passes the hour bucket.
+ *
+ * A conversation is counted against whoever is holding it now
+ * (`activeAgentId`), not the agent whose channel it arrived on — otherwise
+ * every conversation in a routed workspace would be scored against the front
+ * desk, which only ever says hello before handing over.
+ */
+export const roster = query({
+  args: { workspaceId: v.id("workspaces"), now: v.number() },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+
+    const [conversations, messages, stages] = await Promise.all([
+      ctx.db
+        .query("conversations")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect(),
+      ctx.db
+        .query("messages")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .take(AGENT_MESSAGE_SCAN_CAP),
+      ctx.db
+        .query("leadStages")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect(),
+    ]);
+
+    // --- per agent --------------------------------------------------------
+    // "Resolved" is a conversation the agent saw through on its own: not
+    // escalated to a human, and not taken over by one from the dashboard.
+    // That is the claim the percentage on the card makes.
+    type Tally = {
+      conversations: number;
+      resolved: number;
+      latencyTotal: number;
+      latencyCount: number;
+    };
+    const tallies = new Map<string, Tally>();
+    const tally = (agentId: string): Tally => {
+      let row = tallies.get(agentId);
+      if (!row) {
+        row = { conversations: 0, resolved: 0, latencyTotal: 0, latencyCount: 0 };
+        tallies.set(agentId, row);
+      }
+      return row;
+    };
+
+    let resolvedTotal = 0;
+    for (const conversation of conversations) {
+      const holder = conversation.activeAgentId ?? conversation.agentId;
+      const row = tally(holder);
+      row.conversations += 1;
+      const resolved =
+        conversation.status !== "escalated" && !conversation.humanHandling;
+      if (resolved) {
+        row.resolved += 1;
+        resolvedTotal += 1;
+      }
+    }
+
+    for (const message of messages) {
+      if (!message.agentId || typeof message.latencyMs !== "number") continue;
+      const row = tally(message.agentId);
+      row.latencyTotal += message.latencyMs;
+      row.latencyCount += 1;
+    }
+
+    const rate = (part: number, whole: number) =>
+      whole > 0 ? Math.round((part / whole) * 100) : null;
+
+    const byAgent = [...tallies.entries()].map(([agentId, row]) => ({
+      agentId,
+      conversations: row.conversations,
+      resolutionRate: rate(row.resolved, row.conversations),
+      avgLatencyMs: row.latencyCount
+        ? Math.round(row.latencyTotal / row.latencyCount)
+        : null,
+    }));
+
+    // --- the lead pipeline, for the follow-up desk -------------------------
+    const outcomeOf = new Map(
+      stages.map((stage) => [stage._id as string, stage.outcome])
+    );
+    const dayStart = Date.UTC(
+      new Date(args.now).getUTCFullYear(),
+      new Date(args.now).getUTCMonth(),
+      new Date(args.now).getUTCDate()
+    );
+
+    let leadsToday = 0;
+    let openLeads = 0;
+    let won = 0;
+    let lost = 0;
+    for (const conversation of conversations) {
+      if (conversation.createdAt >= dayStart) leadsToday += 1;
+      // An unfiled conversation is not counted either way: nobody has judged
+      // it yet, which is not the same as it being open.
+      const outcome = conversation.leadStageId
+        ? outcomeOf.get(conversation.leadStageId)
+        : undefined;
+      if (outcome === "open") openLeads += 1;
+      else if (outcome === "won") won += 1;
+      else if (outcome === "lost") lost += 1;
+    }
+
+    const latencies = messages.filter(
+      (message) => typeof message.latencyMs === "number"
+    );
+
+    return {
+      // True when the latency sample hit the cap, so a client can say the
+      // average covers recent traffic rather than all of it.
+      latencyTruncated: messages.length === AGENT_MESSAGE_SCAN_CAP,
+      totals: {
+        conversations: conversations.length,
+        resolutionRate: rate(resolvedTotal, conversations.length),
+        avgLatencyMs: latencies.length
+          ? Math.round(
+              latencies.reduce(
+                (sum, message) => sum + (message.latencyMs as number),
+                0
+              ) / latencies.length
+            )
+          : null,
+      },
+      byAgent,
+      leads: {
+        today: leadsToday,
+        open: openLeads,
+        // Of the leads that actually reached an outcome. Null until one has.
+        conversionRate: rate(won, won + lost),
+      },
+    };
+  },
+});

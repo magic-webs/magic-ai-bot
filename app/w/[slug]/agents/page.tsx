@@ -1,26 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
+import { BUILTIN_TOOLS } from "@/convex/lib/shared";
+import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/components/workspace-provider";
+import { useHourBucket } from "@/components/use-now";
+import { AgentAvatar } from "@/components/agent-avatar";
+import { SelectField } from "@/components/select-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
-import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +36,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -43,16 +55,163 @@ import { toast } from "@/components/ui/toast";
 import { CardGridSkeleton } from "@/components/skeletons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  FunnelIcon,
-  RobotIcon,
-  PlusIcon,
-  SparkleIcon,
-  ChatsIcon,
-  SlidersIcon,
-  SignpostIcon,
   ArrowsSplitIcon,
+  ChatsIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  CrosshairSimpleIcon,
+  DotsThreeVerticalIcon,
+  FunnelIcon,
+  ListIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  RobotIcon,
+  ShoppingCartSimpleIcon,
+  SignpostIcon,
+  SlidersIcon,
+  SparkleIcon,
+  SquaresFourIcon,
+  UsersThreeIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+
+type Agent = Doc<"agents">;
+
+/** Per-agent row from api.agents.roster, once looked up by id. */
+type AgentStats = {
+  conversations: number;
+  resolutionRate: number | null;
+  avgLatencyMs: number | null;
+};
+
+const SORTS = [
+  { value: "updated", label: "Last updated" },
+  { value: "name", label: "Name" },
+  { value: "conversations", label: "Conversations" },
+];
+
+const TOOL_LABELS = new Map(BUILTIN_TOOLS.map((tool) => [tool.key, tool.label]));
+
+/**
+ * Whether to print ⌘ or Ctrl on the search hint.
+ *
+ * The user agent is an external source, so it is read through
+ * useSyncExternalStore rather than in an effect: the server snapshot is ⌘, and
+ * React swaps in the real one on hydration instead of warning about a mismatch.
+ */
+const noopSubscribe = () => () => {};
+
+function useIsMac(): boolean {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent),
+    () => true
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Figures
+// ---------------------------------------------------------------------------
+
+/** 1.2K rather than 1,203: these sit in a chip, not a table. */
+function count(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  if (value < 1000) return String(value);
+  const thousands = value / 1000;
+  return `${thousands >= 10 ? Math.round(thousands) : Math.round(thousands * 10) / 10}K`;
+}
+
+function percent(value: number | null | undefined): string {
+  return value === null || value === undefined ? "—" : `${value}%`;
+}
+
+/** Sub-second answers are the interesting case, so they keep a decimal. */
+function duration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms / 100) / 10}s`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+function StatusPill({
+  status,
+  className,
+}: {
+  status: string;
+  className?: string;
+}) {
+  const active = status === "active";
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-4xl px-2 py-0.5 text-xs font-medium capitalize ring-1",
+        active
+          ? "bg-primary/10 text-primary ring-primary/20"
+          : "bg-muted text-muted-foreground ring-border",
+        className
+      )}
+    >
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          active ? "bg-primary" : "bg-muted-foreground/50"
+        )}
+      />
+      {status}
+    </span>
+  );
+}
+
+/** The white chips under the front desk's paragraph. */
+function StatChip({
+  icon: Icon,
+  value,
+  label,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  value: string;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl bg-card px-3.5 py-2.5 ring-1 ring-foreground/10">
+      <Icon className="size-5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <div className="font-heading text-base leading-none font-semibold">
+          {value}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The three figures across the bottom of an agent card. */
+function StatFigure({
+  icon: Icon,
+  value,
+  label,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  value: string;
+  label: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <div className="font-heading text-sm leading-none font-semibold">
+          {value}
+        </div>
+        <div className="mt-1 truncate text-[11px] text-muted-foreground">
+          {label}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// New agent
+// ---------------------------------------------------------------------------
 
 function NewAgentDialog() {
   const workspace = useWorkspace();
@@ -134,7 +293,7 @@ function NewAgentDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon /> New agent</Button>} />
+      <DialogTrigger render={<Button size="lg"><PlusIcon /> New agent</Button>} />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New agent</DialogTitle>
@@ -248,89 +407,458 @@ function NewAgentDialog() {
   );
 }
 
-function FrontDeskCard({
+// ---------------------------------------------------------------------------
+// The front desk, as the page's hero
+// ---------------------------------------------------------------------------
+
+function FrontDeskHero({
   router,
-  specialistCount,
+  workspaceName,
+  agentCount,
+  routableCount,
+  conversations,
+  resolutionRate,
   base,
 }: {
-  router: {
-    _id: string;
-    botName: string;
-    role: string;
-    status: string;
-  };
-  specialistCount: number;
+  router: Agent;
+  workspaceName: string;
+  /** Every specialist on the page. */
+  agentCount: number;
+  /** The ones the front desk can actually hand to: active, in the roster. */
+  routableCount: number;
+  conversations: number | null;
+  resolutionRate: number | null;
   base: string;
 }) {
   return (
-    // shrink-0 is load-bearing. Card carries `overflow-hidden`, and a flex
-    // item whose overflow is not visible has an automatic minimum size of
-    // zero — so as the only shrinkable child of this page's height-constrained
-    // flex column, this card absorbed the entire overflow: it was squashed to
-    // its title line, clipping the description and both buttons, and its
-    // rounded-4xl corners on a 60px box read as a lozenge.
-    //
-    // ring, not border: Card's outline is `ring-1 ring-foreground/5`, so the
-    // previous `border-primary/40` set a colour on a border that has no width
-    // and drew nothing at all.
-    <Card className="shrink-0 bg-primary/[0.04] ring-primary/25">
-      <CardHeader>
-        <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-            <SignpostIcon className="size-4" />
+    <div className="relative shrink-0 overflow-hidden rounded-3xl bg-linear-to-br from-primary/12 via-primary/5 to-card ring-1 ring-primary/15">
+      <div className="flex items-stretch">
+        <div className="min-w-0 flex-1 p-5 sm:p-6">
+          <p className="text-[11px] font-semibold tracking-wider text-primary/70 uppercase">
+            Your AI team
+          </p>
+
+          <h2 className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+            <span className="min-w-0 truncate">
+              {workspaceName}{" "}
+              <span className="text-primary">{router.name}</span>
+            </span>
+            <StatusPill status={router.status} className="bg-card ring-border" />
+          </h2>
+
+          <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+            Answers first on every channel, works out what the customer needs,
+            then hands the conversation to one of your{" "}
+            {routableCount === 1 ? "agent" : `${routableCount} agents`}. Your
+            agents can hand it on to each other from there.
+          </p>
+
+          {/* The two buttons ride the chip row rather than sitting above it:
+              this card is the only way into the front desk's own config. */}
+          <div className="mt-5 flex flex-wrap items-center gap-2.5">
+            <StatChip
+              icon={UsersThreeIcon}
+              value={String(agentCount)}
+              label={agentCount === 1 ? "Agent" : "Agents"}
+            />
+            <StatChip
+              icon={ChatsIcon}
+              value={count(conversations)}
+              label="Conversations"
+            />
+            <StatChip
+              icon={CheckCircleIcon}
+              value={percent(resolutionRate)}
+              label="Resolution rate"
+            />
+            <Button
+              size="lg"
+              variant="outline"
+              className="rounded-xl"
+              nativeButton={false}
+              render={<Link href={`${base}/agents/${router._id}/test`} />}
+            >
+              <ChatsIcon /> Test routing
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="rounded-xl"
+              nativeButton={false}
+              render={<Link href={`${base}/agents/${router._id}`} />}
+            >
+              <SlidersIcon /> Configure
+            </Button>
+          </div>
+        </div>
+
+        {/* Decoration, and heavy: it only mounts where there is room for it.
+            min-h rather than stretching to the text column: the bubbles are
+            placed against the robot, so the zone has to be the same height
+            whatever the paragraph beside it wraps to. */}
+        <div className="relative hidden min-h-64 w-105 shrink-0 xl:block">
+          {/* bottom-0, not below it: the card clips its overflow, and a robot
+              hanging past the edge loses its feet. */}
+          <Image
+            src="/images/front-desk-agent.png"
+            alt=""
+            width={1396}
+            height={1127}
+            priority
+            className="pointer-events-none absolute right-0 bottom-0 w-75 select-none"
+          />
+          {/* Both bubbles sit above the head. The greeting used to print here
+              and was clipped mid-sentence by the clamp, which reads as a bug
+              rather than as a speech bubble — it is the front desk's own
+              screen that shows the real one. */}
+          <div className="absolute top-6 left-8 max-w-40 rounded-2xl bg-card px-3.5 py-2.5 text-xs leading-snug shadow-lg ring-1 ring-foreground/5">
+            Hi! 👋 How can I help you?
+          </div>
+          <div className="absolute top-5 right-0 max-w-36 rounded-2xl bg-card px-3.5 py-2.5 text-xs leading-snug font-medium shadow-lg ring-1 ring-foreground/5">
+            From questions to purchases.
+          </div>
+          <span className="absolute right-3 bottom-10 flex size-10 items-center justify-center rounded-full bg-card text-primary shadow-lg ring-1 ring-foreground/5">
+            <ShoppingCartSimpleIcon className="size-5" />
           </span>
-          <span className="truncate">{router.botName}</span>
-          <Badge variant="secondary">Front desk</Badge>
-          {/* Beside the name rather than pushed out with ml-auto: this card is
-              full width, so on a wide screen that stranded the status badge a
-              screenful away from the agent it describes. */}
-          <Badge variant={router.status === "active" ? "default" : "secondary"}>
-            {router.status}
-          </Badge>
-        </CardTitle>
-        <CardDescription className="max-w-prose">
-          Answers first on every channel, works out what the customer needs, then
-          hands the conversation to one of your{" "}
-          {specialistCount === 1 ? "agent" : `${specialistCount} agents`}. Your
-          agents can hand it on to each other from there.
-        </CardDescription>
-        {/* CardAction flips CardHeader to grid-cols-[1fr_auto] and pins the
-            buttons top-right across both rows. Below sm the two columns would
-            leave the description a sliver, so they drop to a row of their
-            own. */}
-        <CardAction className="flex flex-wrap gap-1 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-start">
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One agent
+// ---------------------------------------------------------------------------
+
+function AgentMenu({ agent, base }: { agent: Agent; base: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={`Actions for ${agent.botName}`}
+            className="-mr-1 shrink-0 text-muted-foreground"
+          />
+        }
+      >
+        <DotsThreeVerticalIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem render={<Link href={`${base}/agents/${agent._id}`} />}>
+          <SlidersIcon /> Configure
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          render={<Link href={`${base}/agents/${agent._id}/test`} />}
+        >
+          <ChatsIcon /> Test
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link href={`${base}/agent-config`} />}>
+          <ArrowsSplitIcon /> Show in map
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ToolChips({ tools }: { tools: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {/* Capped: an agent with six tools would otherwise make its card twice
+          the height of its neighbours in the grid. */}
+      {tools.slice(0, 3).map((key) => (
+        <Badge key={key} variant="secondary" className="font-normal">
+          {TOOL_LABELS.get(key as never) ?? key}
+        </Badge>
+      ))}
+      {tools.length > 3 ? (
+        <Badge variant="ghost" className="text-muted-foreground">
+          +{tools.length - 3} more
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function summaryOf(agent: Agent): string {
+  return (
+    agent.objective?.trim() ||
+    agent.jobDescription?.trim() ||
+    agent.routingDescription?.trim() ||
+    "No description yet."
+  );
+}
+
+function AgentCard({
+  agent,
+  stats,
+  base,
+}: {
+  agent: Agent;
+  stats: AgentStats | undefined;
+  base: string;
+}) {
+  return (
+    <Card className="flex shrink-0 flex-col rounded-2xl transition-shadow hover:shadow-md">
+      <CardHeader className="flex items-start gap-3">
+        <AgentAvatar name={agent.botName} gender={agent.gender} size={56} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-heading text-base font-semibold">
+              {agent.botName}
+            </span>
+            <StatusPill status={agent.status} className="ml-auto" />
+            <AgentMenu agent={agent} base={base} />
+          </div>
+          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+            {agent.role}
+          </p>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
+        <p className="line-clamp-2 text-sm text-muted-foreground">
+          {agent.acceptsHandoff === false ? (
+            <span className="italic">
+              Out of routing — only reachable by pointing a channel straight at
+              it.
+            </span>
+          ) : (
+            summaryOf(agent)
+          )}
+        </p>
+
+        <ToolChips tools={agent.builtinTools} />
+
+        <div className="mt-auto grid grid-cols-3 gap-2 border-t pt-3">
+          <StatFigure
+            icon={ChatsIcon}
+            value={count(stats?.conversations)}
+            label="Conversations"
+          />
+          <StatFigure
+            icon={CrosshairSimpleIcon}
+            value={percent(stats?.resolutionRate)}
+            label="Resolution rate"
+          />
+          <StatFigure
+            icon={ClockIcon}
+            value={duration(stats?.avgLatencyMs)}
+            label="Avg. response"
+          />
+        </div>
+
+        <div className="flex gap-2">
           <Button
             size="lg"
             variant="outline"
+            className="flex-1"
             nativeButton={false}
-            render={<Link href={`${base}/agents/${router._id}/test`} />}
+            render={<Link href={`${base}/agents/${agent._id}/test`} />}
           >
-            <ChatsIcon /> Test routing
+            <ChatsIcon /> Test
           </Button>
           <Button
             size="lg"
-            variant="outline"
+            className="flex-1"
             nativeButton={false}
-            render={<Link href={`${base}/agents/${router._id}`} />}
+            render={<Link href={`${base}/agents/${agent._id}`} />}
           >
             <SlidersIcon /> Configure
           </Button>
-        </CardAction>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AgentRow({
+  agent,
+  stats,
+  base,
+}: {
+  agent: Agent;
+  stats: AgentStats | undefined;
+  base: string;
+}) {
+  return (
+    <Card className="shrink-0 rounded-2xl transition-shadow hover:shadow-md">
+      <CardHeader className="flex items-center gap-3">
+        <AgentAvatar name={agent.botName} gender={agent.gender} size={44} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-heading text-sm font-semibold">
+              {agent.botName}
+            </span>
+            <StatusPill status={agent.status} />
+          </div>
+          <p className="truncate text-xs text-muted-foreground">
+            {agent.role} · {summaryOf(agent)}
+          </p>
+        </div>
+
+        <div className="hidden shrink-0 items-center gap-6 xl:flex">
+          <StatFigure
+            icon={ChatsIcon}
+            value={count(stats?.conversations)}
+            label="Conversations"
+          />
+          <StatFigure
+            icon={CrosshairSimpleIcon}
+            value={percent(stats?.resolutionRate)}
+            label="Resolution rate"
+          />
+          <StatFigure
+            icon={ClockIcon}
+            value={duration(stats?.avgLatencyMs)}
+            label="Avg. response"
+          />
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            size="lg"
+            variant="outline"
+            className="max-sm:hidden"
+            nativeButton={false}
+            render={<Link href={`${base}/agents/${agent._id}/test`} />}
+          >
+            <ChatsIcon /> Test
+          </Button>
+          <Button
+            size="lg"
+            nativeButton={false}
+            render={<Link href={`${base}/agents/${agent._id}`} />}
+          >
+            <SlidersIcon /> Configure
+          </Button>
+          <AgentMenu agent={agent} base={base} />
+        </div>
       </CardHeader>
     </Card>
   );
 }
 
+// ---------------------------------------------------------------------------
+// The follow-up desk
+// ---------------------------------------------------------------------------
+
+function FollowUpDeskCard({
+  desk,
+  leads,
+  base,
+}: {
+  desk: Agent;
+  leads: { today: number; open: number; conversionRate: number | null } | null;
+  base: string;
+}) {
+  return (
+    <Card className="shrink-0 rounded-2xl">
+      <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+          <FunnelIcon className="size-5" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="truncate font-heading text-base font-semibold">
+              {desk.name}
+            </span>
+            <Badge variant="secondary">Lead pipeline</Badge>
+          </div>
+          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+            Reads a conversation an hour after it goes quiet, files it at a lead
+            stage and sends one nudge if it is worth sending. It never takes a
+            live turn, so it is not in the front desk&apos;s roster and cannot be
+            transferred to.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-6 lg:gap-8">
+          <div>
+            <div className="font-heading text-lg leading-none font-semibold">
+              {count(leads?.today)}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">Leads today</div>
+          </div>
+          <div>
+            <div className="font-heading text-lg leading-none font-semibold">
+              {count(leads?.open)}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">Open leads</div>
+          </div>
+          <div>
+            <div className="font-heading text-lg leading-none font-semibold">
+              {percent(leads?.conversionRate)}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Conversion rate
+            </div>
+          </div>
+        </div>
+
+        <Button
+          size="lg"
+          variant="outline"
+          className="shrink-0"
+          nativeButton={false}
+          render={<Link href={`${base}/agents/${desk._id}`} />}
+        >
+          <SlidersIcon /> Configure
+        </Button>
+      </CardHeader>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The page
+// ---------------------------------------------------------------------------
+
 export default function AgentsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
+  // Convex queries must not read the wall clock, so `now` is an argument.
+  // Rounded to the hour, it keeps the query cache key stable.
+  const now = useHourBucket();
+
   const agents = useQuery(api.agents.listByWorkspace, {
     workspaceId: workspace._id,
   });
+  const roster = useQuery(api.agents.roster, {
+    workspaceId: workspace._id,
+    now,
+  });
   const ensureRouter = useMutation(api.agents.ensureDefaultRouter);
-  const [provisioning, setProvisioning] = useState(false);
 
-  const router = (agents ?? []).find((agent) => agent.kind === "router");
+  const [provisioning, setProvisioning] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("updated");
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const mac = useIsMac();
+
+  // The hint on the field has to be true, so ⌘K/Ctrl+K focuses it.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey))
+        return;
+      event.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const statsById = useMemo(() => {
+    const map = new Map<string, AgentStats>();
+    for (const row of roster?.byAgent ?? []) map.set(row.agentId, row);
+    return map;
+  }, [roster]);
+
+  const frontDesk = (agents ?? []).find((agent) => agent.kind === "router");
   const followUpDesk = (agents ?? []).find(
     (agent) => agent.kind === "follow_up"
   );
@@ -343,6 +871,32 @@ export default function AgentsPage() {
   const routable = specialists.filter(
     (agent) => agent.status === "active" && agent.acceptsHandoff !== false
   );
+
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const matched = needle
+      ? specialists.filter((agent) =>
+          [agent.botName, agent.name, agent.role, summaryOf(agent)]
+            .join(" ")
+            .toLowerCase()
+            .includes(needle)
+        )
+      : specialists;
+
+    return [...matched].sort((a, b) => {
+      if (sort === "name") return a.botName.localeCompare(b.botName);
+      if (sort === "conversations") {
+        return (
+          (statsById.get(b._id)?.conversations ?? 0) -
+          (statsById.get(a._id)?.conversations ?? 0)
+        );
+      }
+      return b.updatedAt - a.updatedAt;
+    });
+    // specialists is derived from `agents` on every render, so the query result
+    // is the honest dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents, search, sort, statsById]);
 
   const provision = async () => {
     setProvisioning(true);
@@ -373,20 +927,37 @@ export default function AgentsPage() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      {/* ------------------------------------------------------------ header */}
+      <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">
+          <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
             Agents
           </h1>
-          {/* The second sentence described the routing the diagram below now
-              draws, so it has gone. */}
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Persona, tone, knowledge scope and tools.
+            Build AI teammates that understand your business and work on your
+            channels.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-64">
+            <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchRef}
+              value={search}
+              placeholder="Search agents…"
+              aria-label="Search agents"
+              className="h-9 rounded-xl pr-16 pl-8"
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <KbdGroup className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2">
+              <Kbd>{mac ? "⌘" : "Ctrl"}</Kbd>
+              <Kbd>K</Kbd>
+            </KbdGroup>
+          </div>
           {/* The other way of doing this page, for comparison. */}
           <Button
+            size="lg"
             variant="outline"
             nativeButton={false}
             render={<Link href={`${base}/agent-config`} />}
@@ -397,12 +968,15 @@ export default function AgentsPage() {
         </div>
       </header>
 
-      <Separator />
-
-      {router ? (
-        <FrontDeskCard
-          router={router}
-          specialistCount={routable.length}
+      {/* -------------------------------------------------------- front desk */}
+      {frontDesk ? (
+        <FrontDeskHero
+          router={frontDesk}
+          workspaceName={workspace.name}
+          agentCount={specialists.length}
+          routableCount={routable.length}
+          conversations={roster?.totals.conversations ?? null}
+          resolutionRate={roster?.totals.resolutionRate ?? null}
           base={base}
         />
       ) : specialists.length > 0 ? (
@@ -425,7 +999,7 @@ export default function AgentsPage() {
         </Alert>
       ) : null}
 
-      {router && routable.length === 0 && specialists.length > 0 ? (
+      {frontDesk && routable.length === 0 && specialists.length > 0 ? (
         <Alert>
           <WarningIcon />
           <AlertTitle>Nothing to route to</AlertTitle>
@@ -437,6 +1011,7 @@ export default function AgentsPage() {
         </Alert>
       ) : null}
 
+      {/* ------------------------------------------------------- the roster */}
       {agents === undefined ? (
         <CardGridSkeleton count={3} />
       ) : specialists.length === 0 ? (
@@ -456,130 +1031,100 @@ export default function AgentsPage() {
           </EmptyContent>
         </Empty>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {specialists.map((agent) => (
-            <Card key={agent._id} className="flex flex-col">
-              <CardHeader>
-                <CardTitle className="flex min-w-0 items-center gap-2">
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    <RobotIcon className="size-4" />
-                  </span>
-                  <span className="truncate">{agent.botName}</span>
-                  <Badge
-                    variant={agent.status === "active" ? "default" : "secondary"}
-                    className="ml-auto shrink-0"
-                  >
-                    {agent.status}
-                  </Badge>
-                </CardTitle>
-                <CardDescription className="line-clamp-1">
-                  {agent.role}
-                </CardDescription>
-              </CardHeader>
+        <>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-base font-semibold">
+                Your agents
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Each agent has a specific role, personality and set of tools.
+              </p>
+            </div>
 
-              <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
-                <p className="line-clamp-2 text-xs text-muted-foreground">
-                  {agent.acceptsHandoff === false ? (
-                    <span className="italic">
-                      Out of routing — only reachable by pointing a channel
-                      straight at it.
-                    </span>
-                  ) : agent.routingDescription?.trim() ? (
-                    <>
-                      <span className="font-medium text-foreground">
-                        Handed over when:{" "}
-                      </span>
-                      {agent.routingDescription}
-                    </>
-                  ) : (
-                    <span className="italic">
-                      No handover rule yet — the front desk has only the role
-                      above to go on.
-                    </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Sort</span>
+              <SelectField
+                value={sort}
+                onValueChange={setSort}
+                options={SORTS}
+                aria-label="Sort agents"
+                className="w-40"
+              />
+              <div className="flex items-center gap-0.5 rounded-lg border p-0.5">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Grid view"
+                  aria-pressed={view === "grid"}
+                  className={cn(
+                    view === "grid" && "bg-primary/10 text-primary"
                   )}
-                </p>
+                  onClick={() => setView("grid")}
+                >
+                  <SquaresFourIcon />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="List view"
+                  aria-pressed={view === "list"}
+                  className={cn(
+                    view === "list" && "bg-primary/10 text-primary"
+                  )}
+                  onClick={() => setView("list")}
+                >
+                  <ListIcon />
+                </Button>
+              </div>
+            </div>
+          </div>
 
-                <div className="flex flex-wrap gap-1">
-                  {/* Capped: an agent with six tools would otherwise make its
-                      card twice the height of its neighbours in the grid. */}
-                  {agent.builtinTools.slice(0, 3).map((toolKey) => (
-                    <Badge
-                      key={toolKey}
-                      variant="secondary"
-                      className="font-mono"
-                    >
-                      {toolKey}
-                    </Badge>
-                  ))}
-                  {agent.builtinTools.length > 3 ? (
-                    <Badge variant="ghost" className="text-muted-foreground">
-                      +{agent.builtinTools.length - 3} more
-                    </Badge>
-                  ) : null}
-                </div>
-
-                <div className="mt-auto flex gap-1 pt-1">
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="flex-1"
-                    nativeButton={false}
-                    render={<Link href={`${base}/agents/${agent._id}/test`} />}
-                  >
-                    <ChatsIcon /> Test
-                  </Button>
-                  <Button
-                    size="lg"
-                    className="flex-1"
-                    nativeButton={false}
-                    render={<Link href={`${base}/agents/${agent._id}`} />}
-                  >
-                    <SlidersIcon /> Configure
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+          {visible.length === 0 ? (
+            <Empty className="border border-dashed">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <MagnifyingGlassIcon />
+                </EmptyMedia>
+                <EmptyTitle>No agent matches “{search}”</EmptyTitle>
+                <EmptyDescription>
+                  Search runs over the name, role and description.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : view === "grid" ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {visible.map((agent) => (
+                <AgentCard
+                  key={agent._id}
+                  agent={agent}
+                  stats={statsById.get(agent._id)}
+                  base={base}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {visible.map((agent) => (
+                <AgentRow
+                  key={agent._id}
+                  agent={agent}
+                  stats={statsById.get(agent._id)}
+                  base={base}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
-      {followUpDesk ? (
-        <Card className="shrink-0 bg-muted/40">
-          <CardHeader>
-            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <FunnelIcon className="size-4" />
-              </span>
-              <span className="truncate">{followUpDesk.name}</span>
-              <Badge variant="secondary">Lead pipeline</Badge>
-            </CardTitle>
-            <CardDescription className="max-w-prose">
-              Reads a conversation an hour after it goes quiet, files it at a
-              lead stage and sends one nudge if it is worth sending. It never
-              takes a live turn, so it is not in the front desk&apos;s roster
-              and cannot be transferred to.
-            </CardDescription>
-            <CardAction className="flex flex-wrap gap-1 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-start">
-              <Button
-                size="lg"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href={`${base}/leads`} />}
-              >
-                <FunnelIcon /> Leads
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href={`${base}/agents/${followUpDesk._id}`} />}
-              >
-                <SlidersIcon /> Configure
-              </Button>
-            </CardAction>
-          </CardHeader>
-        </Card>
-      ) : null}
 
+      {followUpDesk ? (
+        <FollowUpDeskCard
+          desk={followUpDesk}
+          leads={roster?.leads ?? null}
+          base={base}
+        />
+      ) : null}
     </div>
   );
 }
