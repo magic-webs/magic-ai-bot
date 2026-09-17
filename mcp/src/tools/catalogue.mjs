@@ -64,7 +64,12 @@ export function register(server) {
       ),
     exampleSpec: z.string().optional(),
     notes: z.string().optional().describe("Internal — never shown to customers"),
-    tags: z.array(z.string()).optional(),
+    tags: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Products and services share this catalogue; tag a service 'service' so the dashboard counts it as one."
+      ),
   };
 
   const toImages = (imageUrls) =>
@@ -108,13 +113,19 @@ export function register(server) {
     {
       title: "Update product",
       description:
-        "Change a product. Omitted fields are left alone; arrays replace the whole list.",
+        "Change a product. Omitted fields are left alone; arrays replace the whole list. Omitting price therefore keeps the price it has — use clearPrice to take it off.",
       inputSchema: {
         ...workspaceArg,
         product: z.string().describe("Product name, SKU, slug or id"),
         name: z.string().optional(),
         currency: z.string().optional(),
         status: z.enum(["active", "archived"]).optional(),
+        clearPrice: z
+          .boolean()
+          .optional()
+          .describe(
+            "Remove the price, so agents stop quoting it and take the enquiry instead. There is no value of price that means 'none', which is why this is its own flag."
+          ),
         ...productFields,
       },
     },
