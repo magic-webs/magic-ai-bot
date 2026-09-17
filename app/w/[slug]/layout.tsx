@@ -54,6 +54,7 @@ import {
   Package01Icon,
   ReceiptIcon,
   Robot01Icon,
+  Rocket01Icon,
   Settings01Icon,
   ToolboxIcon,
   UserMultipleIcon,
@@ -73,6 +74,9 @@ const NAV: Array<{
   items?: Array<{ href: string; label: string; icon: IconSvgElement }>;
 }> = [
   { label: "Dashboard", icon: DashboardSpeed02Icon, href: "" },
+  // Above Build rather than beside Settings: it is the thing a new workspace
+  // does first, and it covers what the Build section holds one page at a time.
+  { label: "Setup", icon: Rocket01Icon, href: "/onboarding" },
   {
     // A section's own icon is never one of its children's: with the section
     // open the two sit a row apart, and the same glyph twice reads as a

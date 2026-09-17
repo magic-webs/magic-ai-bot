@@ -250,16 +250,30 @@ export const update = mutation({
     ...productInput,
     name: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
+    /**
+     * Takes the price off the product.
+     *
+     * An omitted argument means "leave this field alone", which is what makes
+     * a partial update safe — but it also means there is no value of `price`
+     * that means "no price", and "stop quoting this, it is bespoke now" is an
+     * edit a company genuinely makes. Hence an explicit flag rather than
+     * overloading the number.
+     */
+    clearPrice: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireProduct(ctx, args.productId);
-    const { productId, ...rest } = args;
+    const { productId, clearPrice, ...rest } = args;
     const existing = await ctx.db.get("products", productId);
     if (!existing) throw new Error("Product not found");
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {
       if (value !== undefined) patch[key] = value;
+    }
+    if (clearPrice) {
+      patch.price = undefined;
+      patch.currency = undefined;
     }
 
     if (args.images !== undefined) {

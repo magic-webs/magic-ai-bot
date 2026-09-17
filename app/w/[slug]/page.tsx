@@ -6,6 +6,8 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/components/workspace-provider";
+import { useProgress } from "@/components/onboarding/use-progress";
+import { ProgressBar } from "@/components/onboarding/shell";
 import { SelectField } from "@/components/select-field";
 import { useHourBucket } from "@/components/use-now";
 import {
@@ -34,15 +36,12 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import {
-  BooksIcon,
   CaretRightIcon,
   ChatsIcon,
   CheckCircleIcon,
   CircleIcon,
-  PackageIcon,
   RobotIcon,
   WarningIcon,
-  WhatsappLogoIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 
@@ -70,9 +69,6 @@ export default function WorkspaceOverviewPage() {
   // Rounded to the hour, it keeps the query cache key stable.
   const now = useHourBucket();
 
-  const summary = useQuery(api.workspaces.summary, {
-    workspaceId: workspace._id,
-  });
   const stats = useQuery(api.analytics.dashboard, {
     workspaceId: workspace._id,
     days: Number(range),
@@ -82,37 +78,14 @@ export default function WorkspaceOverviewPage() {
     workspaceId: workspace._id,
   });
 
-  const setupSteps = [
-    {
-      done: (summary?.agents ?? 0) > 0,
-      label: "Create an agent",
-      description: "Give it a name, a job and a tone of voice.",
-      href: `${base}/agents`,
-      icon: RobotIcon,
-    },
-    {
-      done: (summary?.knowledgeChunks ?? 0) > 0,
-      label: "Add knowledge",
-      description: "Paste policies, upload a PDF or point at a URL.",
-      href: `${base}/knowledge`,
-      icon: BooksIcon,
-    },
-    {
-      done: (summary?.products ?? 0) > 0,
-      label: "Load the catalogue",
-      description: "Products and the details to collect for each.",
-      href: `${base}/products`,
-      icon: PackageIcon,
-    },
-    {
-      done: (summary?.liveChannels ?? 0) > 0,
-      label: "Connect WhatsApp",
-      description: "Phone number ID and access token.",
-      href: `${base}/channels`,
-      icon: WhatsappLogoIcon,
-    },
-  ];
-  const remaining = setupSteps.filter((step) => !step.done).length;
+  /* The setup card below reads the same six steps the /onboarding flow does,
+     rather than the four booleans this page used to keep for itself. One
+     source means the dashboard can never disagree with the flow about how far
+     along a workspace is — and it can show a percentage, which four ticks
+     could not. WhatsApp is not in it: a live channel is how customers reach
+     the agents, not part of teaching the agents the business, and it has its
+     own page in the Inbox section. */
+  const { progress, loading: progressLoading } = useProgress();
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -150,8 +123,8 @@ export default function WorkspaceOverviewPage() {
           <WarningIcon />
           <AlertTitle>
             Agents answer better with a company description —{" "}
-            <Link href={`${base}/settings`} className="underline">
-              add one in Settings
+            <Link href={`${base}/onboarding/profile`} className="underline">
+              add one in step 1
             </Link>
           </AlertTitle>
         </Alert>
@@ -270,48 +243,63 @@ export default function WorkspaceOverviewPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Setup
-                  <Badge variant={remaining === 0 ? "secondary" : "outline"}>
-                    {setupSteps.length - remaining}/{setupSteps.length}
+                  <Badge
+                    variant={progress.complete ? "secondary" : "outline"}
+                  >
+                    {progressLoading ? "—" : `${progress.percent}%`}
                   </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-3">
+                <ProgressBar
+                  value={progressLoading ? 0 : progress.percent}
+                />
                 {/* Each step is one row and the row is the link. It used to be
                     a title, a sentence explaining it and a button beside it —
-                    three pieces of text per step, twelve for four steps, to
-                    say what a tick and a name say on their own. */}
+                    three pieces of text per step to say what a tick, a name
+                    and a number say on their own. */}
                 <ul className="flex flex-col">
-                  {setupSteps.map((step) => {
-                    const Icon = step.icon;
-                    return (
-                      <li key={step.label}>
-                        <Link
-                          href={step.href}
-                          className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/60"
-                        >
-                          {step.done ? (
-                            <CheckCircleIcon
-                              weight="fill"
-                              className="size-4.5 shrink-0 text-primary"
-                            />
-                          ) : (
-                            <CircleIcon className="size-4.5 shrink-0 text-muted-foreground/50" />
+                  {progress.steps.map((step) => (
+                    <li key={step.id}>
+                      <Link
+                        href={`${base}/onboarding/${step.id}`}
+                        className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/60"
+                      >
+                        {step.ready ? (
+                          <CheckCircleIcon
+                            weight="fill"
+                            className="size-4.5 shrink-0 text-primary"
+                          />
+                        ) : (
+                          <CircleIcon className="size-4.5 shrink-0 text-muted-foreground/50" />
+                        )}
+                        <span
+                          className={cn(
+                            "truncate text-sm",
+                            step.ready && "text-muted-foreground"
                           )}
-                          <Icon className="size-4 shrink-0 text-muted-foreground" />
-                          <span
-                            className={cn(
-                              "truncate text-sm",
-                              step.done && "text-muted-foreground"
-                            )}
-                          >
-                            {step.label}
-                          </span>
-                          <CaretRightIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-                        </Link>
-                      </li>
-                    );
-                  })}
+                        >
+                          {step.title}
+                        </span>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {progressLoading ? "" : `${step.percent}%`}
+                        </span>
+                        <CaretRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      </Link>
+                    </li>
+                  ))}
                 </ul>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  nativeButton={false}
+                  render={<Link href={`${base}/onboarding`} />}
+                >
+                  {progress.complete
+                    ? "Review the setup"
+                    : `Continue: ${progress.resume.title}`}
+                </Button>
               </CardContent>
             </Card>
 
