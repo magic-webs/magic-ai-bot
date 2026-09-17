@@ -627,6 +627,15 @@ export default defineSchema({
     // How the tool came to exist — useful for the "auto-created" flow
     origin: v.union(v.literal("manual"), v.literal("ai_drafted")),
     sourceTask: v.optional(v.string()), // the task description it was drafted from
+    /**
+     * The integration that created this tool, from lib/integrations.
+     *
+     * Connecting Google Calendar writes two tools; disconnecting has to take
+     * exactly those two away and leave a hand-written tool of the same name
+     * alone. A field rather than a naming convention, because the name is the
+     * model's handle and people rename them.
+     */
+    integration: v.optional(v.string()),
     callCount: v.number(),
     lastCalledAt: v.optional(v.number()),
     createdAt: v.number(),

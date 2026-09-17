@@ -47,6 +47,7 @@ import {
   ArrowRight01Icon,
   BubbleChatIcon,
   ChartUpIcon,
+  ConnectIcon,
   DashboardSpeed02Icon,
   FunnelIcon,
   InboxIcon,
@@ -109,6 +110,10 @@ const NAV: Array<{
       { href: "/orders", label: "Orders", icon: ReceiptIcon },
     ],
   },
+  // Between the work and the settings: connecting Sheets or a calendar is
+  // something you do once you have agents to give it to, and it is not a
+  // setting — it changes what the agents can do.
+  { label: "Integrations", icon: ConnectIcon, href: "/integrations" },
   { label: "Settings", icon: Settings01Icon, href: "/settings" },
 ];
 

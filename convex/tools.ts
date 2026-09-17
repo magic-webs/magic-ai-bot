@@ -98,6 +98,7 @@ export const create = mutation({
     ),
     origin: v.optional(v.union(v.literal("manual"), v.literal("ai_drafted"))),
     sourceTask: v.optional(v.string()),
+    integration: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
@@ -137,6 +138,7 @@ export const create = mutation({
       status: args.status ?? "draft",
       origin: args.origin ?? "manual",
       sourceTask: args.sourceTask,
+      integration: args.integration,
       callCount: 0,
       createdAt: now,
       updatedAt: now,
@@ -182,6 +184,33 @@ export const remove = mutation({
     await requireTool(ctx, args.toolId);
     await ctx.db.delete(args.toolId);
     return { success: true };
+  },
+});
+
+/**
+ * Disconnect an integration: delete every tool it created, and nothing else.
+ *
+ * Keyed on the `integration` field rather than on the tool names, so a tool
+ * somebody renamed still goes, and a hand-written tool that happens to share a
+ * name stays. Reconnecting is then a clean create rather than an upsert, which
+ * is why connecting calls this first.
+ */
+export const disconnectIntegration = mutation({
+  args: { workspaceId: v.id("workspaces"), integration: v.string() },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const tools = await ctx.db
+      .query("tools")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    let removed = 0;
+    for (const tool of tools) {
+      if (tool.integration !== args.integration) continue;
+      await ctx.db.delete(tool._id);
+      removed++;
+    }
+    return { removed };
   },
 });
 
