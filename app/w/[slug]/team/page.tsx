@@ -285,8 +285,12 @@ function PosterCard({
 function Rail({ children }: { children: React.ReactNode }) {
   // Vertical padding rather than none: the cards are tilted and lift on hover,
   // and an overflow container crops whatever leaves the box.
+  //
+  // `no-scrollbar` hides the bar, not the scrolling: a full-width rule under a
+  // row of poster cards read as a divider between the roster and the page, and
+  // the card cropped at the right edge already says the rail carries on.
   return (
-    <div className="-mx-1 flex snap-x snap-mandatory gap-5 overflow-x-auto px-1 py-3">
+    <div className="no-scrollbar -mx-1 flex snap-x snap-mandatory gap-5 overflow-x-auto px-1 py-3">
       {children}
     </div>
   );
@@ -602,11 +606,6 @@ export default function TeamPage() {
 
   const people = members ?? [];
   const bots = agents ?? [];
-  const humanMessages = people.reduce(
-    (sum, member) => sum + member.messageCount,
-    0
-  );
-
   const loading = agents === undefined || members === undefined;
   const empty = !loading && bots.length === 0 && people.length === 0;
 
@@ -682,94 +681,78 @@ export default function TeamPage() {
           </div>
         </Empty>
       ) : (
-        <>
-          {/* One rail, agents first. They answer first, and a roster split in
-              two is a roster the reader has to join back together to answer
-              the only question this page is asked: who answers for us. */}
-          <Rail>
-            {bots.map((agent, index) => (
-              <PosterCard
-                key={agent._id}
-                index={index}
-                eyebrow={
-                  agent.kind === "router"
-                    ? "Front desk"
-                    : agent.kind === "follow_up"
-                      ? "Follow-up desk"
-                      : "AI agent"
-                }
-                name={agent.botName}
-                description={agent.role}
-                art={
-                  <AgentAvatar
-                    name={agent.botName}
-                    gender={agent.gender}
-                    size={124}
-                  />
-                }
-                messages={statsById.get(agent._id)?.messages ?? 0}
-                status={agent.status === "active" ? "active" : "away"}
-                statusLabel={agent.status}
-                action={{
-                  label: "Configure",
-                  href: `${base}/agents/${agent._id}`,
-                }}
-              />
-            ))}
-
-            {/* The tones and tilts run off the index, so the people carry on
-                from where the agents stopped rather than restarting the
-                sequence half way along the rail. */}
-            {people.map((member, index) => (
-              <PosterCard
-                key={member._id}
-                index={bots.length + index}
-                eyebrow="Teammate"
-                name={member.name}
-                description={member.role || member.note || member.email || "Team"}
-                art={
-                  <TeamAvatar
-                    name={member.name}
-                    photo={member.photo}
-                    size={124}
-                  />
-                }
-                messages={member.messageCount}
-                status={member.status}
-                statusLabel={member.status}
-                menu={<MemberMenu member={member} />}
-              />
-            ))}
-
-            {/* The add tile lives at the end of the rail, so adding somebody is
-                where you are already looking. */}
-            <MemberDialog
-              trigger={
-                <button
-                  type="button"
-                  className="flex h-[26rem] w-72 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[28px] border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-                >
-                  <PlusIcon className="size-6" />
-                  <span className="text-sm font-medium">Add a teammate</span>
-                </button>
+        /* One rail, agents first. They answer first, and a roster split in two
+           is a roster the reader has to join back together to answer the only
+           question this page is asked: who answers for us. */
+        <Rail>
+          {bots.map((agent, index) => (
+            <PosterCard
+              key={agent._id}
+              index={index}
+              eyebrow={
+                agent.kind === "router"
+                  ? "Front desk"
+                  : agent.kind === "follow_up"
+                    ? "Follow-up desk"
+                    : "AI agent"
               }
+              name={agent.botName}
+              description={agent.role}
+              art={
+                <AgentAvatar
+                  name={agent.botName}
+                  gender={agent.gender}
+                  size={124}
+                />
+              }
+              messages={statsById.get(agent._id)?.messages ?? 0}
+              status={agent.status === "active" ? "active" : "away"}
+              statusLabel={agent.status}
+              action={{
+                label: "Configure",
+                href: `${base}/agents/${agent._id}`,
+              }}
             />
-          </Rail>
+          ))}
 
-          <p className="text-xs text-muted-foreground">
-            An agent&apos;s count is what it has said recently — the roster reads
-            the most recent messages only. {humanMessages} repl
-            {humanMessages === 1 ? "y" : "ies"} sent by hand; pick who you are
-            replying as in the{" "}
-            <Link
-              href={`${base}/conversations`}
-              className="underline underline-offset-4"
-            >
-              inbox
-            </Link>
-            .
-          </p>
-        </>
+          {/* The tones and tilts run off the index, so the people carry on
+              from where the agents stopped rather than restarting the
+              sequence half way along the rail. */}
+          {people.map((member, index) => (
+            <PosterCard
+              key={member._id}
+              index={bots.length + index}
+              eyebrow="Teammate"
+              name={member.name}
+              description={member.role || member.note || member.email || "Team"}
+              art={
+                <TeamAvatar
+                  name={member.name}
+                  photo={member.photo}
+                  size={124}
+                />
+              }
+              messages={member.messageCount}
+              status={member.status}
+              statusLabel={member.status}
+              menu={<MemberMenu member={member} />}
+            />
+          ))}
+
+          {/* The add tile lives at the end of the rail, so adding somebody is
+              where you are already looking. */}
+          <MemberDialog
+            trigger={
+              <button
+                type="button"
+                className="flex h-[26rem] w-72 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[28px] border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              >
+                <PlusIcon className="size-6" />
+                <span className="text-sm font-medium">Add a teammate</span>
+              </button>
+            }
+          />
+        </Rail>
       )}
     </div>
   );
