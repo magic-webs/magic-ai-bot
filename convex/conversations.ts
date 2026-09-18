@@ -264,9 +264,19 @@ export const recordManualReply = internalMutation({
     conversationId: v.id("conversations"),
     agentId: v.optional(v.id("agents")),
     text: v.string(),
+    teamMemberId: v.optional(v.id("teamMembers")),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+
+    // Checked rather than trusted: the id arrives from the client, and a
+    // reply must not be attributed to somebody in another workspace.
+    const member = args.teamMemberId
+      ? await ctx.db.get("teamMembers", args.teamMemberId)
+      : null;
+    const sender =
+      member && member.workspaceId === args.workspaceId ? member : null;
+
     await ctx.db.insert("messages", {
       workspaceId: args.workspaceId,
       conversationId: args.conversationId,
@@ -275,8 +285,16 @@ export const recordManualReply = internalMutation({
       text: args.text,
       agentId: args.agentId,
       sentByHuman: true,
+      teamMemberId: sender?._id,
       createdAt: now,
     });
+
+    if (sender) {
+      await ctx.db.patch(sender._id, {
+        messageCount: sender.messageCount + 1,
+        lastActiveAt: now,
+      });
+    }
 
     const conversation = await ctx.db.get("conversations", args.conversationId);
     if (conversation) {
@@ -320,6 +338,11 @@ export const sendManualReply = action({
   args: {
     conversationId: v.id("conversations"),
     text: v.string(),
+    /**
+     * Which colleague is sending it. A label on the message, not a
+     * permission — see the note at the top of convex/team.ts.
+     */
+    teamMemberId: v.optional(v.id("teamMembers")),
   },
   handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const body = args.text.trim().slice(0, WHATSAPP_TEXT_LIMIT);
@@ -362,6 +385,7 @@ export const sendManualReply = action({
       conversationId: args.conversationId,
       agentId: context.agentId,
       text: body,
+      teamMemberId: args.teamMemberId,
     });
 
     return { ok: true };

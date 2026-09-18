@@ -542,6 +542,13 @@ export default defineSchema({
      * the transcript can show a colleague's reply as a colleague's.
      */
     sentByHuman: v.optional(v.boolean()),
+    /**
+     * Which colleague wrote it, when `sentByHuman` and the workspace has a
+     * team on file. Optional on both counts: a workspace with nobody listed
+     * still replies by hand, and every message sent before the team existed
+     * has to keep validating.
+     */
+    teamMemberId: v.optional(v.id("teamMembers")),
     // Populated on kind === "tool" so the playground can show the tool trace
     toolName: v.optional(v.string()),
     toolInput: v.optional(v.string()), // JSON
@@ -654,6 +661,48 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_name", ["workspaceId", "name"])
     .index("by_agent", ["agentId"]),
+
+  // -------------------------------------------------------------------------
+  // The human side of the team.
+  //
+  // Not accounts and not authentication: a workspace signs in with one
+  // credential, and these are the people behind it — who they are, what they
+  // do, and which of them answered when a thread was picked up by hand. They
+  // exist so the roster reads as a team rather than as a list of bots, and so
+  // "sent by your team" can say which member of it.
+  // -------------------------------------------------------------------------
+  teamMembers: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    /** What they do, in their own words — "Sales lead", "Fitter". */
+    role: v.string(),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    /**
+     * Their photo. Uploaded to Convex storage, or a link to one that already
+     * exists — the same either-or the catalogue uses for product images, so a
+     * team can be filled in from an existing staff page without downloading
+     * anything first.
+     */
+    photoStorageId: v.optional(v.id("_storage")),
+    photoUrl: v.optional(v.string()),
+    /** Free text, for the card: "Covers weekends", "Escalate wiring here". */
+    note: v.optional(v.string()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("away"),
+      v.literal("inactive")
+    ),
+    /**
+     * Replies this person has sent, counted as they are sent rather than by
+     * scanning the message table — the same trade `tools.callCount` makes,
+     * and the reason the card can show a number without a second query.
+     */
+    messageCount: v.number(),
+    lastActiveAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
 
   // -------------------------------------------------------------------------
   // Integrations — one row per connected Google integration.

@@ -86,6 +86,9 @@ const NAV: Array<{
     icon: ToolboxIcon,
     items: [
       { href: "/agents", label: "Agents", icon: Robot01Icon },
+      // Next to Agents, because it is the same question asked of the other
+      // half of the roster: who answers for this business.
+      { href: "/team", label: "Team", icon: UserMultipleIcon },
       { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/knowledge", label: "Knowledge base", icon: LibraryIcon },
       { href: "/products", label: "Catalogue", icon: Package01Icon },

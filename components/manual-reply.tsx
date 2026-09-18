@@ -1,9 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useWorkspace } from "@/components/workspace-provider";
+import { SelectField } from "@/components/select-field";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
@@ -44,9 +46,22 @@ export function ManualReply({
   agentName: string;
 }) {
   const send = useAction(api.conversations.sendManualReply);
+  const workspace = useWorkspace();
+  // Who is on the team, so a reply can be signed. Absent or empty and the
+  // composer looks exactly as it did — nobody is made to fill in a roster
+  // before they can answer a customer.
+  const team = useQuery(api.team.activeForReply, {
+    workspaceId: workspace._id,
+  });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [sender, setSender] = useState<string>("");
+
+  const roster = team ?? [];
+  // Default to the first person on the list rather than to nobody, so the
+  // count on the Team page means something without anyone having to opt in.
+  const sendingAs = sender || roster[0]?._id || "";
 
   const submit = async () => {
     const body = text.trim();
@@ -54,7 +69,13 @@ export function ManualReply({
 
     setSending(true);
     try {
-      const result = await send({ conversationId, text: body });
+      const result = await send({
+        conversationId,
+        text: body,
+        teamMemberId: sendingAs
+          ? (sendingAs as Id<"teamMembers">)
+          : undefined,
+      });
       if (result.ok) {
         // Cleared only on success, so a rejected message is still there to
         // edit or copy rather than lost.
@@ -124,6 +145,26 @@ export function ManualReply({
           {sending ? <Spinner /> : <PaperPlaneRightIcon />}
         </Button>
       </div>
+
+      {/* Only once there is a team to choose from. A workspace that has not
+          filled in a roster replies exactly as it did before, and one that has
+          gets the reply signed without an extra step — the first name is
+          already selected. */}
+      {roster.length > 0 ? (
+        <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2">
+          <span className="text-xs text-muted-foreground">Replying as</span>
+          <SelectField
+            value={sendingAs}
+            onValueChange={setSender}
+            aria-label="Replying as"
+            className="h-7 w-48 text-xs"
+            options={roster.map((member) => ({
+              value: member._id,
+              label: `${member.name} · ${member.role}`,
+            }))}
+          />
+        </div>
+      ) : null}
 
       {/* Only before the first reply. Sending is what takes the thread over,
           so it has to be said beforehand — but once it is said, the header

@@ -39,6 +39,7 @@ import type * as orders from "../orders.js";
 import type * as products from "../products.js";
 import type * as push from "../push.js";
 import type * as speech from "../speech.js";
+import type * as team from "../team.js";
 import type * as tools from "../tools.js";
 import type * as usage from "../usage.js";
 import type * as webhooks from "../webhooks.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   products: typeof products;
   push: typeof push;
   speech: typeof speech;
+  team: typeof team;
   tools: typeof tools;
   usage: typeof usage;
   webhooks: typeof webhooks;

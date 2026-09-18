@@ -718,6 +718,7 @@ export const roster = query({
     type Tally = {
       conversations: number;
       resolved: number;
+      messages: number;
       latencyTotal: number;
       latencyCount: number;
     };
@@ -725,7 +726,13 @@ export const roster = query({
     const tally = (agentId: string): Tally => {
       let row = tallies.get(agentId);
       if (!row) {
-        row = { conversations: 0, resolved: 0, latencyTotal: 0, latencyCount: 0 };
+        row = {
+          conversations: 0,
+          resolved: 0,
+          messages: 0,
+          latencyTotal: 0,
+          latencyCount: 0,
+        };
         tallies.set(agentId, row);
       }
       return row;
@@ -745,8 +752,18 @@ export const roster = query({
     }
 
     for (const message of messages) {
-      if (!message.agentId || typeof message.latencyMs !== "number") continue;
+      if (!message.agentId) continue;
       const row = tally(message.agentId);
+      // What the agent actually said, so the count matches the bubbles in the
+      // transcript: not its tool calls, and not a colleague's typing.
+      if (
+        message.role === "assistant" &&
+        !message.sentByHuman &&
+        (message.kind === "text" || message.kind === "rich")
+      ) {
+        row.messages += 1;
+      }
+      if (typeof message.latencyMs !== "number") continue;
       row.latencyTotal += message.latencyMs;
       row.latencyCount += 1;
     }
@@ -757,6 +774,8 @@ export const roster = query({
     const byAgent = [...tallies.entries()].map(([agentId, row]) => ({
       agentId,
       conversations: row.conversations,
+      // Capped by AGENT_MESSAGE_SCAN_CAP, like the latency average above it.
+      messages: row.messages,
       resolutionRate: rate(row.resolved, row.conversations),
       avgLatencyMs: row.latencyCount
         ? Math.round(row.latencyTotal / row.latencyCount)
