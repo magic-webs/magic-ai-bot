@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -608,6 +607,9 @@ export default function TeamPage() {
     0
   );
 
+  const loading = agents === undefined || members === undefined;
+  const empty = !loading && bots.length === 0 && people.length === 0;
+
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -620,167 +622,155 @@ export default function TeamPage() {
             their own, and the people who step in.
           </p>
         </div>
+
+        {/* The composition, where the tabs used to say it. A roster of eleven
+            that is ten bots and one person is a different business from one
+            that is the other way round, and that is worth knowing before the
+            cards are read. */}
+        {loading ? null : (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">
+              <RobotIcon /> {bots.length} AI
+            </Badge>
+            <Badge variant="secondary">
+              <UsersThreeIcon /> {people.length}{" "}
+              {people.length === 1 ? "person" : "people"}
+            </Badge>
+            <MemberDialog
+              trigger={
+                <Button size="sm" variant="outline">
+                  <PlusIcon /> Add a teammate
+                </Button>
+              }
+            />
+          </div>
+        )}
       </header>
 
-      <Tabs defaultValue="agents">
-        <TabsList>
-          <TabsTrigger value="agents">
-            <RobotIcon /> AI agents
-            <Badge variant="secondary">{bots.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="people">
-            <UsersThreeIcon /> People
-            <Badge variant="secondary">{people.length}</Badge>
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ----------------------------------------------------- AI agents */}
-        <TabsContent value="agents" className="flex flex-col gap-3 pt-4">
-          {agents === undefined ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> Loading agents…
-            </div>
-          ) : bots.length === 0 ? (
-            <Empty className="border border-dashed">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <RobotIcon />
-                </EmptyMedia>
-                <EmptyTitle>No agents yet</EmptyTitle>
-                <EmptyDescription>
-                  Agents are built on the Agents page — describe the job and the
-                  model drafts the persona for you.
-                </EmptyDescription>
-              </EmptyHeader>
-              <Button
-                size="lg"
-                nativeButton={false}
-                render={<Link href={`${base}/agents`} />}
-              >
-                Go to Agents
-              </Button>
-            </Empty>
-          ) : (
-            <>
-              <Rail>
-                {bots.map((agent, index) => (
-                  <PosterCard
-                    key={agent._id}
-                    index={index}
-                    eyebrow={
-                      agent.kind === "router"
-                        ? "Front desk"
-                        : agent.kind === "follow_up"
-                          ? "Follow-up desk"
-                          : "AI agent"
-                    }
-                    name={agent.botName}
-                    description={agent.role}
-                    art={
-                      <AgentAvatar
-                        name={agent.botName}
-                        gender={agent.gender}
-                        size={124}
-                      />
-                    }
-                    messages={statsById.get(agent._id)?.messages ?? 0}
-                    status={agent.status === "active" ? "active" : "away"}
-                    statusLabel={agent.status}
-                    action={{
-                      label: "Configure",
-                      href: `${base}/agents/${agent._id}`,
-                    }}
-                  />
-                ))}
-              </Rail>
-              <p className="text-xs text-muted-foreground">
-                Message counts are what each agent has said recently, not for
-                all time — the roster reads the most recent messages only.
-              </p>
-            </>
-          )}
-        </TabsContent>
-
-        {/* -------------------------------------------------------- people */}
-        <TabsContent value="people" className="flex flex-col gap-3 pt-4">
-          {members === undefined ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> Loading team…
-            </div>
-          ) : people.length === 0 ? (
-            <Empty className="border border-dashed">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <UsersThreeIcon />
-                </EmptyMedia>
-                <EmptyTitle>Nobody on the team yet</EmptyTitle>
-                <EmptyDescription>
-                  Add the people who pick up a thread when an agent hands it
-                  over. Their name signs the replies they send from the inbox.
-                </EmptyDescription>
-              </EmptyHeader>
-              <MemberDialog
-                trigger={
-                  <Button size="lg">
-                    <PlusIcon /> Add a teammate
-                  </Button>
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner /> Loading the team…
+        </div>
+      ) : empty ? (
+        <Empty className="border border-dashed">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <UsersThreeIcon />
+            </EmptyMedia>
+            <EmptyTitle>Nobody here yet</EmptyTitle>
+            <EmptyDescription>
+              Build an agent — describe the job and the model drafts the persona
+              for you — and add the people who pick a thread up when it hands
+              one over.
+            </EmptyDescription>
+          </EmptyHeader>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button
+              size="lg"
+              nativeButton={false}
+              render={<Link href={`${base}/agents`} />}
+            >
+              Go to Agents
+            </Button>
+            <MemberDialog
+              trigger={
+                <Button size="lg" variant="outline">
+                  <PlusIcon /> Add a teammate
+                </Button>
+              }
+            />
+          </div>
+        </Empty>
+      ) : (
+        <>
+          {/* One rail, agents first. They answer first, and a roster split in
+              two is a roster the reader has to join back together to answer
+              the only question this page is asked: who answers for us. */}
+          <Rail>
+            {bots.map((agent, index) => (
+              <PosterCard
+                key={agent._id}
+                index={index}
+                eyebrow={
+                  agent.kind === "router"
+                    ? "Front desk"
+                    : agent.kind === "follow_up"
+                      ? "Follow-up desk"
+                      : "AI agent"
                 }
-              />
-            </Empty>
-          ) : (
-            <>
-              <Rail>
-                {people.map((member, index) => (
-                  <PosterCard
-                    key={member._id}
-                    index={index}
-                    eyebrow={member.role || "Team"}
-                    name={member.name}
-                    description={member.note || member.email || member.role}
-                    art={
-                      <TeamAvatar
-                        name={member.name}
-                        photo={member.photo}
-                        size={124}
-                      />
-                    }
-                    messages={member.messageCount}
-                    status={member.status}
-                    statusLabel={member.status}
-                    menu={<MemberMenu member={member} />}
+                name={agent.botName}
+                description={agent.role}
+                art={
+                  <AgentAvatar
+                    name={agent.botName}
+                    gender={agent.gender}
+                    size={124}
                   />
-                ))}
+                }
+                messages={statsById.get(agent._id)?.messages ?? 0}
+                status={agent.status === "active" ? "active" : "away"}
+                statusLabel={agent.status}
+                action={{
+                  label: "Configure",
+                  href: `${base}/agents/${agent._id}`,
+                }}
+              />
+            ))}
 
-                {/* The add tile lives at the end of the rail, so adding
-                    somebody is where you are already looking. */}
-                <MemberDialog
-                  trigger={
-                    <button
-                      type="button"
-                      className="flex h-[26rem] w-72 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[28px] border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-                    >
-                      <PlusIcon className="size-6" />
-                      <span className="text-sm font-medium">Add a teammate</span>
-                    </button>
-                  }
-                />
-              </Rail>
+            {/* The tones and tilts run off the index, so the people carry on
+                from where the agents stopped rather than restarting the
+                sequence half way along the rail. */}
+            {people.map((member, index) => (
+              <PosterCard
+                key={member._id}
+                index={bots.length + index}
+                eyebrow="Teammate"
+                name={member.name}
+                description={member.role || member.note || member.email || "Team"}
+                art={
+                  <TeamAvatar
+                    name={member.name}
+                    photo={member.photo}
+                    size={124}
+                  />
+                }
+                messages={member.messageCount}
+                status={member.status}
+                statusLabel={member.status}
+                menu={<MemberMenu member={member} />}
+              />
+            ))}
 
-              <p className="text-xs text-muted-foreground">
-                {humanMessages} repl{humanMessages === 1 ? "y" : "ies"} sent by
-                hand. Pick who you are replying as in the{" "}
-                <Link
-                  href={`${base}/conversations`}
-                  className="underline underline-offset-4"
+            {/* The add tile lives at the end of the rail, so adding somebody is
+                where you are already looking. */}
+            <MemberDialog
+              trigger={
+                <button
+                  type="button"
+                  className="flex h-[26rem] w-72 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[28px] border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
                 >
-                  inbox
-                </Link>
-                .
-              </p>
-            </>
-          )}
-        </TabsContent>
-      </Tabs>
+                  <PlusIcon className="size-6" />
+                  <span className="text-sm font-medium">Add a teammate</span>
+                </button>
+              }
+            />
+          </Rail>
+
+          <p className="text-xs text-muted-foreground">
+            An agent&apos;s count is what it has said recently — the roster reads
+            the most recent messages only. {humanMessages} repl
+            {humanMessages === 1 ? "y" : "ies"} sent by hand; pick who you are
+            replying as in the{" "}
+            <Link
+              href={`${base}/conversations`}
+              className="underline underline-offset-4"
+            >
+              inbox
+            </Link>
+            .
+          </p>
+        </>
+      )}
     </div>
   );
 }

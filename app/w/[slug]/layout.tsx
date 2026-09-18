@@ -58,6 +58,7 @@ import {
   Rocket01Icon,
   Settings01Icon,
   ToolboxIcon,
+  UserGroupIcon,
   UserMultipleIcon,
   WhatsappIcon,
   WorkflowSquare01Icon,
@@ -78,6 +79,10 @@ const NAV: Array<{
   // Above Build rather than beside Settings: it is the thing a new workspace
   // does first, and it covers what the Build section holds one page at a time.
   { label: "Setup", icon: Rocket01Icon, href: "/onboarding" },
+  // A row of its own rather than a child of Build: it is the whole roster,
+  // agents and people on one page, and "who answers for us" is a question you
+  // should not have to open a section to ask. Build keeps the agent editors.
+  { label: "Team", icon: UserGroupIcon, href: "/team" },
   {
     // A section's own icon is never one of its children's: with the section
     // open the two sit a row apart, and the same glyph twice reads as a
@@ -86,9 +91,6 @@ const NAV: Array<{
     icon: ToolboxIcon,
     items: [
       { href: "/agents", label: "Agents", icon: Robot01Icon },
-      // Next to Agents, because it is the same question asked of the other
-      // half of the roster: who answers for this business.
-      { href: "/team", label: "Team", icon: UserMultipleIcon },
       { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/knowledge", label: "Knowledge base", icon: LibraryIcon },
       { href: "/products", label: "Catalogue", icon: Package01Icon },
