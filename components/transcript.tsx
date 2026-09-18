@@ -8,10 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { AgentAvatar, type AgentGender } from "@/components/agent-avatar";
 import {
   Message,
+  MessageAvatar,
   MessageContent,
   MessageFooter,
+  MessageHeader,
 } from "@/components/ui/message";
 import {
   MessageScroller,
@@ -153,6 +156,12 @@ function NoteMarker({ message }: { message: Doc<"messages"> }) {
 // reader so both render bubbles, tool traces and errors identically.
 // ---------------------------------------------------------------------------
 
+export type TranscriptAgent = {
+  _id: string;
+  botName: string;
+  gender?: AgentGender | null;
+};
+
 export function TranscriptView({
   messages,
   showTools = true,
@@ -160,6 +169,8 @@ export function TranscriptView({
   trailing,
   emptyState,
   contentClassName,
+  perspective = "customer",
+  agents,
 }: {
   /** `undefined` while the query is in flight. */
   messages: Doc<"messages">[] | undefined;
@@ -170,10 +181,59 @@ export function TranscriptView({
   trailing?: React.ReactNode;
   emptyState?: React.ReactNode;
   contentClassName?: string;
+  /**
+   * Which side of the conversation the reader is on, which decides who gets
+   * the tinted bubbles on the right.
+   *
+   * The playground is `"customer"`: you type as the customer, so your messages
+   * are the outgoing ones and the agent answers from the left. The inbox is
+   * `"team"` — you are the business, the reply box at the bottom posts as the
+   * business, and an inbox that puts the customer on the right reads as though
+   * somebody else were running the account.
+   */
+  perspective?: "customer" | "team";
+  /**
+   * The workspace's agents, so a reply can carry the face and name of
+   * whichever one wrote it. Omit and the bubbles are unattributed.
+   */
+  agents?: TranscriptAgent[];
 }) {
   const visible = (messages ?? []).filter((message) =>
     message.kind === "tool" ? showTools : true
   );
+
+  const agentById = new Map((agents ?? []).map((agent) => [agent._id, agent]));
+  const teamOnRight = perspective === "team";
+
+  /**
+   * Who to credit each bubble to, and whether to say so out loud.
+   *
+   * The group-chat rule: the face and the name go on the first message of a
+   * run and are left off the rest, so a handoff mid-thread reads as a change
+   * of face rather than as a name repeated down every line. Computed over the
+   * bubbles alone — a tool trace between two of Ziya's replies does not make
+   * the second one a new speaker.
+   */
+  const senderKeys = new Map<string, { key: string; first: boolean }>();
+  let previousKey: string | null = null;
+  for (const message of visible) {
+    if (
+      message.kind === "tool" ||
+      message.kind === "handoff" ||
+      message.kind === "note" ||
+      message.kind === "error"
+    ) {
+      continue;
+    }
+    const key =
+      message.role === "user"
+        ? "customer"
+        : message.sentByHuman
+          ? "team"
+          : (message.agentId ?? "agent");
+    senderKeys.set(message._id, { key, first: key !== previousKey });
+    previousKey = key;
+  }
 
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
@@ -213,9 +273,21 @@ export function TranscriptView({
                   <MessageScrollerItem
                     key={message._id}
                     messageId={message._id}
-                    className="mx-auto w-full"
+                    // A tool call is part of the agent's turn, so it sits on
+                    // the agent's side — which moves with the perspective.
+                    // Left-aligned everywhere, it ends up opposite the reply
+                    // it belongs to the moment the agent is on the right.
+                    className={cn(
+                      "flex w-full",
+                      teamOnRight ? "justify-end" : "justify-start"
+                    )}
                   >
-                    <ToolTrace message={message} />
+                    {/* Sized to its content, capped like a bubble: collapsed
+                        it is the width of the name, expanded it grows to fit
+                        the payload without running the width of the thread. */}
+                    <div className="min-w-0 max-w-[80%]">
+                      <ToolTrace message={message} />
+                    </div>
                   </MessageScrollerItem>
                 );
               }
@@ -250,7 +322,11 @@ export function TranscriptView({
                     key={message._id}
                     messageId={message._id}
                   >
-                    <Bubble variant="destructive" align="start">
+                    {/* Also the agent's, so it follows the agent's side. */}
+                    <Bubble
+                      variant="destructive"
+                      align={teamOnRight ? "end" : "start"}
+                    >
                       <BubbleContent className="font-mono text-xs">
                         {message.text}
                       </BubbleContent>
@@ -259,7 +335,21 @@ export function TranscriptView({
                 );
               }
 
-              const isUser = message.role === "user";
+              const isCustomer = message.role === "user";
+              // Whose messages sit on the right in the tinted bubble: the
+              // reader's own side.
+              const mine = teamOnRight ? !isCustomer : isCustomer;
+
+              const sender = senderKeys.get(message._id);
+              const agent = message.agentId
+                ? agentById.get(message.agentId)
+                : undefined;
+              // Only the business side is ever more than one person — several
+              // agents, plus whoever on the team picked the thread up — so it
+              // is the only side that needs naming.
+              const attributed =
+                !isCustomer && (Boolean(agent) || Boolean(message.sentByHuman));
+
               // What the customer was actually shown, rendered the same way
               // the chat renders it — a line of prose describing a menu is no
               // use to someone working out why a conversation went wrong.
@@ -268,9 +358,35 @@ export function TranscriptView({
               const rich = parseRichPayload(message.payload);
               return (
                 <MessageScrollerItem key={message._id} messageId={message._id}>
-                  <Message align={isUser ? "end" : "start"}>
+                  <Message align={mine ? "end" : "start"}>
+                    {attributed ? (
+                      sender?.first ? (
+                        <MessageAvatar className="bg-transparent">
+                          {message.sentByHuman || !agent ? (
+                            <span className="flex size-7 items-center justify-center rounded-full border bg-muted">
+                              <UserIcon className="size-3.5" />
+                            </span>
+                          ) : (
+                            <AgentAvatar
+                              name={agent.botName}
+                              gender={agent.gender}
+                              size={28}
+                            />
+                          )}
+                        </MessageAvatar>
+                      ) : (
+                        // Holds the gutter, so a run of replies stays in line
+                        // under the one carrying the face.
+                        <div className="w-8 shrink-0" aria-hidden />
+                      )
+                    ) : null}
                     <MessageContent>
-                      <Bubble variant={isUser ? "tinted" : "outline"}>
+                      {attributed && sender?.first ? (
+                        <MessageHeader>
+                          {message.sentByHuman ? "Your team" : agent?.botName}
+                        </MessageHeader>
+                      ) : null}
+                      <Bubble variant={mine ? "tinted" : "outline"}>
                         <BubbleContent
                           className={
                             rich ? "min-w-56" : "whitespace-pre-wrap"
@@ -284,12 +400,13 @@ export function TranscriptView({
                         </BubbleContent>
                       </Bubble>
                       <MessageFooter>
-                        {/* Who wrote it, when a person did. An unmarked
-                            outgoing message is the agent's, as before. */}
-                        {message.sentByHuman ? (
+                        {/* Only when the header above has not already said so:
+                            a run of team replies is named once, so the later
+                            ones still need marking as a person's. */}
+                        {message.sentByHuman && !sender?.first ? (
                           <span className="flex items-center gap-1">
                             <UserIcon className="size-3" />
-                            Sent by your team ·
+                            Your team ·
                           </span>
                         ) : null}
                         {timeOf(message.createdAt)}

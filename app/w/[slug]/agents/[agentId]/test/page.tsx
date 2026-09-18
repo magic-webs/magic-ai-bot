@@ -249,6 +249,7 @@ export default function AgentTestPage({
       <TranscriptView
         messages={messages}
         showTools={showTools}
+        agents={agent ? [agent] : undefined}
         leading={
           <>
             <TranscriptItem messageId="greeting">

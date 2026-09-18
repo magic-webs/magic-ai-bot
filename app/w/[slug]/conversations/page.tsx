@@ -100,6 +100,13 @@ function ConversationDetail({
 }) {
   const detail = useQuery(api.conversations.getWithContact, { conversationId });
   const messages = useQuery(api.conversations.listMessages, { conversationId });
+  // For the face and name on each reply. A thread that was handed over has
+  // messages from two agents in it, and the transcript is the only place that
+  // can say which of them said what.
+  const workspace = useWorkspace();
+  const threadAgents = useQuery(api.agents.listByWorkspace, {
+    workspaceId: workspace._id,
+  });
   const setStatus = useMutation(api.conversations.setStatus);
   const setHumanHandling = useMutation(api.conversations.setHumanHandling);
   const removeConversation = useMutation(api.conversations.remove);
@@ -307,6 +314,8 @@ function ConversationDetail({
       <TranscriptView
         messages={messages}
         showTools={showTools}
+        perspective="team"
+        agents={threadAgents}
         emptyState={
           <p className="text-sm text-muted-foreground">
             This conversation has no messages yet.
