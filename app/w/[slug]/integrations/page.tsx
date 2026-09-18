@@ -16,7 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Card,
@@ -184,111 +183,87 @@ function IntegrationCard({
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col gap-4">
-        <ul className="flex flex-col gap-1.5">
-          {integration.gives.map((line) => (
-            <li key={line} className="flex items-start gap-2 text-sm">
-              <CheckCircleIcon
-                weight="fill"
-                className="mt-0.5 size-4 shrink-0 text-primary/60"
-              />
-              <span className="text-muted-foreground">{line}</span>
-            </li>
-          ))}
-        </ul>
-
+      <CardContent className="flex flex-1 flex-col gap-3">
+        {/* The bullets sell the thing. Once it is connected you already know
+            what it does, and three lines of pitch crowd out the two facts that
+            still matter: which account, and which agents can use it. */}
         {connected ? (
-          <>
-            <Separator />
-            <div className="flex flex-col gap-2 text-xs">
-              {connection?.accountEmail ? (
-                <p className="text-muted-foreground">
-                  Signed in as{" "}
-                  <span className="font-medium text-foreground">
-                    {connection.accountEmail}
-                  </span>
-                </p>
-              ) : null}
+          <div className="flex flex-col gap-2 text-xs">
+            {connection?.accountEmail ? (
+              <p className="text-muted-foreground">{connection.accountEmail}</p>
+            ) : null}
 
-              {connection?.resource ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-muted-foreground">
-                    {connection.resource.name}
-                  </span>
-                  {connection.resource.url ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      nativeButton={false}
-                      render={
-                        <a
-                          href={connection.resource.url}
-                          target="_blank"
-                          rel="noreferrer"
-                        />
-                      }
-                    >
-                      <ArrowSquareOutIcon /> Open
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="flex flex-col gap-1.5">
-                <p className="font-medium">
-                  Tools it added
-                  {calls > 0 ? (
-                    <span className="font-normal text-muted-foreground">
-                      {" "}
-                      · called {calls} time{calls === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {tools.map((tool) => (
-                    <code
-                      key={tool._id}
-                      className="rounded border bg-muted/40 px-1.5 py-0.5"
-                    >
-                      {tool.name}
-                    </code>
-                  ))}
-                </div>
-              </div>
-
-              {/* The state this design makes possible: connected, and nobody
-                  switched on. Say so rather than letting it look finished. */}
-              {usingAgents.length === 0 ? (
-                <p className="text-muted-foreground">
-                  No agent has these switched on yet.{" "}
-                  <Link
-                    href={`${base}/agents`}
-                    className="underline underline-offset-4"
+            {connection?.resource ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+                <span className="truncate">{connection.resource.name}</span>
+                {connection.resource.url ? (
+                  <a
+                    href={connection.resource.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-4"
                   >
-                    Enable them on an agent
-                  </Link>{" "}
-                  under Knowledge &amp; tools.
-                </p>
-              ) : (
-                <p className="text-muted-foreground">
-                  On for{" "}
-                  <span className="font-medium text-foreground">
-                    {usingAgents.map((agent) => agent.name).join(", ")}
-                  </span>
-                </p>
-              )}
+                    Open <ArrowSquareOutIcon className="size-3" />
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {tools.map((tool) => (
+                <code
+                  key={tool._id}
+                  className="rounded border bg-muted/40 px-1.5 py-0.5"
+                >
+                  {tool.name}
+                </code>
+              ))}
+              {calls > 0 ? (
+                <span className="text-muted-foreground">{calls} calls</span>
+              ) : null}
             </div>
-          </>
+
+            {/* The state this design makes possible: connected, and nobody
+                switched on. Say so rather than letting it look finished. */}
+            {usingAgents.length === 0 ? (
+              <Link
+                href={`${base}/agents`}
+                className="text-muted-foreground underline underline-offset-4"
+              >
+                Not on any agent — switch it on
+              </Link>
+            ) : (
+              <p className="text-muted-foreground">
+                On for{" "}
+                <span className="text-foreground">
+                  {usingAgents.map((agent) => agent.name).join(", ")}
+                </span>
+              </p>
+            )}
+          </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {integration.provisions}
-          </p>
+          <>
+            <ul className="flex flex-col gap-1.5">
+              {integration.gives.map((line) => (
+                <li key={line} className="flex items-start gap-2 text-sm">
+                  <CheckCircleIcon
+                    weight="fill"
+                    className="mt-0.5 size-4 shrink-0 text-primary/60"
+                  />
+                  <span className="text-muted-foreground">{line}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              {integration.provisions}
+            </p>
+          </>
         )}
 
         {stale && connection?.lastError ? (
           <Alert variant="destructive">
             <WarningIcon />
-            <AlertTitle>Google turned the last call down</AlertTitle>
+            <AlertTitle>Google refused the last call</AlertTitle>
             <AlertDescription>{connection.lastError}</AlertDescription>
           </Alert>
         ) : null}
@@ -409,11 +384,9 @@ export default function IntegrationsPage() {
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Integrations
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Sign in with Google and your agents get a capability they can use
-            mid-conversation — booking a meeting, logging an enquiry, finding a
-            document. Nothing to configure: connecting creates whatever the
-            integration needs in your own Drive.
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Capabilities your agents can use mid-conversation. Nothing to
+            configure — connecting creates what it needs in your own Drive.
           </p>
         </div>
         {loading ? (
@@ -468,12 +441,11 @@ export default function IntegrationsPage() {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Anything not here can still be reached: a{" "}
+        Anything else — Slack, Zapier — is a{" "}
         <Link href={`${base}/tools`} className="underline underline-offset-4">
           custom tool
         </Link>{" "}
-        will call any HTTP endpoint, which is what a Slack webhook or a Zapier
-        hook amounts to.
+        pointed at a webhook.
       </p>
     </div>
   );
