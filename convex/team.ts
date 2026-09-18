@@ -20,6 +20,15 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireSignedIn, requireWorkspace } from "./lib/auth";
 
+/**
+ * How far back the roster looks for the last reply a teammate sent by hand.
+ * Shorter than the agents' scan because it answers a smaller question — what
+ * this person last said, not what the workspace averages — and a person who
+ * has not typed anything in the last thousand messages simply shows a count.
+ */
+const MEMBER_MESSAGE_SCAN_CAP = 1000;
+const REPLY_PREVIEW_CHARS = 280;
+
 const memberStatus = v.union(
   v.literal("active"),
   v.literal("away"),
@@ -55,10 +64,35 @@ export const listByWorkspace = query({
     // Oldest first, so the row does not reshuffle every time somebody replies.
     members.sort((a, b) => a.createdAt - b.createdAt);
 
+    // The last reply each of them typed. Messages carry `teamMemberId` but are
+    // not indexed by it, so this is a capped scan of the newest first — and it
+    // is skipped entirely for a workspace with nobody on the list, which is
+    // most of them.
+    const lastByMember = new Map<string, { text: string; at: number }>();
+    if (members.length > 0) {
+      const recent = await ctx.db
+        .query("messages")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .take(MEMBER_MESSAGE_SCAN_CAP);
+
+      for (const message of recent) {
+        if (!message.sentByHuman || !message.teamMemberId) continue;
+        if (lastByMember.has(message.teamMemberId)) continue;
+        const text = message.text?.trim();
+        if (!text) continue;
+        lastByMember.set(message.teamMemberId, {
+          text: text.slice(0, REPLY_PREVIEW_CHARS),
+          at: message.createdAt,
+        });
+      }
+    }
+
     return await Promise.all(
       members.map(async (member) => ({
         ...member,
         photo: await photoFor(ctx, member),
+        lastMessage: lastByMember.get(member._id) ?? null,
       }))
     );
   },

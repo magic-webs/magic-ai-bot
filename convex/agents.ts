@@ -679,6 +679,13 @@ export const getInternal = internalQuery({
 const AGENT_MESSAGE_SCAN_CAP = 4000;
 
 /**
+ * How much of an agent's last reply travels with the roster. Enough to read a
+ * sentence or two on hover; not so much that a card ships an essay nobody
+ * opened, once per agent, on every roster read.
+ */
+const REPLY_PREVIEW_CHARS = 280;
+
+/**
  * Everything the Agents page counts, in one read.
  *
  * `now` is an argument for the same reason analytics.dashboard takes one:
@@ -721,6 +728,10 @@ export const roster = query({
       messages: number;
       latencyTotal: number;
       latencyCount: number;
+      // The last thing the agent actually said, for the roster to show behind
+      // its message count.
+      lastText: string | null;
+      lastAt: number | null;
     };
     const tallies = new Map<string, Tally>();
     const tally = (agentId: string): Tally => {
@@ -732,6 +743,8 @@ export const roster = query({
           messages: 0,
           latencyTotal: 0,
           latencyCount: 0,
+          lastText: null,
+          lastAt: null,
         };
         tallies.set(agentId, row);
       }
@@ -762,6 +775,15 @@ export const roster = query({
         (message.kind === "text" || message.kind === "rich")
       ) {
         row.messages += 1;
+        // The scan is newest-first, so the first one of these with words in it
+        // is the latest. A `rich` message is counted but skipped here — a menu
+        // has no sentence to quote, and quoting its JSON would be worse than
+        // quoting the text reply before it.
+        const text = message.text?.trim();
+        if (row.lastText === null && text) {
+          row.lastText = text.slice(0, REPLY_PREVIEW_CHARS);
+          row.lastAt = message.createdAt;
+        }
       }
       if (typeof message.latencyMs !== "number") continue;
       row.latencyTotal += message.latencyMs;
@@ -780,6 +802,10 @@ export const roster = query({
       avgLatencyMs: row.latencyCount
         ? Math.round(row.latencyTotal / row.latencyCount)
         : null,
+      lastMessage:
+        row.lastText !== null && row.lastAt !== null
+          ? { text: row.lastText, at: row.lastAt }
+          : null,
     }));
 
     // --- the lead pipeline, for the follow-up desk -------------------------

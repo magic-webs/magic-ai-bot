@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -48,10 +49,17 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
-  ArrowUpRightIcon,
+  ArrowRightIcon,
+  ChatTeardropTextIcon,
   DotsThreeIcon,
   PlusIcon,
   RobotIcon,
@@ -73,7 +81,13 @@ import {
  * anything beyond a glance; nothing here duplicates that editor.
  */
 
-type Member = Doc<"teamMembers"> & { photo: string | null };
+/** The last thing a card's owner actually said, quoted on hover. */
+type LastMessage = { text: string; at: number } | null;
+
+type Member = Doc<"teamMembers"> & {
+  photo: string | null;
+  lastMessage: LastMessage;
+};
 
 const STATUSES = [
   { value: "active", label: "Active" },
@@ -86,6 +100,14 @@ const STATUS_TONE: Record<string, string> = {
   away: "bg-amber-500",
   inactive: "bg-muted-foreground/40",
 };
+
+function relative(timestamp: number): string {
+  try {
+    return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
+  } catch {
+    return new Date(timestamp).toLocaleString();
+  }
+}
 
 function countLabel(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
@@ -176,6 +198,7 @@ function PosterCard({
   description,
   art,
   messages,
+  lastMessage,
   status,
   statusLabel,
   menu,
@@ -188,6 +211,7 @@ function PosterCard({
   description: string;
   art: React.ReactNode;
   messages: number | null | undefined;
+  lastMessage?: LastMessage;
   status: string;
   statusLabel: string;
   menu?: React.ReactNode;
@@ -195,11 +219,41 @@ function PosterCard({
 }) {
   const tone = TONES[index % TONES.length];
 
+  // The count and the quote behind it are one thing, so the label is built
+  // once and worn either by a plain span or by the tooltip's trigger.
+  const countClass = cn("flex items-center gap-1.5 text-[13px]", tone.body);
+  const count = (
+    <>
+      <ChatTeardropTextIcon weight="fill" aria-hidden className="size-4 shrink-0" />
+      {countLabel(messages)} msg{messages === 1 ? "" : "s"}
+    </>
+  );
+
   return (
     <article
       className={cn(
         "group relative flex h-[26rem] w-72 shrink-0 snap-start flex-col rounded-[28px] p-6",
-        "transition-transform duration-300 hover:rotate-0 hover:-translate-y-1",
+        // The depth. A light wash at the head and a shade at the foot are
+        // painted into the card's own background-image, over the tone's
+        // background-colour — two different properties, so they compose
+        // instead of one winning. An overlay element would have had to be
+        // positioned, and a positioned overlay paints over the text.
+        //
+        // Every stop is written out rather than using `via-transparent`,
+        // because a gradient that interpolates through the transparent
+        // keyword drags a grey band through the middle of a saturated card.
+        "bg-[linear-gradient(to_bottom,rgba(255,255,255,0.20)_0%,rgba(255,255,255,0)_42%,rgba(0,0,0,0)_64%,rgba(0,0,0,0.12)_100%)]",
+        // Two shadows and two hairlines: a tight one for where the card meets
+        // the page, a wide soft one for how far above it the card sits, and
+        // inset lines for the lit top edge and the dark bottom edge.
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.30),inset_0_-1px_0_rgba(0,0,0,0.12),0_2px_4px_-2px_rgba(16,24,32,0.28),0_24px_44px_-16px_rgba(16,24,32,0.38)]",
+        "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.34),inset_0_-1px_0_rgba(0,0,0,0.12),0_6px_12px_-6px_rgba(16,24,32,0.30),0_40px_70px_-22px_rgba(16,24,32,0.50)]",
+        // `rotate`, `translate` and `transform` are three separate properties
+        // in v4 and compose in that order, which is what lets the flat tilt
+        // straighten while the perspective tip is applied on top of it.
+        "transition-[transform,translate,rotate,box-shadow] duration-300 ease-out",
+        "hover:-translate-y-1.5 hover:rotate-0",
+        "hover:[transform:perspective(1100px)_rotateX(6deg)]",
         tone.card,
         TILTS[index % TILTS.length]
       )}
@@ -252,28 +306,67 @@ function PosterCard({
       <div
         className={cn(
           "mt-4 flex flex-1 items-center justify-center rounded-2xl",
+          // Pressed into the card, where the card is raised off the page.
+          "shadow-[inset_0_1px_2px_rgba(0,0,0,0.10)]",
           tone.art
         )}
       >
-        {art}
+        <div className="transition-transform duration-300 ease-out group-hover:-translate-y-1 group-hover:scale-[1.04]">
+          {art}
+        </div>
       </div>
 
-      {/* ------------------------------------------------------- the footer */}
-      <div className="mt-4 flex items-end justify-between gap-2">
-        <span
-          className={cn("font-mono text-[11px] tracking-[0.12em] uppercase", tone.eyebrow)}
-        >
-          {countLabel(messages)} msg{messages === 1 ? "" : "s"}
-        </span>
+      {/* ------------------------------------------------------- the footer
+          The one number and the one way in. Set in the body face rather than
+          the mono eyebrow the header uses: the top of the card is a label and
+          reads as one, the bottom is a sentence and a button. */}
+      <div className="mt-4 flex items-center justify-between gap-2">
+        {/* The count answers how much; the quote behind it answers what. A
+            button rather than a span, because a tooltip that only opens on
+            hover is a tooltip nobody on a keyboard ever sees. */}
+        {lastMessage ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Last reply from ${name}`}
+                  className={cn(
+                    countClass,
+                    "cursor-help decoration-dotted underline-offset-4 outline-none hover:underline focus-visible:underline"
+                  )}
+                >
+                  {count}
+                </button>
+              }
+            />
+            <TooltipContent
+              side="top"
+              align="start"
+              className="max-w-72 flex-col items-start gap-1.5 px-3 py-2 text-left"
+            >
+              <span className="font-mono text-[10px] tracking-[0.12em] uppercase opacity-60">
+                Last reply · {relative(lastMessage.at)}
+              </span>
+              <span className="line-clamp-5 leading-relaxed">
+                {lastMessage.text}
+              </span>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className={countClass}>{count}</span>
+        )}
         {action ? (
           <Link
             href={action.href}
             className={cn(
-              "flex items-center gap-1 font-mono text-[11px] tracking-[0.14em] uppercase underline-offset-4 hover:underline",
+              "flex items-center gap-1.5 text-[13px] font-semibold",
+              "transition-transform duration-200 ease-out hover:translate-x-0.5",
               tone.title
             )}
           >
-            {action.label} <ArrowUpRightIcon className="size-3.5" />
+            {action.label}
+            <ArrowRightIcon weight="bold" className="size-4" />
           </Link>
         ) : null}
       </div>
@@ -283,16 +376,24 @@ function PosterCard({
 
 /** The rail itself: a row that scrolls sideways and snaps. */
 function Rail({ children }: { children: React.ReactNode }) {
-  // Vertical padding rather than none: the cards are tilted and lift on hover,
-  // and an overflow container crops whatever leaves the box.
+  // Padded rather than flush, and padded further at the foot than the head:
+  // `overflow-x-auto` computes the other axis to `auto` too, so the box crops
+  // anything that leaves it — and what leaves it is the tilt, the hover lift
+  // and a soft shadow that falls some 60px below each card.
   //
   // `no-scrollbar` hides the bar, not the scrolling: a full-width rule under a
   // row of poster cards read as a divider between the roster and the page, and
   // the card cropped at the right edge already says the rail carries on.
+  // The provider carries no DOM, only the delay: base-ui waits 600ms on its
+  // own, which is long enough that a quote nobody was told about never gets
+  // read. Scoped here rather than at the root, where it would quietly change
+  // every tooltip in the sidebar too.
   return (
-    <div className="no-scrollbar -mx-1 flex snap-x snap-mandatory gap-5 overflow-x-auto px-1 py-3">
-      {children}
-    </div>
+    <TooltipProvider delay={150}>
+      <div className="no-scrollbar -mx-2 flex snap-x snap-mandatory gap-5 overflow-x-auto px-2 pt-6 pb-16">
+        {children}
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -706,6 +807,7 @@ export default function TeamPage() {
                 />
               }
               messages={statsById.get(agent._id)?.messages ?? 0}
+              lastMessage={statsById.get(agent._id)?.lastMessage ?? null}
               status={agent.status === "active" ? "active" : "away"}
               statusLabel={agent.status}
               action={{
@@ -733,6 +835,7 @@ export default function TeamPage() {
                 />
               }
               messages={member.messageCount}
+              lastMessage={member.lastMessage}
               status={member.status}
               statusLabel={member.status}
               menu={<MemberMenu member={member} />}
