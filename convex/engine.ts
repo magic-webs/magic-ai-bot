@@ -83,6 +83,11 @@ type TurnContext = {
    * this turn. One reply cannot answer two menus, so the second is refused.
    */
   askedThisTurn: boolean;
+  /**
+   * Which agent sent that control, so the trailing prose can be dropped for
+   * the agent that already asked and kept for a colleague it was handed to.
+   */
+  askedBy: Id<"agents"> | null;
 };
 
 function record(
@@ -635,6 +640,7 @@ function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
         };
       }
       turn.askedThisTurn = true;
+      turn.askedBy = agent._id;
     }
 
     // Send first, record second. A payload the provider rejected must not sit
@@ -1085,6 +1091,12 @@ export type TurnResult = {
    * one as a failure or write it to the channel's error log.
    */
   heldForHuman?: boolean;
+  /**
+   * The reply was a menu, buttons or a location request rather than prose, so
+   * `text` is deliberately empty. Like `heldForHuman`, this is a complete
+   * answer and not a failure to produce one.
+   */
+  answeredWithControl?: boolean;
   error?: string;
 };
 
@@ -1203,6 +1215,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       trace: [],
       pendingTransfer: null,
       askedThisTurn: false,
+      askedBy: null,
     };
 
     const conversationMessages = [
@@ -1379,7 +1392,20 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       hops++;
     }
 
-    if (!replyText) {
+    // A menu, a set of buttons or a location request is the whole reply: it
+    // already carries the body text and puts the question. Whatever the model
+    // writes alongside arrives as a second bubble underneath, asking the same
+    // thing again in different words — which is what the tool result tells it
+    // not to do, and what it does anyway often enough to be worth enforcing
+    // here rather than hoping.
+    //
+    // Only for the agent that sent the control. A colleague it was handed to
+    // has its own thing to say, and has not asked anything yet.
+    const askedItself =
+      turn.askedThisTurn && turn.askedBy === agent._id && !generationError;
+    if (askedItself) replyText = "";
+
+    if (!replyText && !askedItself) {
       replyText = generationError
         ? "Sorry — something went wrong on my side. Could you send that again?"
         : "Thanks for your message. Could you tell me a little more about what you need?";
@@ -1398,6 +1424,9 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
     return {
       ok: !generationError,
       text: replyText,
+      // So a channel does not log "the agent produced no reply" over a turn
+      // that answered perfectly well with a menu.
+      answeredWithControl: askedItself,
       conversationId: turn.conversationId,
       toolCalls: turn.trace.map((t) => t.toolName),
       agentId: agent._id,

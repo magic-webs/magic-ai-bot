@@ -321,7 +321,10 @@ export function register(server) {
       });
 
       return ok({
-        reply: result.text,
+        reply: result.text || null,
+        // A menu or a set of buttons is the whole reply, so there is no prose
+        // to show — without this the test reads as though nothing was sent.
+        answeredWithControl: result.answeredWithControl ?? false,
         answeredBy: result.agentBotName ?? null,
         handoffPath: result.handoffPath ?? [],
         toolsCalled: result.toolCalls,

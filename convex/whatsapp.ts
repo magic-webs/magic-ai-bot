@@ -317,6 +317,7 @@ export const handleInbound = internalAction({
       text: string | null;
       toolCalls: string[];
       heldForHuman?: boolean;
+      answeredWithControl?: boolean;
       error?: string;
     } = await ctx.runAction(internal.engine.respond, {
       agentId: channel.agentId,
@@ -333,6 +334,16 @@ export const handleInbound = internalAction({
     // channel as a failure to reply.
     if (result.heldForHuman) {
       return { handled: true, reason: "human_handling" };
+    }
+
+    // Also nothing to send, also nothing wrong: the reply was a menu or a set
+    // of buttons, which the rich-message tool has already sent over the Cloud
+    // API. There is deliberately no prose to follow it.
+    if (result.answeredWithControl) {
+      await ctx.runMutation(internal.channels.touchInbound, {
+        channelId: channel._id,
+      });
+      return { handled: true, reason: "answered_with_control" };
     }
 
     if (!result.text) {
