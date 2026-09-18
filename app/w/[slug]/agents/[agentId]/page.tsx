@@ -7,7 +7,13 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BUILTIN_TOOLS, CHAT_MODELS } from "@/convex/lib/shared";
+import { INTEGRATIONS } from "@/convex/lib/integrations";
 import { useWorkspace } from "@/components/workspace-provider";
+import {
+  GoogleCalendarIcon,
+  GoogleDriveIcon,
+  GoogleSheetsIcon,
+} from "@/components/integrations/google-icons";
 import { ChipListEditor, StringListEditor } from "@/components/editors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +61,17 @@ import {
   WrenchIcon,
   SignpostIcon,
   WarningIcon,
+  PlugsConnectedIcon,
 } from "@phosphor-icons/react";
+
+const INTEGRATION_ICONS: Record<
+  string,
+  (props: { className?: string }) => React.ReactNode
+> = {
+  google_sheets: GoogleSheetsIcon,
+  google_calendar: GoogleCalendarIcon,
+  google_drive: GoogleDriveIcon,
+};
 
 // Slider reports either a scalar or a tuple depending on how it is driven.
 function firstNumber(value: number | readonly number[]): number {
@@ -111,6 +127,7 @@ type Draft = {
   knowledgeEnabled: boolean;
   knowledgeTopK: number;
   builtinTools: string[];
+  integrationTools: string[];
   status: "draft" | "active" | "paused";
 };
 
@@ -167,6 +184,9 @@ export default function AgentConfigPage({
       knowledgeEnabled: agent.knowledgeEnabled,
       knowledgeTopK: agent.knowledgeTopK,
       builtinTools: agent.builtinTools,
+      // Absent on every agent that predates integrations, and on every agent
+      // nobody has switched one on for.
+      integrationTools: agent.integrationTools ?? [],
       status: agent.status,
     });
   }
@@ -226,6 +246,7 @@ export default function AgentConfigPage({
         knowledgeEnabled: draft.knowledgeEnabled,
         knowledgeTopK: draft.knowledgeTopK,
         builtinTools: draft.builtinTools,
+        integrationTools: draft.integrationTools,
         status: draft.status,
       });
       toast.add({ title: "Agent saved", type: "success" });
@@ -249,9 +270,23 @@ export default function AgentConfigPage({
     );
   };
 
-  const scopedCustomTools = (customTools ?? []).filter(
+  const toggleIntegrationTool = (name: string) => {
+    set(
+      "integrationTools",
+      draft.integrationTools.includes(name)
+        ? draft.integrationTools.filter((n) => n !== name)
+        : [...draft.integrationTools, name]
+    );
+  };
+
+  const scopedTools = (customTools ?? []).filter(
     (tool) => tool.agentId === undefined || tool.agentId === typedAgentId
   );
+  // An integration's tools are listed under the integration that owns them,
+  // with their own switch; everything else is a hand-written custom tool and
+  // is edited on the Custom tools page.
+  const integrationTools = scopedTools.filter((tool) => tool.integration);
+  const scopedCustomTools = scopedTools.filter((tool) => !tool.integration);
 
   const isRouter = agent.kind === "router";
   // The roster the prompt preview was compiled against, so the Routing tab and
@@ -865,6 +900,87 @@ export default function AgentConfigPage({
                     </Item>
                   ))}
                 </ItemGroup>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Integration tools</CardTitle>
+                <CardDescription>
+                  What connecting Google put in the workspace. Every one is off
+                  until you switch it on here, so a connection never widens
+                  what a live agent can do on its own.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {customTools === undefined ? (
+                  <Spinner />
+                ) : integrationTools.length === 0 ? (
+                  <div className="flex flex-col items-start gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      Nothing connected yet.
+                    </p>
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      nativeButton={false}
+                      render={<Link href={`${base}/integrations`} />}
+                    >
+                      <PlugsConnectedIcon /> Connect Sheets, Calendar or Drive
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-5">
+                    {INTEGRATIONS.map((integration) => {
+                      const owned = integrationTools.filter(
+                        (tool) => tool.integration === integration.id
+                      );
+                      if (owned.length === 0) return null;
+                      const Icon = INTEGRATION_ICONS[integration.id];
+
+                      return (
+                        <div
+                          key={integration.id}
+                          className="flex flex-col gap-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            {Icon ? <Icon className="size-5" /> : null}
+                            <p className="text-sm font-medium">
+                              {integration.name}
+                            </p>
+                          </div>
+                          <ItemGroup className="gap-2">
+                            {owned.map((tool) => (
+                              <Item key={tool._id} variant="outline">
+                                <ItemContent>
+                                  <ItemTitle className="flex flex-wrap items-center gap-2">
+                                    <span className="font-mono">
+                                      {tool.name}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      {tool.displayName}
+                                    </span>
+                                  </ItemTitle>
+                                  <ItemDescription>
+                                    {tool.description}
+                                  </ItemDescription>
+                                </ItemContent>
+                                <Switch
+                                  checked={draft.integrationTools.includes(
+                                    tool.name
+                                  )}
+                                  onCheckedChange={() =>
+                                    toggleIntegrationTool(tool.name)
+                                  }
+                                />
+                              </Item>
+                            ))}
+                          </ItemGroup>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

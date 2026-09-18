@@ -19,6 +19,10 @@ import {
   DEFAULT_CHAT_MODEL,
   slugify,
 } from "./lib/shared";
+import {
+  INTEGRATION_TOOL_NAMES,
+  isCatalogueIntegration,
+} from "./lib/integrations";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import {
   requireAgent,
@@ -61,6 +65,7 @@ const agentFields = {
   knowledgeEnabled: v.optional(v.boolean()),
   knowledgeTopK: v.optional(v.number()),
   builtinTools: v.optional(v.array(v.string())),
+  integrationTools: v.optional(v.array(v.string())),
   promptOverride: v.optional(v.string()),
   status: v.optional(
     v.union(v.literal("draft"), v.literal("active"), v.literal("paused"))
@@ -482,6 +487,15 @@ export const update = mutation({
       if (value !== undefined) patch[key] = value;
     }
 
+    // Only names the catalogue defines. Anything else is inert at runtime —
+    // resolveForAgent matches against real tool rows — but a list that grows
+    // every time an integration is renamed is a list nobody can read.
+    if (Array.isArray(patch.integrationTools)) {
+      patch.integrationTools = (patch.integrationTools as string[]).filter(
+        (name) => INTEGRATION_TOOL_NAMES.includes(name)
+      );
+    }
+
     if (existing.kind === "router") {
       // The front desk must stay reachable and must stay out of its own
       // roster, whatever the form posts.
@@ -607,7 +621,11 @@ export const previewPrompt = query({
         .filter(
           (t) =>
             t.status === "enabled" &&
-            (t.agentId === undefined || t.agentId === agent._id)
+            (t.agentId === undefined || t.agentId === agent._id) &&
+            // Mirrors resolveForAgent: an integration tool reaches this agent
+            // only if it is switched on for it.
+            (!isCatalogueIntegration(t.integration) ||
+              (agent.integrationTools ?? []).includes(t.name))
         )
         .map((t) => t.name),
     ];

@@ -28,4 +28,14 @@ crons.daily(
   {}
 );
 
+// A consent screen somebody opened and abandoned leaves a state row behind.
+// They expire after fifteen minutes and are consumed on use, so this is only
+// housekeeping — hourly is plenty.
+crons.interval(
+  "sweep abandoned oauth handshakes",
+  { hours: 1 },
+  internal.integrations.sweepStates,
+  {}
+);
+
 export default crons;

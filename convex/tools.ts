@@ -6,6 +6,7 @@ import {
   internalMutation,
 } from "./_generated/server";
 import { kvPair, toolParameter } from "./schema";
+import { isCatalogueIntegration } from "./lib/integrations";
 import {
   requireTool,
   requireWorkspace,
@@ -187,32 +188,8 @@ export const remove = mutation({
   },
 });
 
-/**
- * Disconnect an integration: delete every tool it created, and nothing else.
- *
- * Keyed on the `integration` field rather than on the tool names, so a tool
- * somebody renamed still goes, and a hand-written tool that happens to share a
- * name stays. Reconnecting is then a clean create rather than an upsert, which
- * is why connecting calls this first.
- */
-export const disconnectIntegration = mutation({
-  args: { workspaceId: v.id("workspaces"), integration: v.string() },
-  handler: async (ctx, args) => {
-    await requireWorkspace(ctx, args.workspaceId);
-    const tools = await ctx.db
-      .query("tools")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
-    let removed = 0;
-    for (const tool of tools) {
-      if (tool.integration !== args.integration) continue;
-      await ctx.db.delete(tool._id);
-      removed++;
-    }
-    return { removed };
-  },
-});
+// Disconnecting lives in convex/integrations.ts, next to the connection row
+// it also has to delete and the agents it has to switch the tools off for.
 
 // ---------------------------------------------------------------------------
 // Internal — runtime resolution and call accounting
@@ -229,11 +206,23 @@ export const resolveForAgent = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
-    return tools.filter(
-      (tool) =>
-        tool.status === "enabled" &&
-        (tool.agentId === undefined || tool.agentId === args.agentId)
-    );
+    const agent = await ctx.db.get("agents", args.agentId);
+    const fromIntegrations = new Set(agent?.integrationTools ?? []);
+
+    return tools.filter((tool) => {
+      if (tool.status !== "enabled") return false;
+      if (tool.agentId !== undefined && tool.agentId !== args.agentId) {
+        return false;
+      }
+      // An integration's tools are workspace-wide but opt-in per agent:
+      // connecting Google Calendar must not silently hand the diary to every
+      // agent that happens to be live. The switch is on the agent's
+      // Knowledge & tools tab.
+      if (isCatalogueIntegration(tool.integration)) {
+        return fromIntegrations.has(tool.name);
+      }
+      return true;
+    });
   },
 });
 

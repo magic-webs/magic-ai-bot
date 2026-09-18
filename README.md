@@ -188,6 +188,65 @@ paste. A drafted tool lands as a **draft** — never given to the model — unle
 you opt in, and it is force-held as a draft if the endpoint or credentials still
 contain placeholders.
 
+### Google integrations
+
+Sheets, Calendar and Drive are **recipes for the custom-tool machinery above**,
+not a second runtime: connecting one writes `tools` rows tagged with its id and
+the same HTTP executor runs them.
+
+There is nothing to configure. Connecting is one button — Google's consent
+screen, then back to the console with the spreadsheet or the Drive folder
+already created in the operator's own account and the tools already written.
+`convex/lib/integrations.ts` is the catalogue, and the dashboard renders the
+same descriptions the model reads.
+
+Both halves of OAuth live on the Convex deployment rather than the Next app, so
+the client secret and the refresh token never leave Convex and the callback URL
+is stable per deployment:
+
+```
+https://<deployment>.convex.site/integrations/google/callback
+https://<deployment>.convex.site/integrations/google/<action>?token=<call token>
+```
+
+`integrations.startGoogleConnect` is an action, not a mutation, because the
+`state` parameter needs real randomness — mutations run on a deterministic
+seed. It writes an `integrationOAuthStates` row, which the callback consumes;
+that row is the only thing tying Google's redirect back to the workspace that
+started it, since the callback lands on a domain with no session cookie.
+
+The endpoints are public, so the call token in the query string is the whole
+credential. It is per connection, which is what makes disconnecting a real
+revocation, and a token for Drive cannot reach the Calendar endpoints.
+
+**Tools are opt-in per agent.** Connecting writes the tools workspace-wide and
+enabled, but an agent only receives one if its name is in
+`agents.integrationTools` — the switches under an agent's Knowledge & tools
+tab. Connecting Google Calendar should not silently hand the diary to every
+live agent. `tools.resolveForAgent` is where that gate is applied, and only for
+integrations the catalogue still knows about, so tools left behind by the
+earlier Slack and Zapier cards keep working as ordinary HTTP tools.
+
+Scopes are the narrowest that do the job: `spreadsheets`, `calendar.events`,
+and `drive.file` + `drive.metadata.readonly` — metadata only, because the agent
+sends links and never needs to read a file.
+
+Setup, once per deployment:
+
+```bash
+# Google Cloud console → APIs & Services → Credentials → OAuth client ID
+#   Type: Web application
+#   Authorised redirect URI: https://<deployment>.convex.site/integrations/google/callback
+# Enable the Sheets, Calendar and Drive APIs on the same project.
+npx convex env set GOOGLE_CLIENT_ID     <id>.apps.googleusercontent.com
+npx convex env set GOOGLE_CLIENT_SECRET <secret>
+```
+
+Until those are set the Integrations page says so and the connect buttons are
+disabled. `drive.metadata.readonly` is a sensitive scope, so a production
+deployment needs the consent screen verified before it can be used outside the
+test users list.
+
 ### Knowledge base
 
 `knowledge.addSource` schedules `ingest.processSource`, which extracts text

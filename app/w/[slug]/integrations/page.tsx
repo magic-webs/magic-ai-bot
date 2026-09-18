@@ -1,15 +1,23 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
-import { ConnectDialog } from "@/components/integrations/connect-dialog";
+import {
+  GoogleCalendarIcon,
+  GoogleDriveIcon,
+  GoogleGIcon,
+  GoogleSheetsIcon,
+} from "@/components/integrations/google-icons";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Card,
   CardContent,
@@ -30,50 +38,100 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/toast";
 import {
-  INTEGRATION_CATEGORIES,
   INTEGRATIONS,
-  type Integration,
-} from "@/lib/integrations";
+  type IntegrationSpec,
+} from "@/convex/lib/integrations";
 import { cn } from "@/lib/utils";
 import {
   ArrowSquareOutIcon,
   CheckCircleIcon,
-  LinkSimpleIcon,
   PlugsConnectedIcon,
-  SlidersIcon,
+  WarningIcon,
 } from "@phosphor-icons/react";
 
 /**
  * Integrations.
  *
- * Every card here is a recipe for the custom-tool machinery the platform
- * already has — connecting one writes `tools` rows tagged with the
- * integration's id, and the engine's HTTP executor runs them at reply time.
- * Nothing on this page is a new runtime.
+ * Connecting is one button: Google's consent screen, then back here with the
+ * sheet or folder already made and the tools already written. There is nothing
+ * to paste, so there is no form on this page.
  *
- * Which is also why "connected" is not a stored flag: it is simply whether
- * those tools exist. A tool deleted from the Custom tools page shows up here
- * as disconnected without anything having to keep the two in step.
+ * What a card cannot tell you is whether an agent will ever call the tools —
+ * that switch is per agent, under Knowledge & tools. So each connected card
+ * counts the agents that have it switched on and links there when the answer
+ * is none, because "connected but nobody is using it" is the one confusing
+ * state this design creates.
  */
 
-type ToolRow = Doc<"tools"> & { agentName?: string };
+const ICONS: Record<string, (props: { className?: string }) => React.ReactNode> =
+  {
+    google_sheets: GoogleSheetsIcon,
+    google_calendar: GoogleCalendarIcon,
+    google_drive: GoogleDriveIcon,
+  };
+
+type Connection = {
+  integration: string;
+  accountEmail?: string;
+  status: "connected" | "needs_reauth";
+  resource?: { id: string; name: string; url?: string };
+  lastError?: string;
+};
 
 function IntegrationCard({
   integration,
+  connection,
   tools,
+  agents,
   base,
+  disabled,
 }: {
-  integration: Integration;
+  integration: IntegrationSpec;
+  connection: Connection | undefined;
   /** The tools this integration owns right now. */
-  tools: ToolRow[];
+  tools: Doc<"tools">[];
+  agents: Doc<"agents">[];
   base: string;
+  /** True when the deployment has no Google client configured. */
+  disabled: boolean;
 }) {
   const workspace = useWorkspace();
-  const disconnect = useMutation(api.tools.disconnectIntegration);
+  const startConnect = useAction(api.integrations.startGoogleConnect);
+  const disconnect = useMutation(api.integrations.disconnect);
+  const [busy, setBusy] = useState(false);
 
-  const connected = tools.length > 0;
+  const Icon = ICONS[integration.id];
+  const connected = Boolean(connection);
+  const stale = connection?.status === "needs_reauth";
   const calls = tools.reduce((sum, tool) => sum + tool.callCount, 0);
-  const paused = connected && tools.every((tool) => tool.status !== "enabled");
+
+  // Agents that can actually call any of this integration's tools.
+  const names = new Set(integration.tools.map((tool) => tool.name));
+  const usingAgents = agents.filter((agent) =>
+    (agent.integrationTools ?? []).some((name) => names.has(name))
+  );
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const { url } = await startConnect({
+        workspaceId: workspace._id,
+        integration: integration.id,
+        // Where Google's callback sends the browser back to. Read here rather
+        // than on the server: only the browser knows which host it is on, and
+        // that differs between local development, preview and production.
+        returnTo: `${window.location.origin}${base}/integrations`,
+      });
+      window.location.assign(url);
+    } catch (error) {
+      toast.add({
+        title: `Could not start ${integration.name}`,
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+      setBusy(false);
+    }
+  };
 
   const drop = async () => {
     try {
@@ -96,20 +154,34 @@ function IntegrationCard({
   };
 
   return (
-    <Card className={cn("flex flex-col", connected && "border-primary/30")}>
+    <Card
+      className={cn(
+        "flex flex-col",
+        connected && !stale && "border-primary/30",
+        stale && "border-destructive/40"
+      )}
+    >
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
-          {integration.name}
-          {integration.kind === "surface" ? (
-            <Badge variant="outline">elsewhere</Badge>
-          ) : connected ? (
-            <Badge variant="secondary" className="gap-1">
-              <CheckCircleIcon weight="fill" className="size-3" /> Connected
-            </Badge>
-          ) : null}
-          {paused ? <Badge variant="outline">paused</Badge> : null}
-        </CardTitle>
-        <CardDescription>{integration.blurb}</CardDescription>
+        <div className="flex items-start gap-3">
+          {Icon ? <Icon className="mt-0.5 size-8 shrink-0" /> : null}
+          <div className="min-w-0 flex-1">
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              {integration.name}
+              {stale ? (
+                <Badge variant="destructive" className="gap-1">
+                  <WarningIcon weight="fill" className="size-3" /> Reconnect
+                </Badge>
+              ) : connected ? (
+                <Badge variant="secondary" className="gap-1">
+                  <CheckCircleIcon weight="fill" className="size-3" /> Connected
+                </Badge>
+              ) : null}
+            </CardTitle>
+            <CardDescription className="mt-1">
+              {integration.blurb}
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-4">
@@ -128,87 +200,148 @@ function IntegrationCard({
         {connected ? (
           <>
             <Separator />
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-medium">
-                Tools your agents can call
-                {calls > 0 ? (
-                  <span className="font-normal text-muted-foreground">
-                    {" "}
-                    · called {calls} time{calls === 1 ? "" : "s"}
+            <div className="flex flex-col gap-2 text-xs">
+              {connection?.accountEmail ? (
+                <p className="text-muted-foreground">
+                  Signed in as{" "}
+                  <span className="font-medium text-foreground">
+                    {connection.accountEmail}
                   </span>
-                ) : null}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {tools.map((tool) => (
-                  <code
-                    key={tool._id}
-                    className="rounded border bg-muted/40 px-1.5 py-0.5 text-xs"
-                  >
-                    {tool.name}
-                  </code>
-                ))}
+                </p>
+              ) : null}
+
+              {connection?.resource ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground">
+                    {connection.resource.name}
+                  </span>
+                  {connection.resource.url ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      nativeButton={false}
+                      render={
+                        <a
+                          href={connection.resource.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        />
+                      }
+                    >
+                      <ArrowSquareOutIcon /> Open
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-1.5">
+                <p className="font-medium">
+                  Tools it added
+                  {calls > 0 ? (
+                    <span className="font-normal text-muted-foreground">
+                      {" "}
+                      · called {calls} time{calls === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {tools.map((tool) => (
+                    <code
+                      key={tool._id}
+                      className="rounded border bg-muted/40 px-1.5 py-0.5"
+                    >
+                      {tool.name}
+                    </code>
+                  ))}
+                </div>
               </div>
+
+              {/* The state this design makes possible: connected, and nobody
+                  switched on. Say so rather than letting it look finished. */}
+              {usingAgents.length === 0 ? (
+                <p className="text-muted-foreground">
+                  No agent has these switched on yet.{" "}
+                  <Link
+                    href={`${base}/agents`}
+                    className="underline underline-offset-4"
+                  >
+                    Enable them on an agent
+                  </Link>{" "}
+                  under Knowledge &amp; tools.
+                </p>
+              ) : (
+                <p className="text-muted-foreground">
+                  On for{" "}
+                  <span className="font-medium text-foreground">
+                    {usingAgents.map((agent) => agent.name).join(", ")}
+                  </span>
+                </p>
+              )}
             </div>
           </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {integration.provisions}
+          </p>
+        )}
+
+        {stale && connection?.lastError ? (
+          <Alert variant="destructive">
+            <WarningIcon />
+            <AlertTitle>Google turned the last call down</AlertTitle>
+            <AlertDescription>{connection.lastError}</AlertDescription>
+          </Alert>
         ) : null}
 
         {/* Pushed to the bottom so every card's buttons line up. */}
         <div className="mt-auto flex flex-wrap gap-2 pt-1">
-          {integration.kind === "surface" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link href={integration.href?.(base) ?? base} />}
-            >
-              <ArrowSquareOutIcon /> {integration.hrefLabel ?? "Open"}
-            </Button>
-          ) : (
-            <>
-              <ConnectDialog
-                integration={integration}
-                connectedTools={tools}
-                trigger={
-                  <Button variant={connected ? "outline" : "default"} size="sm">
-                    {connected ? <SlidersIcon /> : <LinkSimpleIcon />}
-                    {connected ? "Reconfigure" : "Connect"}
+          <Button
+            size="sm"
+            variant={connected && !stale ? "outline" : "default"}
+            onClick={() => void connect()}
+            disabled={busy || disabled}
+          >
+            {busy ? <Spinner /> : <GoogleGIcon className="size-4" />}
+            {busy
+              ? "Opening Google…"
+              : connected
+                ? "Reconnect"
+                : "Connect with Google"}
+          </Button>
+
+          {connected ? (
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button variant="ghost" size="sm">
+                    Disconnect
                   </Button>
                 }
               />
-
-              {connected ? (
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={
-                      <Button variant="ghost" size="sm">
-                        Disconnect
-                      </Button>
-                    }
-                  />
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        Disconnect {integration.name}?
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        The {tools.length} tool
-                        {tools.length === 1 ? "" : "s"} it added will be deleted
-                        and your agents will stop being able to reach it. The
-                        script you deployed keeps running until you remove it at
-                        the other end — nothing here can turn it off for you.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Keep it</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => void drop()}>
-                        Disconnect
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              ) : null}
-            </>
-          )}
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Disconnect {integration.name}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The {tools.length} tool{tools.length === 1 ? "" : "s"} it
+                    added will be deleted and switched off on every agent, so
+                    they stop being able to reach it. Nothing in your Google
+                    account is touched —{" "}
+                    {connection?.resource
+                      ? `${connection.resource.name} stays exactly where it is.`
+                      : "your calendar is left alone."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep it</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void drop()}>
+                    Disconnect
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -217,16 +350,57 @@ function IntegrationCard({
 
 export default function IntegrationsPage() {
   const workspace = useWorkspace();
+  const router = useRouter();
+  const params = useSearchParams();
   const base = `/w/${workspace.slug}`;
+
+  const connections = useQuery(api.integrations.list, {
+    workspaceId: workspace._id,
+  });
+  const configured = useQuery(api.integrations.configured, {});
   const tools = useQuery(api.tools.listByWorkspace, {
     workspaceId: workspace._id,
   });
+  const agents = useQuery(api.agents.listByWorkspace, {
+    workspaceId: workspace._id,
+  });
 
-  const connectedCount = INTEGRATIONS.filter(
-    (integration) =>
-      integration.kind === "tools" &&
-      (tools ?? []).some((tool) => tool.integration === integration.id)
-  ).length;
+  // The callback redirects back here with its verdict in the query string.
+  // Report it once, then strip it: a refresh should not re-announce a
+  // connection made ten minutes ago.
+  const connectedParam = params.get("connected");
+  const errorParam = params.get("integration_error");
+  useEffect(() => {
+    if (!connectedParam && !errorParam) return;
+
+    if (connectedParam) {
+      const spec = INTEGRATIONS.find((item) => item.id === connectedParam);
+      toast.add({
+        title: `${spec?.name ?? "Integration"} connected`,
+        description:
+          "The tools are ready. Switch them on for an agent under Knowledge & tools.",
+        type: "success",
+      });
+    } else if (errorParam) {
+      toast.add({
+        title: "Could not connect",
+        description: errorParam,
+        type: "error",
+      });
+    }
+
+    router.replace(`${base}/integrations`);
+  }, [base, connectedParam, errorParam, router]);
+
+  const loading =
+    connections === undefined ||
+    tools === undefined ||
+    agents === undefined ||
+    configured === undefined;
+
+  const byId = new Map(
+    (connections ?? []).map((connection) => [connection.integration, connection])
+  );
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6 lg:p-8">
@@ -236,65 +410,70 @@ export default function IntegrationsPage() {
             Integrations
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Give your agents a way to reach the tools you already run. Each one
-            adds a capability an agent can use mid-conversation — booking a
-            meeting, logging an enquiry, finding a document — not just a report
-            you read afterwards.
+            Sign in with Google and your agents get a capability they can use
+            mid-conversation — booking a meeting, logging an enquiry, finding a
+            document. Nothing to configure: connecting creates whatever the
+            integration needs in your own Drive.
           </p>
         </div>
-        {tools === undefined ? (
+        {loading ? (
           <Spinner />
-        ) : connectedCount > 0 ? (
+        ) : byId.size > 0 ? (
           <Badge variant="secondary" className="gap-1.5">
             <PlugsConnectedIcon className="size-3.5" />
-            {connectedCount} connected
+            {byId.size} connected
           </Badge>
         ) : null}
       </header>
 
-      {tools === undefined ? (
+      {configured && !configured.google ? (
+        <Alert variant="destructive">
+          <WarningIcon />
+          <AlertTitle>Google is not set up on this deployment</AlertTitle>
+          <AlertDescription>
+            Connecting needs an OAuth client. Set{" "}
+            <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>{" "}
+            on the Convex deployment, and add this deployment&apos;s{" "}
+            <code>/integrations/google/callback</code> URL as an authorised
+            redirect URI in the Google Cloud console.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner /> Loading…
         </div>
       ) : (
-        INTEGRATION_CATEGORIES.map((category) => {
-          const inCategory = INTEGRATIONS.filter(
-            (integration) => integration.category === category
-          );
-          if (inCategory.length === 0) return null;
-
-          return (
-            <section key={category} className="flex flex-col gap-3">
-              <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
-                {category}
-              </h2>
-              <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {inCategory.map((integration) => (
-                  <IntegrationCard
-                    key={integration.id}
-                    integration={integration}
-                    tools={tools.filter(
-                      (tool) => tool.integration === integration.id
-                    )}
-                    base={base}
-                  />
-                ))}
-              </div>
-            </section>
-          );
-        })
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+            Google
+          </h2>
+          <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {INTEGRATIONS.map((integration) => (
+              <IntegrationCard
+                key={integration.id}
+                integration={integration}
+                connection={byId.get(integration.id)}
+                tools={(tools ?? []).filter(
+                  (tool) => tool.integration === integration.id
+                )}
+                agents={agents ?? []}
+                base={base}
+                disabled={!configured?.google}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       <p className="text-xs text-muted-foreground">
         Anything not here can still be reached: a{" "}
-        <Link
-          href={`${base}/tools`}
-          className="underline underline-offset-4"
-        >
+        <Link href={`${base}/tools`} className="underline underline-offset-4">
           custom tool
         </Link>{" "}
-        will call any HTTP endpoint, and the integrations above are the same
-        mechanism with the fiddly parts filled in.
+        will call any HTTP endpoint, which is what a Slack webhook or a Zapier
+        hook amounts to.
       </p>
     </div>
   );

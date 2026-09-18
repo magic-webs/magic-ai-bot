@@ -219,6 +219,16 @@ export default defineSchema({
     knowledgeTopK: v.number(),
     // Which builtin tools this agent may call (keys from BUILTIN_TOOLS)
     builtinTools: v.array(v.string()),
+    /**
+     * Which integration tools this agent may call, by tool name.
+     *
+     * Opt-in, and by name rather than by id: connecting Google Sheets writes
+     * one tool for the whole workspace, but "this agent may write to the
+     * diary" is a per-agent decision, and reconnecting deletes and recreates
+     * the rows — the name survives that, an id would not. Absent means none,
+     * so every agent that predates integrations keeps working unchanged.
+     */
+    integrationTools: v.optional(v.array(v.string())),
     // Free-form extra prompt appended verbatim, for power users
     promptOverride: v.optional(v.string()),
     status: v.union(
@@ -644,6 +654,74 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_name", ["workspaceId", "name"])
     .index("by_agent", ["agentId"]),
+
+  // -------------------------------------------------------------------------
+  // Integrations — one row per connected Google integration.
+  //
+  // Separate rows per integration rather than one Google account per
+  // workspace: each asks for its own scopes, so Calendar can be disconnected
+  // without taking Sheets' consent with it, and a revoked grant only breaks
+  // the one integration that held it.
+  // -------------------------------------------------------------------------
+  integrationConnections: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** An `IntegrationId` from convex/lib/integrations. */
+    integration: v.string(),
+    provider: v.literal("google"),
+    /** Which account consented. Shown on the card so it can be recognised. */
+    accountEmail: v.optional(v.string()),
+    scopes: v.array(v.string()),
+    /**
+     * The long-lived grant. Google only hands this over on a consent screen,
+     * which is why connecting always asks for one rather than reusing a
+     * silent grant that may come back without it.
+     */
+    refreshToken: v.string(),
+    /** Cached so a burst of tool calls is not a burst of token requests. */
+    accessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    /** What connecting created in their account, so the UI can link to it. */
+    resource: v.optional(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        url: v.optional(v.string()),
+      })
+    ),
+    /**
+     * The shared secret in every tool URL. The endpoints are public — they
+     * have to be, the engine calls them over plain HTTP — so this is the whole
+     * credential, and it is per connection so disconnecting invalidates it.
+     */
+    callToken: v.string(),
+    status: v.union(v.literal("connected"), v.literal("needs_reauth")),
+    /** Why the last call failed, when it failed for a reason worth showing. */
+    lastError: v.optional(v.string()),
+    lastUsedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_integration", ["workspaceId", "integration"])
+    .index("by_call_token", ["callToken"]),
+
+  /**
+   * In-flight OAuth handshakes.
+   *
+   * Google's callback lands on the Convex deployment, which has no cookie for
+   * this workspace, so the state parameter is the only thing tying the
+   * redirect back to who started it. Rows are consumed on use and swept by
+   * the hourly cron — an unconsumed one is somebody who closed the consent
+   * screen.
+   */
+  integrationOAuthStates: defineTable({
+    state: v.string(),
+    workspaceId: v.id("workspaces"),
+    integration: v.string(),
+    /** Where to send the browser afterwards, so it lands back on the page. */
+    returnTo: v.string(),
+    createdAt: v.number(),
+  }).index("by_state", ["state"]),
 
   // -------------------------------------------------------------------------
   // Orders — captured by the create_order tool.

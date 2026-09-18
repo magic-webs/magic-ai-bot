@@ -53,7 +53,9 @@ import {
   DatabaseIcon,
   InfoIcon,
   XIcon,
+  PlugsConnectedIcon,
 } from "@phosphor-icons/react";
+import { findIntegration } from "@/convex/lib/integrations";
 
 type ToolParameter = {
   name: string;
@@ -818,6 +820,12 @@ export default function ToolsPage() {
                   {tool.agentName ? (
                     <Badge variant="secondary">only {tool.agentName}</Badge>
                   ) : null}
+                  {findIntegration(tool.integration ?? "") ? (
+                    <Badge variant="secondary">
+                      <PlugsConnectedIcon />{" "}
+                      {findIntegration(tool.integration ?? "")?.name}
+                    </Badge>
+                  ) : null}
                   {tool.callCount > 0 ? (
                     <Badge variant="ghost">{tool.callCount} calls</Badge>
                   ) : null}
@@ -851,6 +859,14 @@ export default function ToolsPage() {
                 {tool.sourceTask ? (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Drafted from: &ldquo;{tool.sourceTask}&rdquo;
+                  </p>
+                ) : null}
+                {findIntegration(tool.integration ?? "") ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Written by the integration. The switch here is
+                    workspace-wide; which agents may call it is set per agent
+                    under Knowledge &amp; tools, and reconnecting rewrites this
+                    row.
                   </p>
                 ) : null}
               </ItemContent>

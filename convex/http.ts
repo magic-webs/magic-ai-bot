@@ -165,4 +165,129 @@ http.route({
   }),
 });
 
+// ---------------------------------------------------------------------------
+// Google integrations.
+//
+// Both halves live on the Convex deployment rather than the Next app. The
+// refresh token and the OAuth client secret never leave Convex, the callback
+// URL is stable per deployment (so it can be whitelisted once in the Google
+// console and works in local development with no tunnel), and the engine
+// reaches the tool endpoints without the web app being deployed at all.
+//
+//   https://<deployment>.convex.site/integrations/google/callback
+//   https://<deployment>.convex.site/integrations/google/<action>?token=…
+// ---------------------------------------------------------------------------
+
+/** A page for the browser, since the callback is the only route a human sees. */
+function callbackPage(title: string, detail: string, backTo?: string): Response {
+  const escape = (text: string) =>
+    text.replace(/[<>&]/g, (char) =>
+      char === "<" ? "&lt;" : char === ">" ? "&gt;" : "&amp;"
+    );
+
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8">` +
+      `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+      `<title>${escape(title)}</title></head>` +
+      `<body style="font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.5rem;line-height:1.6">` +
+      `<h1 style="font-size:1.25rem">${escape(title)}</h1>` +
+      `<p style="color:#555">${escape(detail)}</p>` +
+      (backTo
+        ? `<p><a href="${escape(backTo)}">Back to Integrations</a></p>`
+        : "") +
+      `</body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+  );
+}
+
+http.route({
+  path: "/integrations/google/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const params = new URL(request.url).searchParams;
+    const state = params.get("state") ?? "";
+    const code = params.get("code");
+    const denied = params.get("error");
+
+    // Somebody who pressed Cancel on the consent screen. Burn the state so it
+    // cannot be reused, then send them back without an alarming page.
+    if (denied || !code) {
+      const pending = state
+        ? await ctx.runMutation(internal.integrations.takeState, { state })
+        : null;
+      if (pending?.returnTo) {
+        return Response.redirect(
+          `${pending.returnTo}?integration_error=${encodeURIComponent(
+            denied === "access_denied"
+              ? "Google sign-in was cancelled."
+              : denied ?? "Google did not return an authorisation code."
+          )}`,
+          302
+        );
+      }
+      return callbackPage(
+        "Nothing was connected",
+        denied === "access_denied"
+          ? "Google sign-in was cancelled. You can close this tab."
+          : "Google did not return an authorisation code."
+      );
+    }
+
+    const result = await ctx.runAction(internal.integrations.finishGoogleConnect, {
+      code,
+      state,
+      siteUrl: process.env.CONVEX_SITE_URL ?? "",
+    });
+
+    if (!result.returnTo) {
+      return callbackPage(
+        result.ok ? "Connected" : "Could not connect",
+        result.error ?? "You can close this tab."
+      );
+    }
+
+    const query = result.ok
+      ? `?connected=${encodeURIComponent(result.integration ?? "")}`
+      : `?integration_error=${encodeURIComponent(result.error ?? "Could not connect.")}`;
+    return Response.redirect(`${result.returnTo}${query}`, 302);
+  }),
+});
+
+http.route({
+  pathPrefix: "/integrations/google/",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const action = url.pathname.replace(/^\/integrations\/google\//, "");
+    const token = url.searchParams.get("token");
+
+    if (!token) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Missing token." }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // The engine sends the tool's parameters as the whole JSON body; a body
+    // that will not parse is a bug on our side, not something to pass on.
+    let input: unknown = {};
+    try {
+      input = await request.json();
+    } catch {
+      input = {};
+    }
+
+    const result = await ctx.runAction(internal.integrations.runToolCall, {
+      callToken: token,
+      action,
+      input,
+    });
+
+    return new Response(JSON.stringify(result.body), {
+      status: result.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
 export default http;
