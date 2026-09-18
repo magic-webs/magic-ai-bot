@@ -269,22 +269,80 @@ export async function createFolder(
 
 export type DriveHit = { name: string; url: string; updated: string };
 
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/**
+ * Single quotes would close the string in Drive's query language and
+ * backslashes would escape their way out of it. Stripped rather than escaped:
+ * a filename search does not need either.
+ */
+const safeTerm = (term: string) => term.replace(/['\\]/g, "").trim();
+
+/**
+ * The shared folder and every folder under it.
+ *
+ * Drive's `in parents` matches direct children only, so searching the folder
+ * id alone finds nothing at all once somebody has tidied their documents into
+ * subfolders — which is the first thing anybody does. The subtree is resolved
+ * per search rather than stored: a folder added this morning has to be
+ * searchable this afternoon without reconnecting.
+ *
+ * Both caps are there to keep `q` inside Drive's length limit on a Drive
+ * somebody has gone to town on. A folder past them is simply not searched,
+ * which is a gap in the results rather than an error.
+ */
+async function folderAndDescendants(
+  accessToken: string,
+  rootId: string,
+  maxDepth = 4,
+  maxFolders = 40
+): Promise<string[]> {
+  const all = [rootId];
+  let frontier = [rootId];
+
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+    const query = [
+      `(${frontier.map((id) => `'${id}' in parents`).join(" or ")})`,
+      `mimeType = '${FOLDER_MIME}'`,
+      "trashed = false",
+    ].join(" and ");
+
+    const result = await call<{ files?: Array<{ id?: string }> }>(
+      accessToken,
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}` +
+        "&fields=files(id)&pageSize=100"
+    );
+
+    frontier = (result.files ?? [])
+      .map((file) => file.id)
+      .filter((id): id is string => Boolean(id) && !all.includes(id!))
+      .slice(0, Math.max(0, maxFolders - all.length));
+    all.push(...frontier);
+    if (all.length >= maxFolders) break;
+  }
+
+  return all;
+}
+
 export async function searchFolder(
   accessToken: string,
   folderId: string,
   term: string,
   limit = 5
 ): Promise<DriveHit[]> {
-  // Single quotes would close the string in Drive's query language and
-  // backslashes would escape their way out of it. Stripped rather than
-  // escaped: a filename search does not need either.
-  const safe = term.replace(/['\\]/g, "").trim();
+  const safe = safeTerm(term);
   if (!safe) return [];
 
+  const parents = await folderAndDescendants(accessToken, folderId);
+
   const query = [
-    `'${folderId}' in parents`,
+    `(${parents.map((id) => `'${id}' in parents`).join(" or ")})`,
     "trashed = false",
     `name contains '${safe}'`,
+    // Folders are files in Drive and match a name search like anything else.
+    // A folder link is not the document the customer asked for, and the agent
+    // has no way to tell one from the other, so they never come back as hits.
+    `mimeType != '${FOLDER_MIME}'`,
   ].join(" and ");
 
   const result = await call<{ files?: DriveHit[] }>(

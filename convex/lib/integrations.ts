@@ -229,7 +229,7 @@ export const INTEGRATIONS: IntegrationSpec[] = [
       "Agents find a brochure or price list and send the customer the link.",
     gives: [
       "Agents answer “can you send me the spec sheet?” with the real file",
-      "Only the folder we create is searched, so nothing else can leak",
+      "Only the folder we create is searched, subfolders and all, so nothing else can leak",
       "Drop a new price list in the folder and it is live — no re-connecting",
     ],
     scopes: [
@@ -237,7 +237,7 @@ export const INTEGRATIONS: IntegrationSpec[] = [
       "https://www.googleapis.com/auth/drive.metadata.readonly",
     ],
     provisions:
-      "A folder called “<workspace> — Agent documents”. Put anything agents may send in it.",
+      "A folder called “<workspace> — Agent documents”. Put anything agents may send in it — subfolders are searched too.",
     tools: [
       {
         name: "find_document",
