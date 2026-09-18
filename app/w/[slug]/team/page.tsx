@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -53,11 +52,10 @@ import {
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
-  ChatsIcon,
+  ArrowUpRightIcon,
   DotsThreeIcon,
   PlusIcon,
   RobotIcon,
-  SlidersIcon,
   UploadSimpleIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -97,77 +95,199 @@ function countLabel(value: number | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// One card on the rail. Same frame for both kinds, so the two tabs read as one
-// roster rather than as two unrelated lists.
+// One card on the rail.
+//
+// A poster rather than a data row: a tall tinted panel, the face as the
+// artwork, and one line of what they do. A roster is the first thing anybody
+// is shown about a workspace, and eight identical grey rectangles say less
+// about a team than eight cards you can tell apart at a glance.
+//
+// Each card carries its own colour rather than the theme's, which is why the
+// foreground is set explicitly on every tone — these do not follow light and
+// dark, so contrast has to be decided here rather than inherited.
 // ---------------------------------------------------------------------------
 
-function RosterCard({
-  avatar,
+type Tone = {
+  card: string;
+  title: string;
+  body: string;
+  eyebrow: string;
+  pill: string;
+  art: string;
+};
+
+const TONES: Tone[] = [
+  {
+    card: "bg-[#1F2422]",
+    title: "text-white",
+    body: "text-white/70",
+    eyebrow: "text-white/55",
+    pill: "border-white/25 text-white/80",
+    art: "bg-white/[0.06]",
+  },
+  {
+    card: "bg-[#E2703F]",
+    title: "text-[#2A1206]",
+    body: "text-[#2A1206]/75",
+    eyebrow: "text-[#2A1206]/60",
+    pill: "border-[#2A1206]/30 text-[#2A1206]/80",
+    art: "bg-[#2A1206]/[0.07]",
+  },
+  {
+    card: "bg-[#B7C0A8]",
+    title: "text-[#1F2422]",
+    body: "text-[#1F2422]/75",
+    eyebrow: "text-[#1F2422]/60",
+    pill: "border-[#1F2422]/25 text-[#1F2422]/80",
+    art: "bg-[#1F2422]/[0.07]",
+  },
+  {
+    card: "bg-[#DED4C3]",
+    title: "text-[#1F2422]",
+    body: "text-[#1F2422]/75",
+    eyebrow: "text-[#1F2422]/60",
+    pill: "border-[#1F2422]/25 text-[#1F2422]/80",
+    art: "bg-[#1F2422]/[0.07]",
+  },
+  {
+    card: "bg-[#A9BDC9]",
+    title: "text-[#16212B]",
+    body: "text-[#16212B]/75",
+    eyebrow: "text-[#16212B]/60",
+    pill: "border-[#16212B]/25 text-[#16212B]/80",
+    art: "bg-[#16212B]/[0.07]",
+  },
+];
+
+// Hand-laid, not random: the tilt has to be the same on every render or a card
+// jumps each time the roster reloads. Straightens on hover, so the one you are
+// reading is the one sitting square.
+const TILTS = [
+  "-rotate-[1.2deg]",
+  "rotate-[0.9deg]",
+  "-rotate-[0.6deg]",
+  "rotate-[1.4deg]",
+  "-rotate-[0.9deg]",
+];
+
+function PosterCard({
+  index,
+  eyebrow,
   name,
-  role,
+  description,
+  art,
   messages,
   status,
   statusLabel,
   menu,
-  actions,
-  footnote,
+  action,
 }: {
-  avatar: React.ReactNode;
+  /** Position on the rail, which picks the colour and the tilt. */
+  index: number;
+  eyebrow: string;
   name: string;
-  role: string;
+  description: string;
+  art: React.ReactNode;
   messages: number | null | undefined;
   status: string;
   statusLabel: string;
   menu?: React.ReactNode;
-  actions?: React.ReactNode;
-  footnote?: string | null;
+  action?: { label: string; href: string };
 }) {
-  return (
-    <Card className="flex w-60 shrink-0 snap-start flex-col items-center gap-0 rounded-2xl p-5 text-center transition-shadow hover:shadow-md">
-      {menu ? <div className="-mt-1 mb-1 self-end">{menu}</div> : null}
+  const tone = TONES[index % TONES.length];
 
-      <div className="relative">
-        {avatar}
-        {/* The status dot rides the avatar rather than sitting in a badge: it
-            is about the person, and a card this small has no room for a
-            second row of chips. */}
-        <span
-          aria-label={statusLabel}
-          title={statusLabel}
+  return (
+    <article
+      className={cn(
+        "group relative flex h-[26rem] w-72 shrink-0 snap-start flex-col rounded-[28px] p-6",
+        "transition-transform duration-300 hover:rotate-0 hover:-translate-y-1",
+        tone.card,
+        TILTS[index % TILTS.length]
+      )}
+    >
+      {/* ------------------------------------------------- eyebrow + pill */}
+      <div className="flex items-start justify-between gap-2">
+        <p
           className={cn(
-            "absolute right-0.5 bottom-0.5 size-3.5 rounded-full border-2 border-card",
-            STATUS_TONE[status] ?? STATUS_TONE.inactive
+            "pt-1 font-mono text-[11px] tracking-[0.14em] uppercase",
+            tone.eyebrow
           )}
-        />
+        >
+          {eyebrow}
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          <span
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] uppercase",
+              tone.pill
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "size-1.5 rounded-full",
+                STATUS_TONE[status] ?? STATUS_TONE.inactive
+              )}
+            />
+            {statusLabel}
+          </span>
+          {menu ? <span className={tone.title}>{menu}</span> : null}
+        </div>
       </div>
 
-      <p className="mt-3 w-full truncate font-heading text-base font-semibold">
+      {/* -------------------------------------------------------- the name */}
+      <h3
+        className={cn(
+          "mt-3 truncate font-heading text-2xl font-bold tracking-tight",
+          tone.title
+        )}
+        title={name}
+      >
         {name}
+      </h3>
+      <p className={cn("mt-1 line-clamp-2 text-sm", tone.body)}>
+        {description}
       </p>
-      <p className="mt-0.5 line-clamp-2 min-h-8 text-sm text-muted-foreground">
-        {role}
-      </p>
 
-      <Badge variant="secondary" className="mt-2 gap-1.5">
-        <ChatsIcon className="size-3.5" />
-        {countLabel(messages)} message{messages === 1 ? "" : "s"}
-      </Badge>
+      {/* --------------------------------------------------- the face as art */}
+      <div
+        className={cn(
+          "mt-4 flex flex-1 items-center justify-center rounded-2xl",
+          tone.art
+        )}
+      >
+        {art}
+      </div>
 
-      {footnote ? (
-        <p className="mt-2 line-clamp-1 w-full text-xs text-muted-foreground">
-          {footnote}
-        </p>
-      ) : null}
-
-      {actions ? <div className="mt-4 w-full">{actions}</div> : null}
-    </Card>
+      {/* ------------------------------------------------------- the footer */}
+      <div className="mt-4 flex items-end justify-between gap-2">
+        <span
+          className={cn("font-mono text-[11px] tracking-[0.12em] uppercase", tone.eyebrow)}
+        >
+          {countLabel(messages)} msg{messages === 1 ? "" : "s"}
+        </span>
+        {action ? (
+          <Link
+            href={action.href}
+            className={cn(
+              "flex items-center gap-1 font-mono text-[11px] tracking-[0.14em] uppercase underline-offset-4 hover:underline",
+              tone.title
+            )}
+          >
+            {action.label} <ArrowUpRightIcon className="size-3.5" />
+          </Link>
+        ) : null}
+      </div>
+    </article>
   );
 }
 
 /** The rail itself: a row that scrolls sideways and snaps. */
 function Rail({ children }: { children: React.ReactNode }) {
+  // Vertical padding rather than none: the cards are tilted and lift on hover,
+  // and an overflow container crops whatever leaves the box.
   return (
-    <div className="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pt-1 pb-3">
+    <div className="-mx-1 flex snap-x snap-mandatory gap-5 overflow-x-auto px-1 py-3">
       {children}
     </div>
   );
@@ -408,6 +528,10 @@ function MemberMenu({ member }: { member: Member }) {
             <Button
               size="icon-sm"
               variant="ghost"
+              // Inherits the card's colour, including on hover — ghost's own
+              // hover colour is the theme's foreground, which is invisible on
+              // the dark tone.
+              className="text-current hover:bg-current/10 hover:text-current!"
               aria-label={`Options for ${member.name}`}
             >
               <DotsThreeIcon />
@@ -539,39 +663,33 @@ export default function TeamPage() {
           ) : (
             <>
               <Rail>
-                {bots.map((agent) => (
-                  <RosterCard
+                {bots.map((agent, index) => (
+                  <PosterCard
                     key={agent._id}
-                    avatar={
+                    index={index}
+                    eyebrow={
+                      agent.kind === "router"
+                        ? "Front desk"
+                        : agent.kind === "follow_up"
+                          ? "Follow-up desk"
+                          : "AI agent"
+                    }
+                    name={agent.botName}
+                    description={agent.role}
+                    art={
                       <AgentAvatar
                         name={agent.botName}
                         gender={agent.gender}
-                        size={72}
+                        size={124}
                       />
                     }
-                    name={agent.botName}
-                    role={agent.role}
                     messages={statsById.get(agent._id)?.messages ?? 0}
                     status={agent.status === "active" ? "active" : "away"}
                     statusLabel={agent.status}
-                    footnote={
-                      agent.kind === "router"
-                        ? "Front desk — answers first"
-                        : agent.kind === "follow_up"
-                          ? "Follow-up desk"
-                          : null
-                    }
-                    actions={
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full"
-                        nativeButton={false}
-                        render={<Link href={`${base}/agents/${agent._id}`} />}
-                      >
-                        <SlidersIcon /> Configure
-                      </Button>
-                    }
+                    action={{
+                      label: "Configure",
+                      href: `${base}/agents/${agent._id}`,
+                    }}
                   />
                 ))}
               </Rail>
@@ -612,23 +730,24 @@ export default function TeamPage() {
           ) : (
             <>
               <Rail>
-                {people.map((member) => (
-                  <RosterCard
+                {people.map((member, index) => (
+                  <PosterCard
                     key={member._id}
-                    avatar={
+                    index={index}
+                    eyebrow={member.role || "Team"}
+                    name={member.name}
+                    description={member.note || member.email || member.role}
+                    art={
                       <TeamAvatar
                         name={member.name}
                         photo={member.photo}
-                        size={72}
+                        size={124}
                       />
                     }
-                    name={member.name}
-                    role={member.role}
                     messages={member.messageCount}
                     status={member.status}
                     statusLabel={member.status}
                     menu={<MemberMenu member={member} />}
-                    footnote={member.note ?? member.email ?? null}
                   />
                 ))}
 
@@ -638,7 +757,7 @@ export default function TeamPage() {
                   trigger={
                     <button
                       type="button"
-                      className="flex w-60 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-2xl border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                      className="flex h-[26rem] w-72 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[28px] border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
                     >
                       <PlusIcon className="size-6" />
                       <span className="text-sm font-medium">Add a teammate</span>
