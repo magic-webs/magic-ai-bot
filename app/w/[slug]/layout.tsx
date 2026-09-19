@@ -45,6 +45,7 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
   Alert02Icon,
   ArrowRight01Icon,
+  Building06Icon,
   BubbleChatIcon,
   ChartUpIcon,
   ConnectIcon,
@@ -90,6 +91,9 @@ const NAV: Array<{
     label: "Build",
     icon: ToolboxIcon,
     items: [
+      // First: it is what every agent answers from, so it is the thing to fill
+      // in before there are agents to fill it for.
+      { href: "/company", label: "Company profile", icon: Building06Icon },
       { href: "/agents", label: "Agents", icon: Robot01Icon },
       { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/knowledge", label: "Knowledge base", icon: LibraryIcon },

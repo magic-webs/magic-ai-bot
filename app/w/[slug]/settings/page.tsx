@@ -5,12 +5,10 @@ import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useWorkspace } from "@/components/workspace-provider";
-import { KeyValueEditor, type KeyValue } from "@/components/editors";
 import { WorkspaceAccessCard } from "@/components/workspace-access";
 import { McpConnectorCard } from "@/components/mcp-connector-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -67,20 +65,8 @@ export default function WorkspaceSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [form, setForm] = useState({
-    name: workspace.name,
-    tagline: workspace.tagline ?? "",
-    industry: workspace.industry ?? "",
-    description: workspace.description ?? "",
-    website: workspace.website ?? "",
-    supportEmail: workspace.supportEmail ?? "",
-    supportPhone: workspace.supportPhone ?? "",
-    address: workspace.address ?? "",
-    locale: workspace.locale,
-    timezone: workspace.timezone,
-    currency: workspace.currency,
     theme: workspace.theme ?? "",
     webhookUrl: workspace.webhookUrl ?? "",
-    facts: workspace.facts as KeyValue[],
   });
 
   // Re-seed the form if a different workspace is opened. Adjusting state during
@@ -89,20 +75,8 @@ export default function WorkspaceSettingsPage() {
   if (formFor !== workspace._id) {
     setFormFor(workspace._id);
     setForm({
-      name: workspace.name,
-      tagline: workspace.tagline ?? "",
-      industry: workspace.industry ?? "",
-      description: workspace.description ?? "",
-      website: workspace.website ?? "",
-      supportEmail: workspace.supportEmail ?? "",
-      supportPhone: workspace.supportPhone ?? "",
-      address: workspace.address ?? "",
-      locale: workspace.locale,
-      timezone: workspace.timezone,
-      currency: workspace.currency,
       theme: workspace.theme ?? "",
-    webhookUrl: workspace.webhookUrl ?? "",
-      facts: workspace.facts as KeyValue[],
+      webhookUrl: workspace.webhookUrl ?? "",
     });
   }
 
@@ -116,23 +90,11 @@ export default function WorkspaceSettingsPage() {
     try {
       await updateWorkspace({
         workspaceId: workspace._id,
-        name: form.name,
-        tagline: form.tagline,
-        industry: form.industry,
-        description: form.description,
-        website: form.website,
-        supportEmail: form.supportEmail,
-        supportPhone: form.supportPhone,
-        address: form.address,
-        locale: form.locale,
-        timezone: form.timezone,
-        currency: form.currency,
         // Sent as "" rather than undefined when the default is chosen: an
         // undefined arg is dropped before it reaches the mutation, so the
         // stored theme would never clear.
         theme: form.theme,
         webhookUrl: form.webhookUrl,
-        facts: form.facts.filter((fact) => fact.key.trim()),
       });
       toast.add({ title: "Workspace saved", type: "success" });
     } catch (error) {
@@ -155,7 +117,8 @@ export default function WorkspaceSettingsPage() {
             Workspace settings
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Injected into every agent&apos;s system prompt.
+            Access, delivery and appearance. The company profile agents answer
+            from lives under Build.
           </p>
         </div>
         <Button onClick={save} disabled={saving}>
@@ -164,143 +127,14 @@ export default function WorkspaceSettingsPage() {
       </header>
 
       <div className="flex min-w-0 flex-col gap-5 p-4 sm:p-6">
-        <Tabs defaultValue="profile" className="gap-4">
+        <Tabs defaultValue="access" className="gap-4">
           <TabsList>
-            <TabsTrigger value="profile">Company</TabsTrigger>
             <TabsTrigger value="access">Access</TabsTrigger>
             <TabsTrigger value="webhook">Webhook</TabsTrigger>
             <TabsTrigger value="assistant">Assistant</TabsTrigger>
             <TabsTrigger value="theme">Theme</TabsTrigger>
             <TabsTrigger value="danger">Danger zone</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="profile">
-            <Card>
-              <CardHeader>
-                <CardTitle>Company profile</CardTitle>
-                <CardDescription>
-                  Who the business is, what it sells, and how customers reach a human.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-name">Name</Label>
-                    <Input
-                      id="s-name"
-                      value={form.name}
-                      onChange={(event) => set("name", event.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-tagline">Tagline</Label>
-                    <Input
-                      id="s-tagline"
-                      value={form.tagline}
-                      onChange={(event) => set("tagline", event.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-industry">Industry</Label>
-                    <Input
-                      id="s-industry"
-                      value={form.industry}
-                      onChange={(event) => set("industry", event.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="s-description">What the business does</Label>
-                  <Textarea
-                    id="s-description"
-                    rows={4}
-                    value={form.description}
-                    onChange={(event) => set("description", event.target.value)}
-                  />
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-website">Website</Label>
-                    <Input
-                      id="s-website"
-                      value={form.website}
-                      onChange={(event) => set("website", event.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-email">Support email</Label>
-                    <Input
-                      id="s-email"
-                      value={form.supportEmail}
-                      onChange={(event) => set("supportEmail", event.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-phone">Support phone</Label>
-                    <Input
-                      id="s-phone"
-                      value={form.supportPhone}
-                      onChange={(event) => set("supportPhone", event.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-address">Address</Label>
-                    <Input
-                      id="s-address"
-                      value={form.address}
-                      onChange={(event) => set("address", event.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-locale">Locale</Label>
-                    <Input
-                      id="s-locale"
-                      className="font-mono"
-                      value={form.locale}
-                      onChange={(event) => set("locale", event.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Drives spelling conventions, e.g. en-GB gives &ldquo;colour&rdquo;.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-timezone">Timezone</Label>
-                    <Input
-                      id="s-timezone"
-                      className="font-mono"
-                      value={form.timezone}
-                      onChange={(event) => set("timezone", event.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="s-currency">Currency</Label>
-                    <Input
-                      id="s-currency"
-                      className="font-mono"
-                      value={form.currency}
-                      onChange={(event) => set("currency", event.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <Separator />
-
-                <KeyValueEditor
-                  label="Company facts"
-                  description="Short, checkable facts every agent may state — delivery areas, minimum order, opening hours, lead times."
-                  value={form.facts}
-                  onChange={(next) => set("facts", next)}
-                  keyPlaceholder="Delivery"
-                  valuePlaceholder="UK mainland only, 3–7 working days"
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="access">
             <Card>
