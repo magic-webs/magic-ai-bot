@@ -56,7 +56,6 @@ import {
   Package01Icon,
   ReceiptIcon,
   Robot01Icon,
-  Rocket01Icon,
   Settings01Icon,
   ToolboxIcon,
   UserGroupIcon,
@@ -66,7 +65,7 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 
-// Five rows where there were sixteen. Sections that hold more than one page
+// Seven rows where there were sixteen. Sections that hold more than one page
 // are collapsed behind their own name and open themselves when you are inside
 // one, so the sidebar shows where you are rather than everything there is.
 const NAV: Array<{
@@ -77,9 +76,6 @@ const NAV: Array<{
   items?: Array<{ href: string; label: string; icon: IconSvgElement }>;
 }> = [
   { label: "Dashboard", icon: DashboardSpeed02Icon, href: "" },
-  // Above Build rather than beside Settings: it is the thing a new workspace
-  // does first, and it covers what the Build section holds one page at a time.
-  { label: "Setup", icon: Rocket01Icon, href: "/onboarding" },
   // A row of its own rather than a child of Build: it is the whole roster,
   // agents and people on one page, and "who answers for us" is a question you
   // should not have to open a section to ask. Build keeps the agent editors.
@@ -90,14 +86,15 @@ const NAV: Array<{
     // mistake rather than a grouping.
     label: "Build",
     icon: ToolboxIcon,
+    // What the agents answer from first, then the agents themselves: you fill
+    // the profile, the knowledge and the catalogue before there is anything
+    // for an agent to say.
     items: [
-      // First: it is what every agent answers from, so it is the thing to fill
-      // in before there are agents to fill it for.
       { href: "/company", label: "Company profile", icon: Building06Icon },
-      { href: "/agents", label: "Agents", icon: Robot01Icon },
-      { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/knowledge", label: "Knowledge base", icon: LibraryIcon },
       { href: "/products", label: "Catalogue", icon: Package01Icon },
+      { href: "/agents", label: "Agents", icon: Robot01Icon },
+      { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/tools", label: "Custom tools", icon: Wrench01Icon },
     ],
   },
