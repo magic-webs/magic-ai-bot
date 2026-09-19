@@ -96,6 +96,30 @@ function present(event: string, data: unknown): Presentation {
     };
   }
 
+  if (event.startsWith("record_")) {
+    const book = (row.book as { name?: string } | undefined)?.name;
+    const record = (row.record ?? {}) as Record<string, unknown>;
+    const person = (record.person as { name?: string } | undefined)?.name;
+    const reference =
+      typeof record.reference === "string" ? record.reference : undefined;
+    const stage = typeof record.stage === "string" ? record.stage : undefined;
+
+    // A filed record is the one worth a sound: it is new work arriving. An
+    // update is the team's own edit coming back to them, so it lands quietly.
+    const filed = event === "record_filed";
+    return {
+      title: filed
+        ? `New ${(book ?? "record").toLowerCase()}`
+        : `${book ?? "Record"} updated`,
+      body:
+        [person, reference, stage].filter(Boolean).join(" · ") ||
+        (filed ? "An agent filed a record." : "A record changed."),
+      channelId: filed ? CHANNELS.orders : CHANNELS.default,
+      sound: filed ? "order.wav" : "default",
+      priority: filed ? "high" : "default",
+    };
+  }
+
   // Anything else still arrives rather than being silently dropped, so a new
   // event type is visible before it has been given its own copy.
   return {

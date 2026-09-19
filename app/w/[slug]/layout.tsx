@@ -50,6 +50,7 @@ import {
   ChartUpIcon,
   ConnectIcon,
   DashboardSpeed02Icon,
+  FolderLibraryIcon,
   FunnelIcon,
   InboxIcon,
   LibraryIcon,
@@ -114,6 +115,10 @@ const NAV: Array<{
       { href: "/leads", label: "Leads", icon: FunnelIcon },
       { href: "/contacts", label: "Contacts", icon: UserMultipleIcon },
       { href: "/orders", label: "Orders", icon: ReceiptIcon },
+      // Everything an agent collects that is not an order: memberships,
+      // appointments, site visits. Under Sales rather than in a section of its
+      // own because it is the same shelf — what a conversation produced.
+      { href: "/records", label: "Records", icon: FolderLibraryIcon },
     ],
   },
   // Between the work and the settings: connecting Sheets or a calendar is

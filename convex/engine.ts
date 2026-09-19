@@ -36,6 +36,11 @@ import {
   renderTemplate,
   unusedParameterKeys,
 } from "./lib/toolSchema";
+import {
+  checkValues,
+  recordToolNames,
+  type RecordField,
+} from "./lib/records";
 
 const MAX_TOOL_OUTPUT_CHARS = 4000;
 const DEFAULT_HTTP_TIMEOUT_MS = 12_000;
@@ -1051,6 +1056,333 @@ function buildCustomTools(
 }
 
 // ---------------------------------------------------------------------------
+// Record tools
+//
+// One book becomes up to three tools named after it — `file_membership`,
+// `find_membership`, `update_membership` — rather than one generic
+// `create_record(type)`. The model picks a tool far more reliably than it picks
+// a string argument, and the tool list is then a readable description of what
+// this particular agent's job actually is.
+//
+// `dynamicTool` because the input schema comes out of the book's fields at
+// runtime, so there is no static type to give `tool()`.
+// ---------------------------------------------------------------------------
+
+/** The book's fields, plus the person the record is about. */
+function recordInputSchema(fields: RecordField[], forUpdate: boolean) {
+  const properties: Record<string, Record<string, unknown>> = {};
+  const required: string[] = [];
+
+  for (const field of fields) {
+    const key = field.key.trim();
+    if (!key) continue;
+
+    const property: Record<string, unknown> = {
+      // Everything crosses as a string. A date the customer gave as "next
+      // Tuesday" and a number they gave as "about 20" are both worth keeping
+      // verbatim, and a typed schema would make the model discard or invent
+      // rather than pass them on.
+      type: "string",
+      description: [
+        field.label,
+        field.type === "select" && field.options?.length
+          ? ` — one of: ${field.options.join(", ")}`
+          : "",
+        field.type === "boolean" ? " — yes or no" : "",
+        field.type === "date" ? " — a date, ideally YYYY-MM-DD" : "",
+        field.type === "number" ? " — a number" : "",
+        field.example ? `. Example: ${field.example}` : "",
+      ].join(""),
+    };
+    if (field.type === "select" && field.options?.length) {
+      property.enum = field.options;
+    }
+    properties[key] = property;
+    // On an update the model is changing one detail, not restating all of them.
+    if (field.required && !forUpdate) required.push(key);
+  }
+
+  properties.personName = {
+    type: "string",
+    description: "Who this record is about, if it is not the person you are talking to or you have only just learned their name",
+  };
+  properties.personPhone = { type: "string", description: "Their phone number" };
+  properties.personEmail = { type: "string", description: "Their email address" };
+  properties.personCompany = { type: "string", description: "Their company" };
+  properties.notes = {
+    type: "string",
+    description:
+      "Anything else worth recording that has no field of its own. Not a summary of the conversation.",
+  };
+
+  return {
+    type: "object" as const,
+    properties,
+    required,
+    additionalProperties: false as const,
+  };
+}
+
+function splitPerson(input: Record<string, unknown>): {
+  person?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    company?: string;
+  };
+  notes?: string;
+  details: Record<string, unknown>;
+} {
+  const text = (value: unknown) => {
+    const asString = value === undefined || value === null ? "" : String(value).trim();
+    return asString || undefined;
+  };
+
+  const person = {
+    name: text(input.personName),
+    phone: text(input.personPhone),
+    email: text(input.personEmail),
+    company: text(input.personCompany),
+  };
+
+  const details = { ...input };
+  delete details.personName;
+  delete details.personPhone;
+  delete details.personEmail;
+  delete details.personCompany;
+  delete details.notes;
+
+  const hasPerson = Object.values(person).some(Boolean);
+  return {
+    person: hasPerson ? person : undefined,
+    notes: text(input.notes),
+    details,
+  };
+}
+
+function buildRecordTools(
+  ctx: ActionCtx,
+  turn: TurnContext,
+  books: Doc<"recordBooks">[]
+): ToolSet {
+  const { workspace, agent, trace } = turn;
+  const registry: ToolSet = {};
+
+  for (const book of books) {
+    const names = recordToolNames(book.handle);
+    const fields = book.fields as RecordField[];
+    const one = book.name.toLowerCase();
+
+    registry[names.file] = dynamicTool({
+      description: [
+        `Record ${one === book.name ? `a ${one}` : `a ${one}`} once you have collected every required detail and the customer has confirmed it back to you.`,
+        book.purpose.trim(),
+        "Never call this with placeholder or invented values — ask the customer instead.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      inputSchema: jsonSchema(recordInputSchema(fields, false)),
+      execute: traced(trace, names.file, async (rawInput: unknown) => {
+        const input = (rawInput ?? {}) as Record<string, unknown>;
+        const { person, notes, details } = splitPerson(input);
+        const checked = checkValues(fields, details);
+
+        // Thrown rather than returned, so the AI SDK feeds it back as a tool
+        // error and the model treats it as "go and ask", not as a result it
+        // can report to the customer as success.
+        if (checked.missing.length > 0) {
+          throw new Error(
+            `Not filed — still missing: ${checked.missing.join(", ")}. Ask the customer for those, then call this again with everything.`
+          );
+        }
+        if (checked.problems.length > 0) {
+          throw new Error(`Not filed. ${checked.problems.join(" ")}`);
+        }
+
+        const filed = await ctx.runMutation(internal.records.fileFromTool, {
+          bookId: book._id,
+          agentId: agent._id,
+          conversationId: turn.conversationId,
+          contactId: turn.contactId,
+          source: turn.channelType === "whatsapp" ? "whatsapp" : "web",
+          person:
+            person ??
+            (turn.contact.name || turn.contact.phone
+              ? {
+                  name: turn.contact.name,
+                  phone: turn.contact.phone,
+                  email: turn.contact.email,
+                  company: turn.contact.company,
+                }
+              : undefined),
+          values: checked.values,
+          notes,
+        });
+
+        return {
+          ok: true,
+          reference: filed.reference,
+          stage: filed.stage,
+          message: `Recorded as ${filed.reference}. Give the customer that reference and tell them what happens next.`,
+        };
+      }),
+    });
+
+    if (book.allowLookup) {
+      registry[names.find] = dynamicTool({
+        description: `Look up an existing ${one} — by the reference the customer quotes, by a name or detail they give, or, with no arguments at all, whatever this customer already has on file.`,
+        inputSchema: jsonSchema({
+          type: "object" as const,
+          properties: {
+            reference: {
+              type: "string",
+              description: `The reference the customer quoted, such as ${book.referencePrefix}-H4K82Q`,
+            },
+            search: {
+              type: "string",
+              description:
+                "A name, phone number, email or other detail to search on",
+            },
+          },
+          required: [] as string[],
+          additionalProperties: false as const,
+        }),
+        execute: traced(trace, names.find, async (rawInput: unknown) => {
+          const input = (rawInput ?? {}) as Record<string, unknown>;
+          const rows = await ctx.runQuery(internal.records.findForTool, {
+            bookId: book._id,
+            workspaceId: workspace._id,
+            reference: input.reference ? String(input.reference) : undefined,
+            search: input.search ? String(input.search) : undefined,
+            contactId: turn.contactId,
+            limit: 5,
+          });
+
+          if (rows.length === 0) {
+            return {
+              found: false,
+              note: `No ${book.pluralName.toLowerCase()} matched. Say so plainly rather than guessing, and offer to take the details for a new one.`,
+            };
+          }
+
+          return {
+            found: true,
+            count: rows.length,
+            results: rows.map((row) => ({
+              reference: row.reference,
+              stage: row.stage ?? null,
+              person: row.person ?? null,
+              details: Object.fromEntries(
+                row.values.map((pair) => [pair.key, pair.value])
+              ),
+              notes: row.notes ?? null,
+              filedOn: new Date(row.createdAt).toISOString().slice(0, 10),
+            })),
+          };
+        }),
+      });
+    }
+
+    if (book.allowUpdate) {
+      const updateSchema = recordInputSchema(fields, true);
+      registry[names.update] = dynamicTool({
+        description: [
+          `Change an existing ${one} rather than filing a second one.`,
+          book.allowLookup
+            ? `Find its reference with ${names.find} first if the customer has not quoted one.`
+            : "",
+          "Pass only the details that are changing.",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        inputSchema: jsonSchema({
+          ...updateSchema,
+          properties: {
+            reference: {
+              type: "string",
+              description: `Which one to change, by its reference, e.g. ${book.referencePrefix}-H4K82Q`,
+            },
+            ...(book.stages.length > 0
+              ? {
+                  stage: {
+                    type: "string",
+                    description: `Move it to a different stage. One of: ${book.stages.join(", ")}`,
+                    enum: book.stages,
+                  },
+                }
+              : {}),
+            ...updateSchema.properties,
+          },
+          required: ["reference"],
+        }),
+        execute: traced(trace, names.update, async (rawInput: unknown) => {
+          const input = (rawInput ?? {}) as Record<string, unknown>;
+          const reference = String(input.reference ?? "").trim();
+          if (!reference) {
+            throw new Error(
+              "Which one? Pass the reference of the record to change."
+            );
+          }
+
+          const found = await ctx.runQuery(internal.records.findForTool, {
+            bookId: book._id,
+            workspaceId: workspace._id,
+            reference,
+            limit: 1,
+          });
+          const existing = found[0];
+          if (!existing) {
+            throw new Error(
+              `No ${one} has the reference ${reference}. Check it with the customer rather than filing a new one.`
+            );
+          }
+
+          const stage = input.stage ? String(input.stage) : undefined;
+          if (stage && !book.stages.includes(stage)) {
+            throw new Error(
+              `"${stage}" is not one of the stages. They are: ${book.stages.join(", ")}.`
+            );
+          }
+
+          const rest = { ...input };
+          delete rest.reference;
+          delete rest.stage;
+          const { person, notes, details } = splitPerson(rest);
+          const checked = checkValues(fields, details);
+          if (checked.problems.length > 0) {
+            throw new Error(`Not changed. ${checked.problems.join(" ")}`);
+          }
+          // `missing` is ignored on purpose: an update carries the one detail
+          // that changed, and demanding the rest back would make the model
+          // re-ask the customer for everything it already filed.
+
+          const changed = await ctx.runMutation(
+            internal.records.updateFromTool,
+            {
+              recordId: existing._id,
+              bookId: book._id,
+              person,
+              values: checked.values,
+              stage,
+              notes,
+            }
+          );
+
+          return {
+            ok: true,
+            reference: changed.reference,
+            stage: changed.stage ?? null,
+            message: `${book.name} ${changed.reference} updated. Confirm the change back to the customer.`,
+          };
+        }),
+      });
+    }
+  }
+
+  return registry;
+}
+
+// ---------------------------------------------------------------------------
 // The turn
 // ---------------------------------------------------------------------------
 
@@ -1274,6 +1606,13 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         agentId: agent._id,
       });
 
+      // Re-read after a handoff, like the roster and the knowledge above: the
+      // colleague taking the conversation over files into their own books, not
+      // the ones the front desk had.
+      const books = await ctx.runQuery(internal.records.booksForAgent, {
+        agentId: agent._id,
+      });
+
       const toolset: ToolSet = {
         ...buildBuiltinTools(ctx, turn, apiKey, {
           team,
@@ -1285,6 +1624,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         ...(agent.builtinTools.includes("rich_messages")
           ? buildRichMessageTools(ctx, turn)
           : {}),
+        ...buildRecordTools(ctx, turn, books),
         ...buildCustomTools(ctx, turn, customTools),
       };
 
@@ -1296,6 +1636,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         toolNames: Object.keys(toolset),
         team,
         handoff,
+        recordBooks: books,
         now: new Date().toISOString(),
       });
 

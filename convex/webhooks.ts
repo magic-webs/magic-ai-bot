@@ -9,24 +9,12 @@ import { internal } from "./_generated/api";
 import {
   requireWorkspace,
 } from "./lib/auth";
+import { postWebhook } from "./lib/webhookDelivery";
 
 const MAX_PAYLOAD_LOG = 8000;
 
-// HMAC-SHA256 via Web Crypto so this stays in Convex's default runtime.
-async function signPayload(secret: string, body: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+/** What the log calls the endpoint on the settings page. */
+export const WORKSPACE_DESTINATION = "Workspace webhook";
 
 export const logEvent = internalMutation({
   args: {
@@ -40,6 +28,8 @@ export const logEvent = internalMutation({
     ),
     responseStatus: v.optional(v.number()),
     error: v.optional(v.string()),
+    recordBookId: v.optional(v.id("recordBooks")),
+    destination: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("webhookEvents", {
@@ -49,6 +39,8 @@ export const logEvent = internalMutation({
       status: args.status,
       responseStatus: args.responseStatus,
       error: args.error?.slice(0, 500),
+      recordBookId: args.recordBookId,
+      destination: args.destination,
       createdAt: Date.now(),
     });
   },
@@ -72,6 +64,19 @@ export const deliver = internalAction({
     workspaceId: v.id("workspaces"),
     event: v.string(),
     data: v.any(),
+    // Only set by record events, so the book's own delivery log can be read
+    // without grepping the payload for a handle.
+    recordBookId: v.optional(v.id("recordBooks")),
+    /**
+     * False for an event the team caused themselves from the dashboard.
+     *
+     * Every other event here is something that happened while nobody was
+     * looking, which is what a push is for. Buzzing someone's phone about the
+     * edit they just made in another tab is how an operator learns to turn
+     * notifications off. Absent means push, so nothing that predates this
+     * argument goes quiet.
+     */
+    push: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -92,11 +97,13 @@ export const deliver = internalAction({
        webhook configured still has an operator holding a phone. `notify`
        swallows its own failures, so a push outage cannot fail the tool call
        that got here. */
-    await ctx.runAction(internal.push.notify, {
-      workspaceId: args.workspaceId,
-      event: args.event,
-      data: args.data,
-    });
+    if (args.push !== false) {
+      await ctx.runAction(internal.push.notify, {
+        workspaceId: args.workspaceId,
+        event: args.event,
+        data: args.data,
+      });
+    }
 
     const body = JSON.stringify({
       event: args.event,
@@ -116,49 +123,36 @@ export const deliver = internalAction({
         payload: body,
         status: "skipped",
         error: "No webhook URL configured for this workspace.",
+        recordBookId: args.recordBookId,
+        destination: WORKSPACE_DESTINATION,
       });
       return { success: false, reason: "no_url" };
     }
 
-    const signature = workspace.webhookSecret
-      ? await signPayload(workspace.webhookSecret, body)
-      : undefined;
-
-    let responseStatus: number | undefined;
-    let error: string | undefined;
-    let ok = false;
-
-    try {
-      const response = await fetch(workspace.webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Magic-Event": args.event,
-          "X-Magic-Workspace": workspace.slug,
-          ...(signature ? { "X-Magic-Signature": `sha256=${signature}` } : {}),
-        },
-        body,
-      });
-      responseStatus = response.status;
-      ok = response.ok;
-      if (!ok) {
-        const text = await response.text().catch(() => "");
-        error = `HTTP ${response.status}: ${text.slice(0, 300)}`;
-      }
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
+    const result = await postWebhook({
+      url: workspace.webhookUrl,
+      body,
+      event: args.event,
+      workspaceSlug: workspace.slug,
+      secret: workspace.webhookSecret,
+    });
 
     await ctx.runMutation(internal.webhooks.logEvent, {
       workspaceId: args.workspaceId,
       event: args.event,
       payload: body,
-      status: ok ? "sent" : "failed",
-      responseStatus,
-      error,
+      status: result.ok ? "sent" : "failed",
+      responseStatus: result.responseStatus,
+      error: result.error,
+      recordBookId: args.recordBookId,
+      destination: WORKSPACE_DESTINATION,
     });
 
-    return { success: ok, responseStatus, error };
+    return {
+      success: result.ok,
+      responseStatus: result.responseStatus,
+      error: result.error,
+    };
   },
 });
 

@@ -122,6 +122,23 @@ export const requireOrder = async (ctx: Ctx, id: Id<"orders">) =>
 export const requireChannel = async (ctx: Ctx, id: Id<"channels">) =>
   viaWorkspaceField(ctx, await ctx.db.get("channels", id), "Channel not found");
 
+export const requireRecordBook = async (ctx: Ctx, id: Id<"recordBooks">) =>
+  viaWorkspaceField(
+    ctx,
+    await ctx.db.get("recordBooks", id),
+    "Record book not found"
+  );
+
+export const requireRecord = async (ctx: Ctx, id: Id<"records">) =>
+  viaWorkspaceField(ctx, await ctx.db.get("records", id), "Record not found");
+
+export const requireRecordWebhook = async (ctx: Ctx, id: Id<"recordWebhooks">) =>
+  viaWorkspaceField(
+    ctx,
+    await ctx.db.get("recordWebhooks", id),
+    "Webhook not found"
+  );
+
 export const requireTool = async (ctx: Ctx, id: Id<"tools">) =>
   viaWorkspaceField(ctx, await ctx.db.get("tools", id), "Tool not found");
 

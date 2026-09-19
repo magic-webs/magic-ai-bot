@@ -229,6 +229,18 @@ export default defineSchema({
      * so every agent that predates integrations keeps working unchanged.
      */
     integrationTools: v.optional(v.array(v.string())),
+    /**
+     * Which record books this agent may file into, by id.
+     *
+     * Opt-in per agent: a workspace that keeps memberships and site visits does
+     * not want the membership desk taking site visits, and "which of these do
+     * you collect" is the agent's job description more than the workspace's
+     * configuration. By id rather than by handle because the handle is the
+     * model's name for the tool and the dashboard lets it be corrected, while
+     * the id survives that. Absent means none, so every agent that predates
+     * records keeps working unchanged.
+     */
+    recordBooks: v.optional(v.array(v.id("recordBooks"))),
     // Free-form extra prompt appended verbatim, for power users
     promptOverride: v.optional(v.string()),
     status: v.union(
@@ -833,6 +845,164 @@ export default defineSchema({
     .index("by_conversation", ["conversationId"]),
 
   // -------------------------------------------------------------------------
+  // Records — everything else an agent collects.
+  //
+  // `orders` is one hard-coded shape because selling was the first job the
+  // platform did. Every workspace after the first has its own: a gym files
+  // memberships, a clinic files appointments, a builder files site visits. A
+  // table each would mean a deploy each, so a *record book* describes the shape
+  // as data — what one is called, which details make it up, what stages it
+  // moves through — and `records` holds every filed one of every kind.
+  //
+  // The book's `handle` is what the model sees: a book called "Membership"
+  // hands the agents switched on for it `file_membership`, `find_membership`
+  // and `update_membership`, rather than one generic tool with a type argument
+  // that the model picks wrong.
+  // -------------------------------------------------------------------------
+  recordBooks: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Singular, as one of them is spoken about: "Membership". */
+    name: v.string(),
+    /** Plural, for the table heading and the prompt: "Memberships". */
+    pluralName: v.string(),
+    /**
+     * snake_case, and the model's handle: this is the `membership` in
+     * `file_membership`. Derived from the name when the book is created, then
+     * left alone — renaming the book must not rename a tool the agents have
+     * been told about.
+     */
+    handle: v.string(),
+    /** Model-facing "file one of these when…". Drives when it gets called. */
+    purpose: v.string(),
+    /** The details that make one up. Same shape as a product's spec sheet. */
+    fields: v.array(requirementField),
+    /**
+     * What a record moves through after it is filed: "Enquired", "Booked",
+     * "Attended". The first is where a newly filed one starts. Empty is fine —
+     * plenty of books are a thing that happened, not a thing in progress.
+     */
+    stages: v.array(v.string()),
+    /** "MEM" makes references read MEM-H4K82Q. */
+    referencePrefix: v.string(),
+    /** Whether agents may look existing records up, and change them. */
+    allowLookup: v.boolean(),
+    allowUpdate: v.boolean(),
+    /**
+     * Draft books are editable in the dashboard but handed to no agent, the
+     * same way a draft tool is. Archived keeps the records readable and stops
+     * new ones being filed.
+     */
+    status: v.union(
+      v.literal("draft"),
+      v.literal("active"),
+      v.literal("archived")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_handle", ["workspaceId", "handle"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  records: defineTable({
+    workspaceId: v.id("workspaces"),
+    bookId: v.id("recordBooks"),
+    /** What the customer quotes back: "MEM-H4K82Q". */
+    reference: v.string(),
+    agentId: v.optional(v.id("agents")),
+    conversationId: v.optional(v.id("conversations")),
+    contactId: v.optional(v.id("contacts")),
+    /**
+     * Who the record is about, kept alongside the contact rather than only on
+     * it: a member can book a class for their partner, and the record has to
+     * carry the partner's name without overwriting the contact.
+     */
+    person: v.optional(
+      v.object({
+        name: v.optional(v.string()),
+        phone: v.optional(v.string()),
+        email: v.optional(v.string()),
+        company: v.optional(v.string()),
+      })
+    ),
+    /**
+     * The collected details, keyed by the book's field keys. Flat pairs rather
+     * than a typed object for the same reason an order's specs are: the shape
+     * belongs to the workspace, and it changes without a migration. Anything
+     * the agent volunteered that the book does not define is kept here too.
+     */
+    values: v.array(kvPair),
+    stage: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    source: v.union(
+      v.literal("whatsapp"),
+      v.literal("web"),
+      v.literal("api"),
+      // Typed in by the team on the records page, rather than collected.
+      v.literal("manual")
+    ),
+    /** Lowercased reference, person and values, for the find_ tool. */
+    searchBlob: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_book", ["bookId"])
+    .index("by_book_stage", ["bookId", "stage"])
+    .index("by_workspace_reference", ["workspaceId", "reference"])
+    .index("by_contact", ["contactId"])
+    .index("by_conversation", ["conversationId"])
+    .searchIndex("search_records", {
+      searchField: "searchBlob",
+      filterFields: ["workspaceId", "bookId"],
+    }),
+
+  /**
+   * Where a book's events go.
+   *
+   * Per book and several per book, not one per workspace: new memberships
+   * belong in the membership system and new site visits belong in the
+   * scheduler, and the workspace webhook on the settings page cannot tell them
+   * apart. That one still fires for every event as it always did — these are
+   * additional destinations, so nothing configured before this existed changes
+   * behaviour.
+   */
+  recordWebhooks: defineTable({
+    workspaceId: v.id("workspaces"),
+    bookId: v.id("recordBooks"),
+    /** What it is, for the team: "Zapier", "Ops Slack", "Membership system". */
+    name: v.string(),
+    url: v.string(),
+    /**
+     * Signs the body as X-Magic-Signature, the same HMAC-SHA256 the workspace
+     * webhook uses, so a receiver written for one verifies the other unchanged.
+     */
+    secret: v.optional(v.string()),
+    /** Extra headers, for an endpoint that wants a bearer token or an API key. */
+    headers: v.array(kvPair),
+    /** Which moments to send. Empty means this destination never fires. */
+    events: v.array(
+      v.union(
+        v.literal("filed"),
+        v.literal("updated"),
+        v.literal("stage_changed")
+      )
+    ),
+    enabled: v.boolean(),
+    /** The last attempt, so the dashboard can show a live endpoint as healthy. */
+    lastStatus: v.optional(
+      v.union(v.literal("sent"), v.literal("failed"))
+    ),
+    lastResponseStatus: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    lastDeliveredAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_book", ["bookId"]),
+
+  // -------------------------------------------------------------------------
   // Outbound webhook delivery log.
   // -------------------------------------------------------------------------
   // -------------------------------------------------------------------------
@@ -880,15 +1050,33 @@ export default defineSchema({
 
   webhookEvents: defineTable({
     workspaceId: v.id("workspaces"),
-    event: v.string(), // "order_created" | "escalation" | ...
+    event: v.string(), // "order_created" | "escalation" | "record_filed" | ...
     payload: v.string(), // JSON
     status: v.union(v.literal("sent"), v.literal("failed"), v.literal("skipped")),
     responseStatus: v.optional(v.number()),
     error: v.optional(v.string()),
+    /**
+     * Which record book the event came from, when it came from one.
+     *
+     * So a book's own delivery log can be read without grepping the payload,
+     * and so deleting a book can take its deliveries with it. Absent on the
+     * workspace-wide events — orders, escalations, the test ping.
+     */
+    recordBookId: v.optional(v.id("recordBooks")),
+    /**
+     * Which endpoint this row is about, by name: "Zapier", "Ops Slack", or
+     * "Workspace webhook" for the one on the settings page.
+     *
+     * One event now produces several deliveries — the workspace endpoint plus
+     * every destination the book subscribes — and a log that cannot say which
+     * one failed is a log nobody can act on.
+     */
+    destination: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_event", ["workspaceId", "event"]),
+    .index("by_workspace_event", ["workspaceId", "event"])
+    .index("by_book", ["recordBookId"]),
 
   // -------------------------------------------------------------------------
   // The operator's own thread with an agent — "how did today go?", not a

@@ -24,6 +24,7 @@ import {
   isCatalogueIntegration,
 } from "./lib/integrations";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
+import { enabledToolNames } from "./lib/records";
 import {
   requireAgent,
   requireWorkspace,
@@ -66,6 +67,7 @@ const agentFields = {
   knowledgeTopK: v.optional(v.number()),
   builtinTools: v.optional(v.array(v.string())),
   integrationTools: v.optional(v.array(v.string())),
+  recordBooks: v.optional(v.array(v.id("recordBooks"))),
   promptOverride: v.optional(v.string()),
   status: v.optional(
     v.union(v.literal("draft"), v.literal("active"), v.literal("paused"))
@@ -422,6 +424,7 @@ export const create = mutation({
     escalationPolicy: v.optional(v.string()),
     model: v.optional(v.string()),
     builtinTools: v.optional(v.array(v.string())),
+    recordBooks: v.optional(v.array(v.id("recordBooks"))),
     routingDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -459,6 +462,7 @@ export const create = mutation({
       knowledgeEnabled: true,
       knowledgeTopK: 6,
       builtinTools: args.builtinTools ?? [...DEFAULT_BUILTIN_TOOLS],
+      recordBooks: args.recordBooks ?? [],
       status: "draft",
       createdAt: now,
       updatedAt: now,
@@ -633,6 +637,21 @@ export const previewPrompt = query({
       toolNames.unshift("transfer_to_agent");
     }
 
+    // The books this agent files into, and the tools they each contribute.
+    // Resolved the same way the engine resolves them, so the preview keeps its
+    // one claim: that this is what the model receives.
+    const books = (
+      await Promise.all(
+        (agent.recordBooks ?? []).map((bookId) =>
+          ctx.db.get("recordBooks", bookId)
+        )
+      )
+    ).filter(
+      (book): book is Doc<"recordBooks"> =>
+        book !== null && book.status === "active"
+    );
+    for (const book of books) toolNames.push(...enabledToolNames(book));
+
     const team = (await handoffCandidates(ctx, agent.workspaceId))
       .filter(({ agent: mate }) => mate._id !== agent._id)
       .map(({ agent: mate, key }) => ({
@@ -648,6 +667,7 @@ export const previewPrompt = query({
         agent,
         toolNames,
         team,
+        recordBooks: books,
         knowledgeContext: "«retrieved knowledge is injected here at runtime»",
       }),
       toolNames,

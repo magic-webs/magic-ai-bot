@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BUILTIN_TOOLS, CHAT_MODELS } from "@/convex/lib/shared";
+import { recordToolNames } from "@/convex/lib/records";
 import { INTEGRATIONS } from "@/convex/lib/integrations";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
@@ -62,6 +63,7 @@ import {
   SignpostIcon,
   WarningIcon,
   PlugsConnectedIcon,
+  FolderOpenIcon,
 } from "@phosphor-icons/react";
 
 const INTEGRATION_ICONS: Record<
@@ -128,6 +130,7 @@ type Draft = {
   knowledgeTopK: number;
   builtinTools: string[];
   integrationTools: string[];
+  recordBooks: Id<"recordBooks">[];
   status: "draft" | "active" | "paused";
 };
 
@@ -150,6 +153,9 @@ export default function AgentConfigPage({
   const updateAgent = useMutation(api.agents.update);
   const removeAgent = useMutation(api.agents.remove);
 
+  const recordBooks = useQuery(api.records.listBooks, {
+    workspaceId: workspace._id,
+  });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftFor, setDraftFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -187,6 +193,7 @@ export default function AgentConfigPage({
       // Absent on every agent that predates integrations, and on every agent
       // nobody has switched one on for.
       integrationTools: agent.integrationTools ?? [],
+      recordBooks: agent.recordBooks ?? [],
       status: agent.status,
     });
   }
@@ -247,6 +254,7 @@ export default function AgentConfigPage({
         knowledgeTopK: draft.knowledgeTopK,
         builtinTools: draft.builtinTools,
         integrationTools: draft.integrationTools,
+        recordBooks: draft.recordBooks,
         status: draft.status,
       });
       toast.add({ title: "Agent saved", type: "success" });
@@ -267,6 +275,15 @@ export default function AgentConfigPage({
       draft.builtinTools.includes(key)
         ? draft.builtinTools.filter((k) => k !== key)
         : [...draft.builtinTools, key]
+    );
+  };
+
+  const toggleRecordBook = (bookId: Id<"recordBooks">) => {
+    set(
+      "recordBooks",
+      draft.recordBooks.includes(bookId)
+        ? draft.recordBooks.filter((id) => id !== bookId)
+        : [...draft.recordBooks, bookId]
     );
   };
 
@@ -900,6 +917,72 @@ export default function AgentConfigPage({
                     </Item>
                   ))}
                 </ItemGroup>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>What this agent records</CardTitle>
+                <CardDescription>
+                  Switch one on and this agent gets a tool named after it —{" "}
+                  <code>file_membership</code>, <code>find_appointment</code> —
+                  plus the list of details to collect before it may file one.
+                  Off means it never takes those details, whoever asks.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {recordBooks === undefined ? (
+                  <Spinner />
+                ) : recordBooks.length === 0 ? (
+                  <div className="flex flex-col items-start gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      This workspace does not keep any records yet.
+                    </p>
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      nativeButton={false}
+                      render={<Link href={`${base}/records`} />}
+                    >
+                      <FolderOpenIcon /> Set up memberships, appointments,
+                      bookings…
+                    </Button>
+                  </div>
+                ) : (
+                  <ItemGroup className="gap-2">
+                    {recordBooks.map((book) => {
+                      const tools = recordToolNames(book.handle);
+                      return (
+                        <Item key={book._id} variant="outline">
+                          <ItemContent>
+                            <ItemTitle className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono">{tools.file}</span>
+                              <span className="text-muted-foreground">
+                                {book.pluralName}
+                              </span>
+                              {book.status !== "active" ? (
+                                <Badge variant="outline">{book.status}</Badge>
+                              ) : null}
+                            </ItemTitle>
+                            <ItemDescription>
+                              {book.purpose ||
+                                `Records of type “${book.name}”.`}{" "}
+                              {book.fields.length} detail
+                              {book.fields.length === 1 ? "" : "s"} to collect.
+                              {book.status !== "active"
+                                ? " Nothing is collected while it is not active."
+                                : ""}
+                            </ItemDescription>
+                          </ItemContent>
+                          <Switch
+                            checked={draft.recordBooks.includes(book._id)}
+                            onCheckedChange={() => toggleRecordBook(book._id)}
+                          />
+                        </Item>
+                      );
+                    })}
+                  </ItemGroup>
+                )}
               </CardContent>
             </Card>
 

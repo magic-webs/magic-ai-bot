@@ -18,10 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
 import { SelectField } from "@/components/select-field";
+import {
+  FieldListEditor,
+  type CollectedField as RequirementField,
+} from "@/components/field-list-editor";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Accordion,
@@ -76,157 +79,12 @@ import {
   WarningIcon,
   CheckCircleIcon,
   PencilSimpleIcon,
-  XIcon,
 } from "@phosphor-icons/react";
 
 /** A catalogue row: the product document plus browser-ready image URLs. */
 type CatalogueProduct = Doc<"products"> & {
   resolvedImages: Array<{ url: string; alt: string | null }>;
 };
-
-type RequirementField = {
-  key: string;
-  label: string;
-  type: "text" | "number" | "select" | "boolean" | "date";
-  required: boolean;
-  options?: string[];
-  example?: string;
-};
-
-// ---------------------------------------------------------------------------
-// The spec questions the agent must collect for a product.
-// ---------------------------------------------------------------------------
-
-function RequirementFieldsEditor({
-  value,
-  onChange,
-}: {
-  value: RequirementField[];
-  onChange: (next: RequirementField[]) => void;
-}) {
-  const patch = (index: number, next: Partial<RequirementField>) =>
-    onChange(value.map((row, i) => (i === index ? { ...row, ...next } : row)));
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div>
-        <Label className="text-sm font-medium">Specification questions</Label>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          The agent is handed this checklist by{" "}
-          <code>get_product_requirements</code> and must collect every required
-          field before it can create an order.
-        </p>
-      </div>
-
-      {value.map((field, index) => (
-        <div
-          key={index}
-          className="flex flex-col gap-2 rounded-md border border-border p-2"
-        >
-          <div className="flex gap-2">
-            <Input
-              className="flex-1"
-              value={field.label}
-              placeholder="Label — e.g. Paper weight"
-              onChange={(event) =>
-                patch(index, {
-                  label: event.target.value,
-                  key:
-                    field.key ||
-                    event.target.value
-                      .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, "_")
-                      .replace(/^_|_$/g, ""),
-                })
-              }
-            />
-            <Input
-              className="w-36 font-mono"
-              value={field.key}
-              placeholder="key"
-              onChange={(event) => patch(index, { key: event.target.value })}
-            />
-            <SelectField
-              className="w-28"
-              aria-label="Field type"
-              value={field.type}
-              onValueChange={(next) =>
-                patch(index, { type: next as RequirementField["type"] })
-              }
-              options={[
-                { value: "text", label: "text" },
-                { value: "number", label: "number" },
-                { value: "select", label: "select" },
-                { value: "boolean", label: "yes/no" },
-                { value: "date", label: "date" },
-              ]}
-            />
-            <Button
-              size="icon-lg"
-              variant="ghost"
-              aria-label="Remove field"
-              onClick={() => onChange(value.filter((_, i) => i !== index))}
-            >
-              <XIcon />
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <Switch
-                size="sm"
-                checked={field.required}
-                onCheckedChange={(checked) =>
-                  patch(index, { required: checked })
-                }
-              />
-              <span className="text-xs text-muted-foreground">
-                required
-              </span>
-            </div>
-            <Input
-              className="min-w-40 flex-1"
-              value={field.example ?? ""}
-              placeholder="Example answer — helps the agent phrase the question"
-              onChange={(event) =>
-                patch(index, { example: event.target.value })
-              }
-            />
-            {field.type === "select" ? (
-              <Input
-                className="min-w-40 flex-1"
-                value={(field.options ?? []).join(", ")}
-                placeholder="Options, comma separated"
-                onChange={(event) =>
-                  patch(index, {
-                    options: event.target.value
-                      .split(",")
-                      .map((option) => option.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            ) : null}
-          </div>
-        </div>
-      ))}
-
-      <Button
-        variant="outline"
-        size="lg"
-        className="self-start"
-        onClick={() =>
-          onChange([
-            ...value,
-            { key: "", label: "", type: "text", required: true },
-          ])
-        }
-      >
-        <PlusIcon /> Add question
-      </Button>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Create / edit
@@ -440,7 +298,15 @@ function ProductDialog({
 
           <Separator />
 
-          <RequirementFieldsEditor
+          <FieldListEditor
+            label="Specification questions"
+            description={
+              <>
+                The agent is handed this checklist by{" "}
+                <code>get_product_requirements</code> and must collect every
+                required field before it can create an order.
+              </>
+            }
             value={form.requirementFields}
             onChange={(next) => set("requirementFields", next)}
           />

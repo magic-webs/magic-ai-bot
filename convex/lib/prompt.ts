@@ -2,6 +2,8 @@
 // Pure and dependency-free so the dashboard can render a live preview of
 // exactly what the model will be given.
 
+import { describeBooks, type BookShape } from "./records";
+
 export type ToneShape = {
   traits: string[];
   avoid: string[];
@@ -125,6 +127,12 @@ export function compileSystemPrompt(opts: {
   team?: TeammateShape[];
   /** Present when this agent has just been handed the conversation. */
   handoff?: HandoffShape;
+  /**
+   * What this agent collects and files. The tools are named after these, so
+   * without the section the model has `file_membership` and no idea what a
+   * membership is made of.
+   */
+  recordBooks?: BookShape[];
 }): string {
   const { workspace: w, agent: a, contact } = opts;
   const tone = a.tone;
@@ -342,6 +350,10 @@ export function compileSystemPrompt(opts: {
     section("Always", bullets(alwaysRules)),
     section("Never", bullets(neverRules)),
     section("Tools", toolBlock),
+    // Above the roster on purpose: what this agent records is its own job, and
+    // a specialist that reads the handover list first is more likely to pass a
+    // conversation on than to take the details it was put there to take.
+    section("What you record", describeBooks(opts.recordBooks ?? [])),
     section("Your team", teamBlock),
     section("Handover in progress", handoffBlock),
     section("Escalation", a.escalationPolicy),
