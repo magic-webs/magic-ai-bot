@@ -1203,7 +1203,6 @@ export default function ChannelsPage() {
                         </TabsContent>
                         <TabsContent value="qr">
                           <ChannelQr
-                            label="Scan to open this chat"
                             url={widgetUrl}
                             caption="Point a phone camera at this to open the widget on the handset — the quickest way to see what a visitor sees, on the screen size they will see it on."
                           />
@@ -1224,7 +1223,6 @@ export default function ChannelsPage() {
                         </TabsContent>
                         <TabsContent value="qr">
                           <ChannelQr
-                            label="Scan to message this number"
                             url={waLink}
                             caption="Point a phone camera at this to open a WhatsApp chat with this number, already addressed. Send anything and the front desk answers."
                             unavailable="This channel has no display phone number saved, and that is the only field a wa.me link can be built from — Meta's phone number ID is an internal handle, not a dialable number. Add it under Edit."
