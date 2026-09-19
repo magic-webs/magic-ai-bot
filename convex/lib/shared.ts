@@ -214,6 +214,11 @@ export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
  * What the model picker offers. Ids are the Vercel AI Gateway's
  * `creator/model` form, which is what convex/lib/gateway.ts sends.
  *
+ * A `provider/model` id such as `deepinfra/deepseek-v4-flash` is the other
+ * form the gateway takes: the same model, but pinned to one inference
+ * provider instead of whichever of the nine serving it the gateway picks.
+ * Worth offering to a workspace that wants its latency to stop moving.
+ *
  * An agent saved before the gateway holds a bare id like `gpt-4.1-mini`; that
  * still runs, qualified to `openai/…` at the call, so this list does not have
  * to carry history.
@@ -222,6 +227,10 @@ export const CHAT_MODELS = [
   {
     id: "deepseek/deepseek-v4-flash",
     label: "DeepSeek V4 Flash — fast, tool-capable, cheapest",
+  },
+  {
+    id: "deepinfra/deepseek-v4-flash",
+    label: "DeepSeek V4 Flash (DeepInfra) — same model, one provider",
   },
   {
     id: "deepseek/deepseek-v4-pro",

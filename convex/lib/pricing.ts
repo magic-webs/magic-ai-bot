@@ -26,6 +26,10 @@ export type ModelPrice = {
 export const MODEL_PRICES: Record<string, ModelPrice> = {
   // --- Gateway ids ---------------------------------------------------------
   "deepseek/deepseek-v4-flash": { input: 0.13, output: 0.26, kind: "chat" },
+  // Same model, pinned to one provider. The catalogue prices it under its
+  // canonical slug and flags `varies_by_provider`, so this carries the list
+  // price — re-check if DeepInfra ever diverges from it.
+  "deepinfra/deepseek-v4-flash": { input: 0.13, output: 0.26, kind: "chat" },
   "deepseek/deepseek-v4-pro": { input: 0.66, output: 1.98, kind: "chat" },
   "openai/gpt-4.1": { input: 2.0, output: 8.0, kind: "chat" },
   "openai/gpt-4.1-mini": { input: 0.4, output: 1.6, kind: "chat" },
