@@ -82,6 +82,28 @@ export async function findKnowledge(workspaceId, wanted) {
   return pickByName(sources, wanted, "knowledge source", ["title"]);
 }
 
+export async function findRecordBook(workspaceId, wanted) {
+  const books = await call.query(api.records.listBooks, { workspaceId });
+  if (books.some((b) => b._id === wanted)) {
+    return books.find((b) => b._id === wanted);
+  }
+  // `handle` too, because that is the half of the tool name an assistant sees
+  // in a prompt — "file_membership" should be findable as "membership".
+  return pickByName(books, wanted, "record book", [
+    "name",
+    "pluralName",
+    "handle",
+  ]);
+}
+
+export async function findRecordWebhook(bookId, wanted) {
+  const hooks = await call.query(api.records.listWebhooks, { bookId });
+  if (hooks.some((h) => h._id === wanted)) {
+    return hooks.find((h) => h._id === wanted);
+  }
+  return pickByName(hooks, wanted, "destination", ["name", "url"]);
+}
+
 export async function findCustomTool(workspaceId, wanted) {
   const tools = await call.query(api.tools.listByWorkspace, { workspaceId });
   if (tools.some((t) => t._id === wanted)) {

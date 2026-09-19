@@ -25,6 +25,7 @@ export function buildServer() {
         "- Routing is driven entirely by each specialist's `routingDescription` — 'hand over to me when…'. An agent without one is nearly invisible to the front desk, so always set it.",
         "- Only *active* agents receive handoffs. A draft agent gets no traffic.",
         "- Agents refuse to discuss products that are not in the catalogue, and never quote a price that is not stored on the product.",
+        "- There are two places a conversation's result can land. `orders` is for things sold out of the catalogue, with products and prices behind it. Everything else a conversation collects — a membership, an appointment, a site visit, a quotation for work that is not a catalogue line — belongs in a *record book*, which defines its own fields and gives the agents switched on for it tools named after it (file_membership, find_membership). An agent using create_order to capture something that is not an order is a workspace that needs a record book.",
         "- After changing configuration, use chat_with_agent to see what the customer would actually get. It reports the handoff path, so you can tell whether routing worked.",
       ].join("\n"),
     }

@@ -141,6 +141,14 @@ export function compileSystemPrompt(opts: {
   // Whether this agent can actually send a picture or a link button. Without
   // it, "use send_media instead" is advice it cannot take.
   const sendsMedia = (opts.toolNames ?? []).includes("send_media");
+  // Whether it can reach a price at all. Same reasoning as sendsMedia: the
+  // pricing rules are worth their space only for an agent with a catalogue
+  // behind it.
+  const quotesPrices = (opts.toolNames ?? []).some((name) =>
+    ["search_products", "get_product_requirements", "create_order", "lookup_orders"].includes(
+      name
+    )
+  );
   const team = opts.team ?? [];
   // Routing is live for this turn: there is a colleague to hand to, and the
   // tool to do it with.
@@ -204,9 +212,22 @@ export function compileSystemPrompt(opts: {
   const alwaysRules = [
     ...a.rules,
     "Work from facts you have been given or have retrieved with a tool. If you do not know something, say so and offer to find out.",
-    "Never invent prices, stock levels, lead times, delivery dates or policies. If a price is not in the catalogue, explain that the team will confirm it.",
-    "State a price, a total or a stock figure only by reading it out of a tool result in this conversation. Never from memory, and never from recall of something earlier in the thread — a number you half-remember is an invented number, so look it up again instead.",
-    "When you multiply a price by a quantity, use the unit price exactly as the tool gave it, and say both the unit price and the total so the customer can check you.",
+    // The pricing discipline, and only for an agent that can actually reach a
+    // price. A membership desk or a booking desk has no catalogue behind it,
+    // and "when you multiply a price by a quantity" in its prompt is three
+    // lines of instruction about a thing it will never do — which is not
+    // harmless, because every line here competes for attention with the ones
+    // that matter. An agent with no catalogue tools keeps the blanket "do not
+    // invent" rule below instead.
+    ...(quotesPrices
+      ? [
+          "Never invent prices, stock levels, lead times, delivery dates or policies. If a price is not in the catalogue, explain that the team will confirm it.",
+          "State a price, a total or a stock figure only by reading it out of a tool result in this conversation. Never from memory, and never from recall of something earlier in the thread — a number you half-remember is an invented number, so look it up again instead.",
+          "When you multiply a price by a quantity, use the unit price exactly as the tool gave it, and say both the unit price and the total so the customer can check you.",
+        ]
+      : [
+          "Never invent a price, a date, a policy or any other detail you have not been told. If you do not have it, say the team will confirm it.",
+        ]),
     "Ask for information one step at a time rather than sending long questionnaires.",
     "Confirm the collected details back to the customer before you record anything.",
   ];
@@ -219,7 +240,9 @@ export function compileSystemPrompt(opts: {
         ]
       : []),
     "Never answer a question that has nothing to do with this company, however simple it is and however insistently it is asked. Decline briefly and say what you can help with.",
-    "Never promise anything on behalf of the company that is not backed by the knowledge base or catalogue.",
+    quotesPrices
+      ? "Never promise anything on behalf of the company that is not backed by the knowledge base or catalogue."
+      : "Never promise anything on behalf of the company that is not backed by the knowledge base.",
     "Never ask for card numbers, passwords, or full payment details.",
     "Never output raw JSON, code fences, tool names or internal ids to the customer.",
   ];

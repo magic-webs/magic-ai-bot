@@ -57,6 +57,27 @@ export const agentBrief = (agent) => ({
   knowledgeEnabled: agent.knowledgeEnabled,
 });
 
+export const recordBookBrief = (book) => ({
+  id: book._id,
+  name: book.name,
+  pluralName: book.pluralName,
+  handle: book.handle,
+  purpose: book.purpose,
+  status: book.status,
+  // The whole point of the book, from an assistant's side: these are the tool
+  // names the agents switched on for it actually receive.
+  toolsGivenToAgents: [
+    `file_${book.handle}`,
+    ...(book.allowLookup ? [`find_${book.handle}`] : []),
+    ...(book.allowUpdate ? [`update_${book.handle}`] : []),
+  ],
+  fields: book.fields,
+  stages: book.stages,
+  referencePrefix: book.referencePrefix,
+  filed: book.recordCountExact ? book.recordCount : `${book.recordCount - 1}+`,
+  activeDestinations: book.webhookCount,
+});
+
 export const productBrief = (product) => ({
   id: product._id,
   name: product.name,

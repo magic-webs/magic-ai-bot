@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { BUILTIN_TOOL_KEYS, toneArg, workspaceArg } from "../args.mjs";
 import { api, call } from "../convex.mjs";
-import { findAgent } from "../lookup.mjs";
+import { findAgent, findRecordBook } from "../lookup.mjs";
 import { agentBrief, handler, ok } from "../results.mjs";
 import { resolveWorkspace } from "../workspaces.mjs";
 
@@ -47,8 +47,23 @@ export function register(server) {
       const preview = await call.query(api.agents.previewPrompt, {
         agentId: target._id,
       });
+
+      // Stored as ids; named here, because "which records does this one take"
+      // is the question being asked and an id does not answer it.
+      const books = await call.query(api.records.listBooks, {
+        workspaceId: found._id,
+      });
+      const enabled = new Set(target.recordBooks ?? []);
+
       return ok({
         ...agentBrief(target),
+        records: books
+          .filter((book) => enabled.has(book._id))
+          .map((book) => ({
+            name: book.pluralName,
+            status: book.status,
+            collects: book.fields.map((field) => field.label),
+          })),
         objective: target.objective,
         jobDescription: target.jobDescription,
         greeting: target.greeting ?? null,
@@ -169,10 +184,16 @@ export function register(server) {
           .array(z.enum(BUILTIN_TOOL_KEYS))
           .optional()
           .describe("Replaces the whole list"),
+        records: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Which record books this agent may file into, by name — ['Membership']. Replaces the whole list; [] takes them all away. Each one gives the agent file_/find_/update_ tools named after it, plus the details to collect. Use list_record_books to see what exists."
+          ),
         status: z.enum(["draft", "active", "paused"]).optional(),
       },
     },
-    handler(async ({ workspace, agent, tone, ...fields }) => {
+    handler(async ({ workspace, agent, tone, records, ...fields }) => {
       const found = await resolveWorkspace(workspace);
       const target = await findAgent(found._id, agent);
 
@@ -180,10 +201,20 @@ export function register(server) {
       // rather than sent through.
       const merged = tone ? { ...target.tone, ...tone } : undefined;
 
+      // Books arrive as names and are stored as ids.
+      const bookIds = records
+        ? await Promise.all(
+            records.map(async (name) =>
+              (await findRecordBook(found._id, name))._id
+            )
+          )
+        : undefined;
+
       await call.mutation(api.agents.update, {
         agentId: target._id,
         ...fields,
         ...(merged ? { tone: merged } : {}),
+        ...(bookIds ? { recordBooks: bookIds } : {}),
       });
       return ok(`Updated ${target.botName} (${target.name}).`);
     })
