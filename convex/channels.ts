@@ -53,9 +53,33 @@ export const listByWorkspace = query({
       .collect();
     const agentNames = new Map(agents.map((a) => [a._id, a.name]));
 
+    /* How much has actually come through each one. Counted here in one pass
+       over the workspace's conversations rather than per card from the client:
+       a workspace has a handful of channels and the page wants every count at
+       once, so one read beats N round trips. `channelId` is optional — a
+       conversation from before channels were recorded on them counts towards
+       nothing, which is right. */
+    const conversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    const messages = new Map<string, number>();
+    const people = new Map<string, Set<string>>();
+    for (const conversation of conversations) {
+      if (!conversation.channelId) continue;
+      const key = conversation.channelId;
+      messages.set(key, (messages.get(key) ?? 0) + conversation.messageCount);
+      const seen = people.get(key) ?? new Set<string>();
+      seen.add(conversation.contactId);
+      people.set(key, seen);
+    }
+
     return channels.map((channel) => ({
       ...redact(channel),
       agentName: agentNames.get(channel.agentId) ?? "— deleted agent —",
+      messageCount: messages.get(channel._id) ?? 0,
+      contactCount: people.get(channel._id)?.size ?? 0,
     }));
   },
 });

@@ -8,12 +8,31 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { SelectField } from "@/components/select-field";
 import {
   Card,
@@ -45,63 +64,175 @@ import { CardGridSkeleton } from "@/components/skeletons";
 import {
   WhatsappLogoIcon,
   PlusIcon,
-  TrashIcon,
   CopyIcon,
-  ArrowsClockwiseIcon,
-  PencilSimpleIcon,
   WarningIcon,
   InfoIcon,
   GlobeIcon,
+  ChatCircleIcon,
+  UsersIcon,
+  DotsThreeIcon,
+  ArrowsDownUpIcon,
+  GearIcon,
+  BookOpenIcon,
 } from "@phosphor-icons/react";
 
-function CopyField({
-  label,
+/** Clipboard write plus the toast, in one place — six things copy on this page. */
+async function copyText(value: string, label: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.add({ title: `${label} copied`, type: "success" });
+  } catch {
+    toast.add({
+      title: "Copy failed",
+      description: "Select the text and copy it manually.",
+      type: "error",
+    });
+  }
+}
+
+function CopyButton({
   value,
-  hint,
-  multiline,
+  label,
+  size = "icon-lg",
 }: {
-  label: string;
   value: string;
-  hint?: string;
-  multiline?: boolean;
+  label: string;
+  size?: "icon" | "icon-lg";
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </Label>
-      <div className="flex gap-1">
-        {multiline ? (
-          <Textarea
-            readOnly
-            rows={2}
-            value={value}
-            className="resize-none font-mono text-xs"
-          />
-        ) : (
-          <Input readOnly value={value} className="font-mono text-xs" />
-        )}
+    <Button
+      size={size}
+      variant="ghost"
+      aria-label={`Copy ${label}`}
+      onClick={() => void copyText(value, label)}
+    >
+      <CopyIcon />
+    </Button>
+  );
+}
+
+/**
+ * A read-only value the operator has to paste somewhere else.
+ *
+ * Not an `<Input>`: these are never edited, and a form control here invites a
+ * click-and-type that silently does nothing. A bordered block with the copy
+ * button inside it says "take this" rather than "fill this in".
+ */
+function CopyField({
+  value,
+  label,
+  hint,
+}: {
+  value: string;
+  label: string;
+  hint?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-stretch gap-1 rounded-lg border border-border bg-muted/40 p-1 pl-3">
+        <code className="min-w-0 flex-1 self-center break-all py-1.5 font-mono text-xs leading-relaxed">
+          {value}
+        </code>
         <Button
-          size="icon-lg"
+          size="sm"
           variant="outline"
-          aria-label={`Copy ${label}`}
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(value);
-              toast.add({ title: `${label} copied`, type: "success" });
-            } catch {
-              toast.add({
-                title: "Copy failed",
-                description: "Select the text and copy it manually.",
-                type: "error",
-              });
-            }
-          }}
+          className="self-center bg-background"
+          onClick={() => void copyText(value, label)}
         >
-          <CopyIcon />
+          <CopyIcon /> Copy
         </Button>
       </div>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** One figure on a channel card: how much has actually come through it. */
+function StatTile({
+  icon,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  value: number;
+  label: string;
+}) {
+  return (
+    <div className="flex min-w-24 items-center gap-2.5 rounded-xl border border-border bg-muted/30 px-3.5 py-2.5">
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="flex flex-col leading-tight">
+        <span className="text-lg font-semibold tabular-nums">{value}</span>
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+      </span>
+    </div>
+  );
+}
+
+/** One read-only identifier in a WhatsApp card's footer. */
+function MetaField({
+  label,
+  value,
+  copyable = true,
+}: {
+  label: string;
+  value: string | undefined;
+  copyable?: boolean;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="flex min-w-0 items-center gap-0.5">
+        <p className="truncate font-mono text-xs">{value || "—"}</p>
+        {copyable && value ? (
+          <CopyButton value={value} label={label} size="icon" />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The long-form guidance, moved off the card and behind a button. */
+function GuideDialog({
+  title,
+  description,
+  trigger,
+  children,
+}: {
+  title: string;
+  description: string;
+  trigger: React.ReactElement;
+  children: React.ReactNode;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={trigger} />
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto text-sm">
+          {children}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** A `data-` attribute of the embed script, in the options dialog. */
+function OptionRow({
+  attribute,
+  children,
+}: {
+  attribute: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 border-b border-border pb-2 last:border-0">
+      <code className="font-mono text-xs text-foreground">{attribute}</code>
+      <p className="text-xs text-muted-foreground">{children}</p>
     </div>
   );
 }
@@ -529,6 +660,157 @@ function WebChannelDialog({
   );
 }
 
+/**
+ * A row's action menu.
+ *
+ * Rotate, Edit and Delete were three buttons on every card, which put the
+ * destructive one a stray click from the useful ones and cost a whole row of
+ * vertical space per channel. Behind one trigger they are still two clicks and
+ * the card gets its header back.
+ *
+ * Both confirmations are rendered as siblings of the menu, not inside it, and
+ * the edit dialog's trigger is a `closeOnClick={false}` item — the same shape
+ * the team page uses. A dialog mounted inside `DropdownMenuContent` is
+ * unmounted by the menu closing on the very click that was meant to open it,
+ * so it never appears.
+ */
+function ChannelMenu({
+  isWeb,
+  edit,
+  onRotate,
+  onDelete,
+}: {
+  isWeb: boolean;
+  edit: React.ReactNode;
+  onRotate: () => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const [rotating, setRotating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button size="icon-lg" variant="ghost" aria-label="Channel actions">
+              <DotsThreeIcon weight="bold" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" className="w-56">
+          {edit}
+          <DropdownMenuItem onClick={() => setRotating(true)}>
+            {isWeb ? "Rotate embed code" : "Rotate callback URL"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setDeleting(true)}
+          >
+            Delete channel
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={rotating} onOpenChange={setRotating}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isWeb
+                ? "Generate a new embed code?"
+                : "Generate a new callback URL?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isWeb
+                ? "The script tag already on your website stops loading the moment this changes. You will need to paste the new one in its place."
+                : "Inbound messages stop until you set the new URL in Meta and verify it again. Conversations already received are untouched."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void onRotate()}>
+              Rotate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleting} onOpenChange={setDeleting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this channel?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Customers can no longer reach you here, and{" "}
+              {isWeb
+                ? "the widget on your website stops loading."
+                : "inbound WhatsApp messages to this number stop being answered."}{" "}
+              Conversations already received are kept. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void onDelete()}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "web", label: "Website" },
+  { value: "inactive", label: "Inactive" },
+] as const;
+
+type ChannelFilter = (typeof FILTERS)[number]["value"];
+
+const SORTS = [
+  { value: "updated", label: "Last updated" },
+  { value: "busiest", label: "Most messages" },
+  { value: "name", label: "Name" },
+] as const;
+
+type ChannelSort = (typeof SORTS)[number]["value"];
+
+function FilterChip({
+  label,
+  count,
+  active,
+  onPress,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      aria-pressed={active}
+      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+        active
+          ? "border-primary/30 bg-primary/10 font-medium text-primary"
+          : "border-border text-muted-foreground hover:bg-muted"
+      }`}
+    >
+      {label}
+      <span
+        className={`rounded-full px-1.5 text-xs tabular-nums ${
+          active ? "bg-primary/15" : "bg-muted"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
 export default function ChannelsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
@@ -555,6 +837,36 @@ export default function ChannelsPage() {
     "";
 
   const hasAgents = (agents ?? []).length > 0;
+
+  const [filter, setFilter] = useState<ChannelFilter>("all");
+  const [sort, setSort] = useState<ChannelSort>("updated");
+
+  const all = channels ?? [];
+  const counts: Record<ChannelFilter, number> = {
+    all: all.length,
+    whatsapp: all.filter((c) => c.type === "whatsapp").length,
+    web: all.filter((c) => c.type === "web").length,
+    // Anything not currently taking messages, whichever way it got there —
+    // paused by hand or knocked into error by a failed delivery. They are the
+    // same question when you open this page: what is not working?
+    inactive: all.filter((c) => c.status !== "active").length,
+  };
+
+  const visible = all
+    .filter((channel) =>
+      filter === "all"
+        ? true
+        : filter === "inactive"
+          ? channel.status !== "active"
+          : channel.type === filter
+    )
+    .sort((a, b) =>
+      sort === "name"
+        ? a.name.localeCompare(b.name)
+        : sort === "busiest"
+          ? b.messageCount - a.messageCount
+          : b.updatedAt - a.updatedAt
+    );
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -587,7 +899,49 @@ export default function ChannelsPage() {
           </div>
       </header>
 
-      <Separator />
+      {all.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map((option) => (
+              <FilterChip
+                key={option.value}
+                label={option.label}
+                count={counts[option.value]}
+                active={filter === option.value}
+                onPress={() => setFilter(option.value)}
+              />
+            ))}
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" size="sm">
+                  <ArrowsDownUpIcon />
+                  {SORTS.find((option) => option.value === sort)?.label}
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup
+                value={sort}
+                onValueChange={(next) => setSort(next as ChannelSort)}
+              >
+                {SORTS.map((option) => (
+                  <DropdownMenuRadioItem
+                    key={option.value}
+                    value={option.value}
+                  >
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : (
+        <Separator />
+      )}
 
       {!hasAgents ? (
         <Alert>
@@ -639,7 +993,13 @@ export default function ChannelsPage() {
         ) : null
       ) : (
         <div className="flex flex-col gap-4">
-          {channels.map((channel) => {
+          {visible.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              Nothing matches that filter.
+            </p>
+          ) : null}
+
+          {visible.map((channel) => {
             const webhookUrl = `${convexSite}/whatsapp/${channel.channelKey}`;
             const isWeb = channel.type === "web";
             const widgetUrl = `${appOrigin}/widget/${channel.channelKey}`;
@@ -647,41 +1007,165 @@ export default function ChannelsPage() {
             // the host page, because an iframe cannot resize itself there.
             const embedCode = `<script src="${appOrigin}/widget/${channel.channelKey}/embed.js" async></script>`;
 
-            const waDigits = (channel.whatsapp?.displayPhoneNumber ?? "").replace(
-              /D/g,
-              ""
-            );
+            // Only the digits are dialable. This stripped /D/g before, which
+            // matches a literal capital D — so "+91 75999 09021" came through
+            // unchanged, wa.me got the spaces and the plus, and the QR pointed
+            // at a broken link.
+            const waDigits = (
+              channel.whatsapp?.displayPhoneNumber ?? ""
+            ).replace(/[^0-9]/g, "");
             const waLink = waDigits ? `https://wa.me/${waDigits}` : null;
+            const live = channel.status === "active";
 
             return (
               <Card key={channel._id}>
-                <CardHeader>
-                  <CardTitle className="flex flex-wrap items-center gap-2">
-                    {isWeb ? <GlobeIcon className="size-4" /> : <WhatsappLogoIcon className="size-4" />}
-                    {channel.name}
-                    <Badge
-                      variant={
-                        channel.status === "active"
-                          ? "default"
-                          : channel.status === "error"
-                            ? "destructive"
-                            : "secondary"
-                      }
+                {/* One row, always: who this is, where it points, how much has
+                    come through it, and whether it is on. Everything that used
+                    to push those below the fold is now either in a tab or
+                    behind the overflow menu. */}
+                <CardHeader className="gap-0">
+                  <div className="flex flex-wrap items-start gap-4">
+                    <span
+                      className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${
+                        live
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted text-muted-foreground"
+                      }`}
                     >
-                      {channel.status}
-                    </Badge>
-                    <Badge variant="outline">→ {channel.agentName}</Badge>
-                    {channel.whatsapp?.displayPhoneNumber ? (
-                      <Badge variant="secondary">
-                        {channel.whatsapp.displayPhoneNumber}
-                      </Badge>
-                    ) : null}
-                  </CardTitle>
-                  <CardDescription>
-                    {channel.lastInboundAt
-                      ? `Last inbound message ${new Date(channel.lastInboundAt).toLocaleString()}`
-                      : "No inbound messages received yet."}
-                  </CardDescription>
+                      {isWeb ? (
+                        <GlobeIcon className="size-5" />
+                      ) : (
+                        <WhatsappLogoIcon className="size-5" />
+                      )}
+                    </span>
+
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <CardTitle className="flex flex-wrap items-center gap-2">
+                        {channel.name}
+                        <Badge
+                          variant={
+                            channel.status === "active"
+                              ? "default"
+                              : channel.status === "error"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                        >
+                          {channel.status}
+                        </Badge>
+                        <Badge variant="outline">{"→"} {channel.agentName}</Badge>
+                        {channel.whatsapp?.displayPhoneNumber ? (
+                          <Badge variant="secondary" className="font-mono">
+                            {channel.whatsapp.displayPhoneNumber}
+                          </Badge>
+                        ) : null}
+                      </CardTitle>
+                      <CardDescription>
+                        {channel.lastInboundAt
+                          ? `Last inbound message ${new Date(channel.lastInboundAt).toLocaleString()}`
+                          : "No inbound messages received yet."}
+                      </CardDescription>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatTile
+                        icon={<ChatCircleIcon className="size-4" />}
+                        value={channel.messageCount}
+                        label="Messages"
+                      />
+                      <StatTile
+                        icon={<UsersIcon className="size-4" />}
+                        value={channel.contactCount}
+                        label={isWeb ? "Visitors" : "Customers"}
+                      />
+
+                      <div className="flex items-center gap-2 pl-1">
+                        <Switch
+                          id={`live-${channel._id}`}
+                          checked={live}
+                          onCheckedChange={async (checked) => {
+                            await updateChannel({
+                              channelId: channel._id,
+                              status: checked ? "active" : "paused",
+                            });
+                            toast.add({
+                              title: checked
+                                ? "Channel is live"
+                                : "Channel paused",
+                              type: "success",
+                            });
+                          }}
+                        />
+                        <Label
+                          htmlFor={`live-${channel._id}`}
+                          className="hidden text-sm xl:block"
+                        >
+                          Accept inbound messages
+                        </Label>
+                      </div>
+
+                      <ChannelMenu
+                        isWeb={isWeb}
+                        onRotate={async () => {
+                          await rotateKeys({ channelId: channel._id });
+                          toast.add({
+                            title: isWeb
+                              ? "New embed code generated"
+                              : "New callback URL generated",
+                            description: isWeb
+                              ? "Replace the script tag on your website or the widget will stop loading."
+                              : "Update the configuration in Meta or inbound messages will stop.",
+                            type: "warning",
+                          });
+                        }}
+                        onDelete={async () => {
+                          await removeChannel({ channelId: channel._id });
+                          toast.add({ title: "Channel deleted", type: "success" });
+                        }}
+                        edit={
+                          isWeb ? (
+                            <WebChannelDialog
+                              channelId={channel._id}
+                              initial={{
+                                name: channel.name,
+                                agentId: channel.agentId,
+                              }}
+                              trigger={
+                                <DropdownMenuItem closeOnClick={false}>
+                                  Edit
+                                </DropdownMenuItem>
+                              }
+                            />
+                          ) : (
+                            <ChannelDialog
+                              channelId={channel._id}
+                              initial={{
+                                name: channel.name,
+                                agentId: channel.agentId,
+                                apiBaseUrl:
+                                  channel.whatsapp?.apiBaseUrl ??
+                                  "https://graph.facebook.com",
+                                apiVersion:
+                                  channel.whatsapp?.apiVersion ?? "v23.0",
+                                phoneNumberId:
+                                  channel.whatsapp?.phoneNumberId ?? "",
+                                wabaId: channel.whatsapp?.wabaId ?? "",
+                                businessId: channel.whatsapp?.businessId ?? "",
+                                displayPhoneNumber:
+                                  channel.whatsapp?.displayPhoneNumber ?? "",
+                                accessToken: "",
+                              }}
+                              trigger={
+                                <DropdownMenuItem closeOnClick={false}>
+                                  Edit
+                                </DropdownMenuItem>
+                              }
+                            />
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
                 </CardHeader>
 
                 <CardContent className="flex flex-col gap-4">
@@ -695,228 +1179,215 @@ export default function ChannelsPage() {
                     </Alert>
                   ) : null}
 
-                  {isWeb ? (
-                    <>
-                      <CopyField
-                        label="Embed code"
-                        value={embedCode}
-                        multiline
-                        hint="Paste it once, anywhere before the closing </body> tag."
-                      />
-                      <CopyField
-                        label="Direct link"
-                        value={widgetUrl}
-                        hint="The chat on its own page — handy for testing, or for a link in an email."
-                      />
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+                    {isWeb ? (
+                      <Tabs defaultValue="embed" className="min-w-0">
+                        <TabsList>
+                          <TabsTrigger value="embed">Embed code</TabsTrigger>
+                          <TabsTrigger value="link">Direct link</TabsTrigger>
+                          <TabsTrigger value="qr">QR code</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="embed">
+                          <CopyField
+                            value={embedCode}
+                            label="Embed code"
+                            hint="Paste it once, anywhere before the closing </body> tag."
+                          />
+                        </TabsContent>
+                        <TabsContent value="link">
+                          <CopyField
+                            value={widgetUrl}
+                            label="Direct link"
+                            hint="The chat on its own page — handy for testing, or for a link in an email."
+                          />
+                        </TabsContent>
+                        <TabsContent value="qr">
+                          <ChannelQr
+                            label="Scan to open this chat"
+                            url={widgetUrl}
+                            caption="Point a phone camera at this to open the widget on the handset — the quickest way to see what a visitor sees, on the screen size they will see it on."
+                          />
+                        </TabsContent>
+                      </Tabs>
+                    ) : (
+                      <Tabs defaultValue="callback" className="min-w-0">
+                        <TabsList>
+                          <TabsTrigger value="callback">Callback URL</TabsTrigger>
+                          <TabsTrigger value="qr">QR code</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="callback">
+                          <CopyField
+                            value={webhookUrl}
+                            label="Callback URL"
+                            hint={"Set this in your Meta App → WhatsApp → Configuration → Webhooks."}
+                          />
+                        </TabsContent>
+                        <TabsContent value="qr">
+                          <ChannelQr
+                            label="Scan to message this number"
+                            url={waLink}
+                            caption="Point a phone camera at this to open a WhatsApp chat with this number, already addressed. Send anything and the front desk answers."
+                            unavailable="This channel has no display phone number saved, and that is the only field a wa.me link can be built from — Meta's phone number ID is an internal handle, not a dialable number. Add it under Edit."
+                          />
+                        </TabsContent>
+                      </Tabs>
+                    )}
 
-                      <div className="flex flex-wrap gap-1">
-                        <ChannelQr
-                          label="Scan to open this chat"
-                          url={widgetUrl}
-                          caption="Point a phone camera at this to open the widget on the handset — the quickest way to see what a visitor sees, on the screen size they will see it on."
-                        />
-                      </div>
-                      <Alert>
-                        <InfoIcon />
-                        <AlertTitle>What your visitors see</AlertTitle>
-                        <AlertDescription>
-                          A round green WhatsApp button in the bottom-right
-                          corner. Clicking it slides the chat open; clicking
-                          again closes it. On a phone the chat fills the screen.
-                          The chat is green to match — set{" "}
-                          <span className="font-mono text-xs">data-color</span>{" "}
-                          to recolour the button and the chat together. Options
-                          go on the script tag:{" "}
-                          <span className="font-mono text-xs">
-                            data-position=&quot;left&quot;
-                          </span>
-                          ,{" "}
-                          <span className="font-mono text-xs">
-                            data-color=&quot;#25D366&quot;
-                          </span>
-                          ,{" "}
-                          <span className="font-mono text-xs">
-                            data-icon=&quot;chat&quot;
-                          </span>
-                          ,{" "}
-                          <span className="font-mono text-xs">
-                            data-teaser=&quot;Need a hand?&quot;
-                          </span>
-                          ,{" "}
-                          <span className="font-mono text-xs">
-                            data-auto-open=&quot;5000&quot;
-                          </span>
-                          .
-                        </AlertDescription>
-                      </Alert>
-                    </>
-                  ) : (
-                    <>
-                      <CopyField label="Callback URL" value={webhookUrl} />
-
-                      <div className="flex flex-wrap gap-1">
-                        <ChannelQr
-                          label="Scan to message this number"
-                          url={waLink}
-                          caption="Point a phone camera at this to open a WhatsApp chat with this number, already addressed. Send anything and the front desk answers."
-                          unavailable="This channel has no display phone number saved, and that is the only field a wa.me link can be built from — Meta's phone number ID is an internal handle, not a dialable number. Add it under Edit."
-                        />
-                      </div>
-
-                      <Alert>
-                        <InfoIcon />
-                        <AlertTitle>Wiring this up in Meta</AlertTitle>
-                        <AlertDescription>
-                          In your app&apos;s WhatsApp → Configuration, set the
-                          callback URL above, then subscribe to the{" "}
-                          <span className="font-mono">messages</span> field. Meta
-                          insists on a verify token — type anything you like, it is
-                          not checked. The URL must be publicly reachable, so use a
-                          tunnel while developing locally.
-                        </AlertDescription>
-                      </Alert>
-
-                      <div className="grid gap-2 text-xs sm:grid-cols-4">
-                        <div>
-                          <p className="uppercase tracking-wide text-muted-foreground">
-                            Phone number ID
-                          </p>
-                          <p className="font-mono">
-                            {channel.whatsapp?.phoneNumberId ?? "—"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="uppercase tracking-wide text-muted-foreground">
-                            WABA ID
-                          </p>
-                          <p className="font-mono">
-                            {channel.whatsapp?.wabaId ?? "—"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="uppercase tracking-wide text-muted-foreground">
-                            Business ID
-                          </p>
-                          <p className="font-mono">
-                            {channel.whatsapp?.businessId ?? "—"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="uppercase tracking-wide text-muted-foreground">
-                            Access token
-                          </p>
-                          <p className="font-mono">
-                            {channel.hasAccessToken
-                              ? channel.whatsapp?.accessToken
-                              : "not set"}
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  <Separator />
-
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id={`live-${channel._id}`}
-                        checked={channel.status === "active"}
-                        onCheckedChange={async (checked) => {
-                          await updateChannel({
-                            channelId: channel._id,
-                            status: checked ? "active" : "paused",
-                          });
-                          toast.add({
-                            title: checked
-                              ? "Channel is live"
-                              : "Channel paused",
-                            type: "success",
-                          });
-                        }}
-                      />
-                      <Label
-                        htmlFor={`live-${channel._id}`}
-                        className="text-sm"
-                      >
-                        Accept inbound messages
-                      </Label>
-                    </div>
-
-                    <div className="flex gap-1">
-                      <Button
-                        size="lg"
-                        variant="ghost"
-                        onClick={async () => {
-                          await rotateKeys({ channelId: channel._id });
-                          toast.add({
-                            title: isWeb
-                              ? "New embed code generated"
-                              : "New callback URL generated",
-                            description: isWeb
-                              ? "Replace the script tag on your website or the widget will stop loading."
-                              : "Update the configuration in Meta or inbound messages will stop.",
-                            type: "warning",
-                          });
-                        }}
-                      >
-                        <ArrowsClockwiseIcon /> Rotate
-                      </Button>
-                      
+                    {/* The short version on the card, the whole thing one click
+                        away. This guidance used to be eight lines of prose per
+                        card, which is how a page with two channels became a
+                        page you scroll. */}
+                    <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/30 p-4">
                       {isWeb ? (
-                        <WebChannelDialog
-                          channelId={channel._id}
-                          initial={{
-                            name: channel.name,
-                            agentId: channel.agentId,
-                          }}
-                          trigger={
-                            <Button size="lg" variant="outline">
-                              <PencilSimpleIcon /> Edit
-                            </Button>
-                          }
-                        />
+                        <>
+                          <p className="flex items-center gap-1.5 text-sm font-medium">
+                            <InfoIcon className="size-4 text-muted-foreground" />
+                            What your visitors see
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            A round chat button in the bottom-right corner.
+                            Clicking it slides the chat open; on a phone it fills
+                            the screen. Colour, side, icon and teaser are all set
+                            on the script tag.
+                          </p>
+                          <GuideDialog
+                            title="Customising the widget"
+                            description="Add any of these to the script tag. All optional."
+                            trigger={
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-1 self-start bg-background"
+                              >
+                                <GearIcon /> View customisation options
+                              </Button>
+                            }
+                          >
+                            <OptionRow attribute={'data-color="#25D366"'}>
+                              Recolours the launcher and the chat header
+                              together. Any CSS colour.
+                            </OptionRow>
+                            <OptionRow attribute={'data-position="left"'}>
+                              Moves the launcher to the bottom-left. Defaults to
+                              the right.
+                            </OptionRow>
+                            <OptionRow attribute={'data-icon="chat"'}>
+                              Swaps the WhatsApp glyph for a neutral speech
+                              bubble — use it when the widget is not WhatsApp.
+                            </OptionRow>
+                            <OptionRow attribute={'data-teaser="Need a hand?"'}>
+                              A one-line bubble beside the launcher before anyone
+                              clicks it.
+                            </OptionRow>
+                            <OptionRow attribute={'data-auto-open="5000"'}>
+                              Opens the chat itself after this many
+                              milliseconds. Leave it off unless you mean it.
+                            </OptionRow>
+                          </GuideDialog>
+                        </>
                       ) : (
-                        <ChannelDialog
-                          channelId={channel._id}
-                          initial={{
-                            name: channel.name,
-                            agentId: channel.agentId,
-                            apiBaseUrl:
-                              channel.whatsapp?.apiBaseUrl ??
-                              "https://graph.facebook.com",
-                            apiVersion: channel.whatsapp?.apiVersion ?? "v23.0",
-                            phoneNumberId:
-                              channel.whatsapp?.phoneNumberId ?? "",
-                            wabaId: channel.whatsapp?.wabaId ?? "",
-                            businessId: channel.whatsapp?.businessId ?? "",
-                            displayPhoneNumber:
-                              channel.whatsapp?.displayPhoneNumber ?? "",
-                            accessToken: "",
-                          }}
-                          trigger={
-                            <Button size="lg" variant="outline">
-                              <PencilSimpleIcon /> Edit
-                            </Button>
-                          }
-                        />
+                        <>
+                          <p className="flex items-center gap-1.5 text-sm font-medium">
+                            <InfoIcon className="size-4 text-muted-foreground" />
+                            Wiring this up in Meta
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            After setting the callback URL, subscribe to the{" "}
+                            <span className="font-mono">messages</span> field.
+                            Meta will verify the URL — make sure it is publicly
+                            reachable.
+                          </p>
+                          <GuideDialog
+                            title="Connecting this number in Meta"
+                            description="In your app on developers.facebook.com."
+                            trigger={
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-1 self-start bg-background"
+                              >
+                                <BookOpenIcon /> View setup guide
+                              </Button>
+                            }
+                          >
+                            <ol className="flex list-decimal flex-col gap-2 pl-4 text-xs text-muted-foreground">
+                              <li>
+                                Open your app, then{" "}
+                                <strong className="text-foreground">
+                                  WhatsApp {"→"} Configuration
+                                </strong>
+                                .
+                              </li>
+                              <li>
+                                Paste the callback URL from this card into{" "}
+                                <strong className="text-foreground">
+                                  Callback URL
+                                </strong>
+                                .
+                              </li>
+                              <li>
+                                Meta insists on a verify token. Type anything you
+                                like — it is not checked.
+                              </li>
+                              <li>
+                                Press{" "}
+                                <strong className="text-foreground">
+                                  Verify and save
+                                </strong>
+                                . Meta calls the URL immediately, so it has to be
+                                publicly reachable — use a tunnel while developing
+                                locally.
+                              </li>
+                              <li>
+                                Under{" "}
+                                <strong className="text-foreground">
+                                  Webhook fields
+                                </strong>
+                                , subscribe to{" "}
+                                <span className="font-mono">messages</span>.
+                                Nothing arrives without this step.
+                              </li>
+                            </ol>
+                          </GuideDialog>
+                        </>
                       )}
-                      <Button
-                        size="icon-lg"
-                        variant="ghost"
-                        aria-label="Delete channel"
-                        onClick={async () => {
-                          await removeChannel({ channelId: channel._id });
-                          toast.add({
-                            title: "Channel deleted",
-                            type: "success",
-                          });
-                        }}
-                      >
-                        <TrashIcon />
-                      </Button>
                     </div>
                   </div>
+
+                  {!isWeb ? (
+                    <>
+                      <Separator />
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <MetaField
+                          label="Phone number ID"
+                          value={channel.whatsapp?.phoneNumberId}
+                        />
+                        <MetaField
+                          label="WABA ID"
+                          value={channel.whatsapp?.wabaId}
+                        />
+                        <MetaField
+                          label="Business ID"
+                          value={channel.whatsapp?.businessId}
+                        />
+                        {/* No copy button and no reveal here. The token is
+                            masked in Convex and the browser only ever receives
+                            the last four characters, so an eye would promise to
+                            show something that was never sent and a copy would
+                            paste dots into Meta. Enough to tell which token is
+                            in use; replace it under Edit. */}
+                        <MetaField
+                          label="Access token"
+                          value={
+                            channel.hasAccessToken
+                              ? channel.whatsapp?.accessToken
+                              : "not set"
+                          }
+                          copyable={false}
+                        />
+                      </div>
+                    </>
+                  ) : null}
                 </CardContent>
               </Card>
             );
