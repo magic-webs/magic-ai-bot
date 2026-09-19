@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/toast";
 import { ListSkeleton } from "@/components/skeletons";
+import { HandbackCountdown } from "@/components/handback-timer";
 import {
   ChatsIcon,
   WhatsappLogoIcon,
@@ -235,6 +236,11 @@ function ConversationDetail({
               <Badge variant="outline" className="gap-1">
                 <UserIcon className="size-3" />
                 You have this thread
+                {/* The hold expires, and a colleague who cannot see the clock
+                    finds out when the agent answers over the top of them. */}
+                <HandbackCountdown
+                  humanHandlingAt={conversation.humanHandlingAt}
+                />
               </Badge>
             ) : null}
           </div>
@@ -451,7 +457,7 @@ function ConversationDetail({
                     });
                   }}
                 >
-                  <RobotIcon /> Resume agent
+                  <RobotIcon /> Resume agent now
                 </DropdownMenuItem>
               ) : null}
               <DropdownMenuItem

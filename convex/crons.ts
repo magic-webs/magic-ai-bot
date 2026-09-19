@@ -19,6 +19,18 @@ crons.interval(
   {}
 );
 
+/* Same fifteen-minute cadence as the review sweep, against the same
+   sixty-minute threshold: a thread a colleague abandoned goes back to the
+   agent roughly 60–75 minutes after their last reply. Erring late is the right
+   way round — handing a thread back while someone is still typing on it is the
+   failure that matters. */
+crons.interval(
+  "hand back abandoned takeovers",
+  { minutes: 15 },
+  internal.conversations.releaseDormantTakeovers,
+  {}
+);
+
 // Was written when sessions were added and never scheduled, so expired rows
 // have been accumulating. Nightly is often enough for a thirty-day token.
 crons.daily(

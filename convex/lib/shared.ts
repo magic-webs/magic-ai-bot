@@ -321,6 +321,17 @@ export const DEFAULT_LEAD_STAGES: LeadStageSeed[] = [
 export const DORMANT_AFTER_MINUTES = 60;
 
 /**
+ * How long a thread stays held by a person after they last touched it.
+ *
+ * Taking over is one click and handing back is another, and the second one is
+ * the one people forget. An hour is long enough that nobody loses a thread
+ * they are still working — the clock restarts on every manual reply — and
+ * short enough that a thread abandoned at the end of a shift is answering
+ * customers again before the next one starts.
+ */
+export const HANDBACK_AFTER_MINUTES = 60;
+
+/**
  * Nudges per conversation, ever. Two is the whole budget: the first catches
  * someone who got distracted, the second catches someone who meant to reply.
  * A third is not a follow-up, it is pestering, and it is how a number gets

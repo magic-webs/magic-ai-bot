@@ -474,9 +474,25 @@ export default defineSchema({
      * A person has taken this thread over from the agent, by replying to the
      * customer by hand. Inbound messages are still recorded while this is set,
      * but no agent answers them — otherwise the AI talks over the colleague
-     * who is dealing with it. Cleared by "Resume agent" on the thread.
+     * who is dealing with it. Cleared by "Resume agent" on the thread, or by
+     * the handback sweep once nobody has touched it for an hour.
      */
     humanHandling: v.optional(v.boolean()),
+    /**
+     * When a person last did something here — took the thread over, or sent a
+     * reply on it.
+     *
+     * Taking over is easy to do and easy to forget, and a thread left held is
+     * a customer talking to nobody: the agent will not answer while the flag
+     * is set, and the colleague has moved on. So the hold expires, and this is
+     * what it expires against. Stamped forward on every manual reply, so the
+     * hour is measured from the last thing the colleague did rather than from
+     * when they started — someone still working the thread never loses it.
+     *
+     * Cleared together with `humanHandling`, which is what keeps a released
+     * thread out of the sweep's index range.
+     */
+    humanHandlingAt: v.optional(v.number()),
     channelId: v.optional(v.id("channels")),
     channelType: v.union(v.literal("whatsapp"), v.literal("web")),
     status: v.union(
@@ -526,7 +542,11 @@ export default defineSchema({
     .index("by_contact_agent", ["contactId", "agentId"])
     // The sweep reads the oldest activity first, workspace by workspace.
     .index("by_workspace_lastMessageAt", ["workspaceId", "lastMessageAt"])
-    .index("by_workspace_stage", ["workspaceId", "leadStageId"]),
+    .index("by_workspace_stage", ["workspaceId", "leadStageId"])
+    // Held threads, oldest hold first. Across workspaces on purpose: the
+    // handback sweep is one job for the whole deployment, and a range from
+    // zero skips every row that is not held, which is nearly all of them.
+    .index("by_humanHandlingAt", ["humanHandlingAt"]),
 
   messages: defineTable({
     workspaceId: v.id("workspaces"),

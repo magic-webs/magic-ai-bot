@@ -12,6 +12,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
 import { historyText, type Outbound } from "./lib/whatsappSend";
 import {
+  HANDBACK_AFTER_MINUTES,
   WHATSAPP_FREE_FORM_WINDOW_HOURS,
   WHATSAPP_TEXT_LIMIT,
 } from "./lib/shared";
@@ -397,6 +398,9 @@ export const recordManualReply = internalMutation({
         // answer the customer's next message over the top of a colleague who
         // is mid-conversation with them.
         humanHandling: true,
+        // Restarts the hold's hour. Someone working a thread keeps it; the
+        // sweep only reclaims one nobody has touched.
+        humanHandlingAt: now,
       });
     }
     return { success: true };
@@ -411,8 +415,73 @@ export const setHumanHandling = mutation({
   },
   handler: async (ctx, args) => {
     await requireConversation(ctx, args.conversationId);
-    await ctx.db.patch(args.conversationId, { humanHandling: args.handling });
+    await ctx.db.patch(args.conversationId, {
+      humanHandling: args.handling,
+      // Cleared rather than left behind: the sweep finds held threads through
+      // this field's index, and a stale timestamp on a released thread would
+      // keep it in the range forever.
+      humanHandlingAt: args.handling ? Date.now() : undefined,
+    });
     return { success: true };
+  },
+});
+
+/**
+ * Hands back every thread a person took over and then left alone.
+ *
+ * Run from a cron. Taking a thread over is one click and giving it back is
+ * another, and the second is the one that gets forgotten — which leaves the
+ * customer messaging a thread no agent will answer and no colleague is
+ * reading. The hold expires instead.
+ */
+export const releaseDormantTakeovers = internalMutation({
+  args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    /* Two clocks on purpose. `args.now` only ever moves the cutoff, so a test
+       can wind it forward without that ending up in a stored row; anything
+       written keeps the real wall clock, or a swept thread gets a note dated
+       an hour into the future. */
+    const cutoff = (args.now ?? Date.now()) - HANDBACK_AFTER_MINUTES * 60_000;
+    const now = Date.now();
+
+    /* Oldest hold first, and capped — a sweep is a background job and must not
+       become a full table read. The range starts above zero so the index skips
+       every conversation that was never held, which is nearly all of them. */
+    const held = await ctx.db
+      .query("conversations")
+      .withIndex("by_humanHandlingAt", (q) => q.gt("humanHandlingAt", 0))
+      .order("asc")
+      .take(args.limit ?? 100);
+
+    let released = 0;
+    for (const conversation of held) {
+      if (!conversation.humanHandling) continue;
+      // No stamp means a hold taken before this field existed. Released
+      // rather than kept forever: it is by definition older than an hour.
+      if ((conversation.humanHandlingAt ?? 0) > cutoff) break;
+
+      await ctx.db.patch(conversation._id, {
+        humanHandling: false,
+        humanHandlingAt: undefined,
+      });
+
+      /* Written into the thread rather than done silently. Whoever opens it
+         next needs to know why the agent started answering again, and the
+         alternative — a colleague discovering it from the customer — is how
+         people stop trusting the takeover at all. "note" is internal, so the
+         customer never sees this. */
+      await ctx.db.insert("messages", {
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation._id,
+        role: "system",
+        kind: "note",
+        text: `Handed back to the agent automatically — nobody replied by hand for ${HANDBACK_AFTER_MINUTES} minutes. Take it over again to stop the agent answering.`,
+        createdAt: now,
+      });
+      released += 1;
+    }
+
+    return { released };
   },
 });
 
