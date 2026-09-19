@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { SelectField } from "@/components/select-field";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -261,7 +262,7 @@ function DraftToolDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
+        <DialogBody className="gap-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="t-task">The task</Label>
             <Textarea
@@ -336,7 +337,7 @@ function DraftToolDialog() {
               <AlertDescription>{result.notesForHuman}</AlertDescription>
             </Alert>
           ) : null}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -514,7 +515,7 @@ function ToolDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <DialogBody>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="tf-display">Display name</Label>
@@ -716,7 +717,7 @@ function ToolDialog({
               </div>
             </div>
           )}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>

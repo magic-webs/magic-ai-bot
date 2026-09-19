@@ -37,6 +37,7 @@ import {
 } from "@/lib/product-csv";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -369,7 +370,7 @@ function ProductDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <DialogBody>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="p-name">Name</Label>
@@ -486,7 +487,7 @@ function ProductDialog({
               onChange={(event) => set("notes", event.target.value)}
             />
           </div>
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -623,216 +624,218 @@ function ImportDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="draft">
-          <TabsList className="w-full">
-            <TabsTrigger value="draft">
-              <SparkleIcon /> Draft with AI
-            </TabsTrigger>
-            <TabsTrigger value="csv">
-              <FileCsvIcon /> Import CSV
-            </TabsTrigger>
-          </TabsList>
+        <DialogBody>
+          <Tabs defaultValue="draft">
+            <TabsList className="w-full">
+              <TabsTrigger value="draft">
+                <SparkleIcon /> Draft with AI
+              </TabsTrigger>
+              <TabsTrigger value="csv">
+                <FileCsvIcon /> Import CSV
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="draft" className="flex flex-col gap-3 pt-3">
-            <Textarea
-              rows={4}
-              value={brief}
-              placeholder="Optional: anything specific about the range — e.g. we only do litho, no digital; packaging is our biggest line."
-              onChange={(event) => setBrief(event.target.value)}
-            />
-            <Button onClick={runDraft} disabled={busy}>
-              {busy ? <Spinner /> : <SparkleIcon />} Draft the catalogue
-            </Button>
-          </TabsContent>
-
-          <TabsContent value="csv" className="flex flex-col gap-3 pt-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                type="file"
-                accept=".csv,text/csv"
-                className="h-auto flex-1 py-1"
-                onChange={(event) => {
-                  void readFile(event.target.files?.[0]);
-                }}
+            <TabsContent value="draft" className="flex flex-col gap-3 pt-3">
+              <Textarea
+                rows={4}
+                value={brief}
+                placeholder="Optional: anything specific about the range — e.g. we only do litho, no digital; packaging is our biggest line."
+                onChange={(event) => setBrief(event.target.value)}
               />
-              <Button variant="outline" onClick={downloadSample}>
-                <DownloadSimpleIcon /> Sample CSV
+              <Button onClick={runDraft} disabled={busy}>
+                {busy ? <Spinner /> : <SparkleIcon />} Draft the catalogue
               </Button>
-            </div>
+            </TabsContent>
 
-            <Accordion>
-              <AccordionItem value="columns">
-                <AccordionTrigger className="text-sm">
-                  Columns, and how spec questions are written
-                </AccordionTrigger>
-                <AccordionContent>
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    One row per spec question. Leave <code>name</code> blank to
-                    add another question to the product on the row above; a
-                    product with no questions is a single row. Column order does
-                    not matter, and extra columns are ignored.
-                  </p>
-                  <div className="max-h-56 overflow-y-auto rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-36">Column</TableHead>
-                          <TableHead>Meaning</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {CSV_COLUMNS.map((column) => (
-                          <TableRow key={column.name}>
-                            <TableCell className="align-top font-mono text-xs">
-                              {column.name}
-                              {column.required ? (
-                                <span className="text-destructive"> *</span>
-                              ) : null}
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {column.detail}
-                            </TableCell>
+            <TabsContent value="csv" className="flex flex-col gap-3 pt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="h-auto flex-1 py-1"
+                  onChange={(event) => {
+                    void readFile(event.target.files?.[0]);
+                  }}
+                />
+                <Button variant="outline" onClick={downloadSample}>
+                  <DownloadSimpleIcon /> Sample CSV
+                </Button>
+              </div>
+
+              <Accordion>
+                <AccordionItem value="columns">
+                  <AccordionTrigger className="text-sm">
+                    Columns, and how spec questions are written
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      One row per spec question. Leave <code>name</code> blank to
+                      add another question to the product on the row above; a
+                      product with no questions is a single row. Column order does
+                      not matter, and extra columns are ignored.
+                    </p>
+                    <div className="max-h-56 overflow-y-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-36">Column</TableHead>
+                            <TableHead>Meaning</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+                        </TableHeader>
+                        <TableBody>
+                          {CSV_COLUMNS.map((column) => (
+                            <TableRow key={column.name}>
+                              <TableCell className="align-top font-mono text-xs">
+                                {column.name}
+                                {column.required ? (
+                                  <span className="text-destructive"> *</span>
+                                ) : null}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {column.detail}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
 
-            {parsed ? (
-              <>
-                {parsed.issues.length > 0 ? (
-                  <Alert variant="destructive">
-                    <WarningIcon />
-                    <AlertTitle>
-                      {parsed.issues.length}{" "}
-                      {parsed.issues.length === 1 ? "problem" : "problems"} in{" "}
-                      {fileName}
-                    </AlertTitle>
-                    <AlertDescription>
-                      Fix these and choose the file again. Nothing is imported
-                      until the file is clean.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
-                  <Alert>
-                    <CheckCircleIcon />
-                    <AlertTitle>
-                      {parsed.products.length}{" "}
-                      {parsed.products.length === 1 ? "product" : "products"},{" "}
-                      {parsed.fieldCount} spec{" "}
-                      {parsed.fieldCount === 1 ? "question" : "questions"}
-                    </AlertTitle>
-                    <AlertDescription>
-                      Matched by name — an existing product with the same name is
-                      updated rather than duplicated.
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {parsed.unknownColumns.length > 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Ignored{" "}
-                    {parsed.unknownColumns.length === 1 ? "column" : "columns"}:{" "}
-                    <span className="font-mono">
-                      {parsed.unknownColumns.join(", ")}
-                    </span>
-                  </p>
-                ) : null}
-
-                <div className="max-h-56 overflow-y-auto rounded-md border">
+              {parsed ? (
+                <>
                   {parsed.issues.length > 0 ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-14">Line</TableHead>
-                          <TableHead className="w-28">Column</TableHead>
-                          <TableHead>Problem</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {parsed.issues.slice(0, 50).map((issue, index) => (
-                          <TableRow
-                            key={`${issue.line}-${issue.column}-${index}`}
-                          >
-                            <TableCell className="font-mono tabular-nums">
-                              {issue.line}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {issue.column}
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              {issue.message}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <Alert variant="destructive">
+                      <WarningIcon />
+                      <AlertTitle>
+                        {parsed.issues.length}{" "}
+                        {parsed.issues.length === 1 ? "problem" : "problems"} in{" "}
+                        {fileName}
+                      </AlertTitle>
+                      <AlertDescription>
+                        Fix these and choose the file again. Nothing is imported
+                        until the file is clean.
+                      </AlertDescription>
+                    </Alert>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead>Category</TableHead>
-                          <TableHead className="text-right">Price</TableHead>
-                          <TableHead className="text-right">Images</TableHead>
-                          <TableHead className="text-right">
-                            Questions
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {parsed.products.slice(0, 25).map((product) => (
-                          <TableRow key={product.name}>
-                            <TableCell className="font-medium">
-                              {product.name}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {product.category || "General"}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {product.price === undefined
-                                ? "—"
-                                : `${product.currency ?? ""} ${product.price}`}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {product.imageUrls?.length ?? 0}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {product.requirementFields?.length ?? 0}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <Alert>
+                      <CheckCircleIcon />
+                      <AlertTitle>
+                        {parsed.products.length}{" "}
+                        {parsed.products.length === 1 ? "product" : "products"},{" "}
+                        {parsed.fieldCount} spec{" "}
+                        {parsed.fieldCount === 1 ? "question" : "questions"}
+                      </AlertTitle>
+                      <AlertDescription>
+                        Matched by name — an existing product with the same name is
+                        updated rather than duplicated.
+                      </AlertDescription>
+                    </Alert>
                   )}
-                </div>
 
-                {parsed.issues.length > 50 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Showing the first 50 of {parsed.issues.length}.
-                  </p>
-                ) : null}
-                {parsed.issues.length === 0 && parsed.products.length > 25 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Showing the first 25 of {parsed.products.length}.
-                  </p>
-                ) : null}
-              </>
-            ) : null}
+                  {parsed.unknownColumns.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Ignored{" "}
+                      {parsed.unknownColumns.length === 1 ? "column" : "columns"}:{" "}
+                      <span className="font-mono">
+                        {parsed.unknownColumns.join(", ")}
+                      </span>
+                    </p>
+                  ) : null}
 
-            <Button onClick={runImport} disabled={busy || blocked}>
-              {busy ? <Spinner /> : <UploadSimpleIcon />}{" "}
-              {parsed &&
-              parsed.issues.length === 0 &&
-              parsed.products.length > 0
-                ? `Import ${parsed.products.length} ${parsed.products.length === 1 ? "product" : "products"}`
-                : "Import"}
-            </Button>
-          </TabsContent>
-        </Tabs>
+                  <div className="max-h-56 overflow-y-auto rounded-md border">
+                    {parsed.issues.length > 0 ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-14">Line</TableHead>
+                            <TableHead className="w-28">Column</TableHead>
+                            <TableHead>Problem</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {parsed.issues.slice(0, 50).map((issue, index) => (
+                            <TableRow
+                              key={`${issue.line}-${issue.column}-${index}`}
+                            >
+                              <TableCell className="font-mono tabular-nums">
+                                {issue.line}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {issue.column}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {issue.message}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Product</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead className="text-right">Price</TableHead>
+                            <TableHead className="text-right">Images</TableHead>
+                            <TableHead className="text-right">
+                              Questions
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {parsed.products.slice(0, 25).map((product) => (
+                            <TableRow key={product.name}>
+                              <TableCell className="font-medium">
+                                {product.name}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {product.category || "General"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {product.price === undefined
+                                  ? "—"
+                                  : `${product.currency ?? ""} ${product.price}`}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {product.imageUrls?.length ?? 0}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {product.requirementFields?.length ?? 0}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+
+                  {parsed.issues.length > 50 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Showing the first 50 of {parsed.issues.length}.
+                    </p>
+                  ) : null}
+                  {parsed.issues.length === 0 && parsed.products.length > 25 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Showing the first 25 of {parsed.products.length}.
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
+              <Button onClick={runImport} disabled={busy || blocked}>
+                {busy ? <Spinner /> : <UploadSimpleIcon />}{" "}
+                {parsed &&
+                parsed.issues.length === 0 &&
+                parsed.products.length > 0
+                  ? `Import ${parsed.products.length} ${parsed.products.length === 1 ? "product" : "products"}`
+                  : "Import"}
+              </Button>
+            </TabsContent>
+          </Tabs>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>

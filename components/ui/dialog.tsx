@@ -55,6 +55,19 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Never taller than the window. A dialog is centred on the viewport
+          // with no page behind it to scroll, so a form longer than the screen
+          // used to have its ends simply unreachable — the top cut off above
+          // the window and the save button below it.
+          //
+          // On its own this scrolls the whole dialog, title and all, which is
+          // the right default: whatever a dialog holds, it can be read. A long
+          // form wraps its fields in DialogBody instead and gets the better
+          // version, where the header and the footer stay put and only the
+          // fields move. :has() is what lets one component do both without
+          // every call site opting in.
+          "max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto overscroll-contain",
+          "has-data-[slot=dialog-body]:flex has-data-[slot=dialog-body]:flex-col has-data-[slot=dialog-body]:overflow-hidden",
           className
         )}
         {...props}
@@ -84,7 +97,29 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("flex shrink-0 flex-col gap-2", className)}
+      {...props}
+    />
+  )
+}
+
+/**
+ * The scrolling middle of a long dialog.
+ *
+ * Wrap the fields — not the header or the footer — and those two stay pinned
+ * while the form scrolls between them, so Save is always where you left it.
+ * The negative inline margin is so the scrollbar rides the edge of the dialog
+ * rather than floating inside the padding; the matching padding puts the
+ * fields back where they were, and a focus ring near the edge is not clipped.
+ */
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn(
+        "-mx-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4",
+        className
+      )}
       {...props}
     />
   )
@@ -102,7 +137,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "-mx-4 -mb-4 flex shrink-0 flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
         className
       )}
       {...props}
@@ -148,6 +183,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,
