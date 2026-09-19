@@ -52,9 +52,7 @@ import {
 
 export default function WorkspaceSettingsPage() {
   const workspace = useWorkspace();
-  const router = useRouter();
   const updateWorkspace = useMutation(api.workspaces.update);
-  const removeWorkspace = useMutation(api.workspaces.remove);
   const rotateSecret = useMutation(api.workspaces.rotateWebhookSecret);
   const sendTest = useAction(api.webhooks.sendTest);
   const events = useQuery(api.webhooks.listByWorkspace, {
@@ -354,53 +352,124 @@ export default function WorkspaceSettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={
-                      <Button variant="destructive">
-                        <TrashIcon /> Delete this workspace
-                      </Button>
-                    }
-                  />
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete {workspace.name}?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Everything in this workspace is permanently removed. This
-                        cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel
-                        render={<Button variant="ghost">Cancel</Button>}
-                      />
-                      <AlertDialogAction
-                        render={
-                          <Button
-                            variant="destructive"
-                            onClick={async () => {
-                              await removeWorkspace({
-                                workspaceId: workspace._id,
-                              });
-                              toast.add({
-                                title: "Workspace deleted",
-                                type: "success",
-                              });
-                              router.push("/");
-                            }}
-                          >
-                            Delete permanently
-                          </Button>
-                        }
-                      />
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                <DeleteWorkspace />
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
     </div>
+  );
+}
+
+/**
+ * Deleting a workspace, behind the workspace's own name.
+ *
+ * Everything else on this page is reversible; this is the one control that
+ * takes a company's agents, catalogue, orders and transcripts with it. A
+ * confirmation you clear by clicking "yes" is the same single gesture as the
+ * button that opened it, so the name has to be typed out — which is also what
+ * stops the wrong workspace being deleted by somebody who had two tabs open.
+ */
+function DeleteWorkspace() {
+  const workspace = useWorkspace();
+  const router = useRouter();
+  const removeWorkspace = useMutation(api.workspaces.remove);
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  // Case and surrounding space are forgiven. The point is a deliberate act,
+  // not a spelling test — and a workspace called "ZeroStyle" should not need
+  // the capital S remembered.
+  const matches =
+    typed.trim().toLowerCase() === workspace.name.trim().toLowerCase();
+
+  const submit = async () => {
+    if (!matches || deleting) return;
+    setDeleting(true);
+    try {
+      await removeWorkspace({ workspaceId: workspace._id });
+      toast.add({ title: "Workspace deleted", type: "success" });
+      router.push("/");
+    } catch (caught) {
+      toast.add({
+        title: "Could not delete the workspace",
+        description: caught instanceof Error ? caught.message : String(caught),
+        type: "error",
+      });
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // Cleared on the way out, so reopening never finds the box already
+        // filled in from the last time somebody thought about it.
+        if (!next) setTyped("");
+      }}
+    >
+      <AlertDialogTrigger
+        render={
+          <Button variant="destructive">
+            <TrashIcon /> Delete this workspace
+          </Button>
+        }
+      />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {workspace.name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Everything in this workspace is permanently removed. This cannot be
+            undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="delete-confirm" className="text-sm font-normal">
+            Type{" "}
+            <span className="font-medium text-foreground">
+              {workspace.name}
+            </span>{" "}
+            to confirm
+          </Label>
+          <Input
+            id="delete-confirm"
+            value={typed}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="Workspace name"
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter only once the name is right, which is the same bar the
+              // button answers to.
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void submit();
+              }
+            }}
+          />
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel render={<Button variant="ghost">Cancel</Button>} />
+          <AlertDialogAction
+            render={
+              <Button
+                variant="destructive"
+                disabled={!matches || deleting}
+                onClick={() => void submit()}
+              >
+                {deleting ? <Spinner /> : null} Delete permanently
+              </Button>
+            }
+          />
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
