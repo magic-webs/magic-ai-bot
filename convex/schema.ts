@@ -475,6 +475,18 @@ export default defineSchema({
     messageCount: v.number(),
     lastMessageAt: v.number(),
     lastMessagePreview: v.optional(v.string()),
+    /**
+     * Who spoke last, denormalised beside the preview it belongs to.
+     *
+     * The inbox needs "the customer wrote and nobody has answered" for its
+     * Unread filter, and reading the tail of every thread to work that out is
+     * a message read per row on a list of two hundred. Absent on rows written
+     * before this field existed; `conversations.listByWorkspace` falls back to
+     * a bounded lookup for those.
+     */
+    lastMessageRole: v.optional(
+      v.union(v.literal("user"), v.literal("assistant"))
+    ),
 
     // --- Lead pipeline -----------------------------------------------------
     // Where this conversation sits, as last judged by the follow-up desk or set

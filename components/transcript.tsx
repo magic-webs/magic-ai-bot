@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { RichMessage, parseRichPayload } from "@/components/rich-message";
@@ -33,6 +34,7 @@ import {
   WrenchIcon,
   CaretRightIcon,
   ArrowsSplitIcon,
+  ChecksIcon,
   ClipboardTextIcon,
   UserIcon,
 } from "@phosphor-icons/react";
@@ -42,6 +44,44 @@ function timeOf(createdAt: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Local midnight, as the key a run of messages on one day is grouped by. */
+function dayKeyOf(createdAt: number): string {
+  return new Date(createdAt).toDateString();
+}
+
+/**
+ * The chip that breaks the thread up by day. Today and yesterday are named
+ * as well as dated — a reader working out how stale a conversation is should
+ * not have to hold the calendar in their head.
+ */
+function dayLabelOf(createdAt: number): string {
+  const date = new Date(createdAt);
+  const dated = date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const days = Math.round(
+    (midnight.getTime() - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000
+  );
+  if (days === 0) return `Today, ${dated}`;
+  if (days === 1) return `Yesterday, ${dated}`;
+  return dated;
+}
+
+function DaySeparator({ label }: { label: string }) {
+  return (
+    <div className="flex justify-center">
+      <span className="rounded-full bg-background/90 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm ring-1 ring-border/60 backdrop-blur-sm">
+        {label}
+      </span>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -134,19 +174,23 @@ function HandoffMarker({ message }: { message: Doc<"messages"> }) {
 
 function NoteMarker({ message }: { message: Doc<"messages"> }) {
   return (
-    <div className="mx-auto flex w-full max-w-xl gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2">
-      <ClipboardTextIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Internal note · not sent to the customer
+    // Amber, and the only amber on the thread. On the chat wallpaper a note in
+    // the neutral palette reads as another bubble that happens to be wide; a
+    // colour nothing else uses says "this is not part of the conversation"
+    // before the label underneath it is read.
+    <div className="mx-auto w-full max-w-2xl rounded-lg border border-amber-300/70 bg-amber-50/95 px-3 py-2 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+      <div className="flex items-center gap-1.5">
+        <ClipboardTextIcon className="size-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+        <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+          Internal note · Not sent to the customer
         </p>
-        <p className="mt-0.5 text-xs whitespace-pre-wrap text-muted-foreground">
-          {message.text}
-        </p>
+        <span className="ml-auto shrink-0 text-xs text-amber-800/70 dark:text-amber-200/60">
+          {timeOf(message.createdAt)}
+        </span>
       </div>
-      <span className="shrink-0 text-xs text-muted-foreground/70">
-        {timeOf(message.createdAt)}
-      </span>
+      <p className="mt-1 text-xs leading-relaxed whitespace-pre-wrap text-amber-950/90 dark:text-amber-100/80">
+        {message.text}
+      </p>
     </div>
   );
 }
@@ -235,6 +279,193 @@ export function TranscriptView({
     previousKey = key;
   }
 
+  /**
+   * One row of the thread. Lifted out of the map so the map itself can be
+   * about grouping — it has to look at the message before this one to know
+   * whether a new day has started.
+   */
+  const renderMessage = (message: Doc<"messages">) => {
+    if (message.kind === "tool") {
+      return (
+        <MessageScrollerItem
+          key={message._id}
+          messageId={message._id}
+          // A tool call is part of the agent's turn, so it sits on
+          // the agent's side — which moves with the perspective.
+          // Left-aligned everywhere, it ends up opposite the reply
+          // it belongs to the moment the agent is on the right.
+          className={cn(
+            "flex w-full",
+            teamOnRight ? "justify-end" : "justify-start"
+          )}
+        >
+          {/* Sized to its content, capped like a bubble: collapsed
+              it is the width of the name, expanded it grows to fit
+              the payload without running the width of the thread. */}
+          <div className="min-w-0 max-w-[80%]">
+            <ToolTrace message={message} />
+          </div>
+        </MessageScrollerItem>
+      );
+    }
+
+    if (message.kind === "handoff") {
+      return (
+        <MessageScrollerItem
+          key={message._id}
+          messageId={message._id}
+          className="mx-auto w-full"
+        >
+          <HandoffMarker message={message} />
+        </MessageScrollerItem>
+      );
+    }
+
+    if (message.kind === "note") {
+      return (
+        <MessageScrollerItem
+          key={message._id}
+          messageId={message._id}
+          className="mx-auto w-full"
+        >
+          <NoteMarker message={message} />
+        </MessageScrollerItem>
+      );
+    }
+
+    if (message.kind === "error") {
+      return (
+        <MessageScrollerItem
+          key={message._id}
+          messageId={message._id}
+        >
+          {/* Also the agent's, so it follows the agent's side. */}
+          <Bubble
+            variant="destructive"
+            align={teamOnRight ? "end" : "start"}
+          >
+            <BubbleContent className="font-mono text-xs">
+              {message.text}
+            </BubbleContent>
+          </Bubble>
+        </MessageScrollerItem>
+      );
+    }
+
+    const isCustomer = message.role === "user";
+    // Whose messages sit on the right in the tinted bubble: the
+    // reader's own side.
+    const mine = teamOnRight ? !isCustomer : isCustomer;
+
+    const sender = senderKeys.get(message._id);
+    const agent = message.agentId
+      ? agentById.get(message.agentId)
+      : undefined;
+    // Only the business side is ever more than one person — several
+    // agents, plus whoever on the team picked the thread up — so it
+    // is the only side that needs naming.
+    const attributed =
+      !isCustomer && (Boolean(agent) || Boolean(message.sentByHuman));
+
+    // What the customer was actually shown, rendered the same way
+    // the chat renders it — a line of prose describing a menu is no
+    // use to someone working out why a conversation went wrong.
+    // Inert here: clicking a button in a transcript must not answer
+    // on the customer's behalf.
+    const rich = parseRichPayload(message.payload);
+
+    // How long the model took. Diagnostic rather than conversational, so on
+    // our own side of the thread it rides with the tool trace — under every
+    // outgoing bubble a bare "1.2s" is noise on a page meant to read as a
+    // conversation. On the other side it keeps the clock company in the
+    // footer, as it always has.
+    const showLatency = Boolean(message.latencyMs) && (!mine || showTools);
+    const teamMark = Boolean(message.sentByHuman) && !sender?.first;
+    const showFooter = !mine || showLatency || teamMark;
+
+    return (
+      <MessageScrollerItem key={message._id} messageId={message._id}>
+        <Message align={mine ? "end" : "start"}>
+          {attributed ? (
+            sender?.first ? (
+              <MessageAvatar className="bg-transparent">
+                {message.sentByHuman || !agent ? (
+                  <span className="flex size-7 items-center justify-center rounded-full border bg-muted">
+                    <UserIcon className="size-3.5" />
+                  </span>
+                ) : (
+                  <AgentAvatar
+                    name={agent.botName}
+                    gender={agent.gender}
+                    size={28}
+                  />
+                )}
+              </MessageAvatar>
+            ) : (
+              // Holds the gutter, so a run of replies stays in line
+              // under the one carrying the face.
+              <div className="w-8 shrink-0" aria-hidden />
+            )
+          ) : null}
+          <MessageContent>
+            {attributed && sender?.first ? (
+              <MessageHeader>
+                {message.sentByHuman ? "Your team" : agent?.botName}
+              </MessageHeader>
+            ) : null}
+            <Bubble variant={mine ? "tinted" : "outline"}>
+              <BubbleContent
+                className={
+                  rich ? "min-w-56" : "whitespace-pre-wrap"
+                }
+              >
+                {/* Our own messages carry the clock inside the bubble, the
+                    way every chat client does. Before the text, not after:
+                    it is floated, so the last line wraps around it. The
+                    other side keeps its time in the footer underneath —
+                    there are no ticks to pair it with, and a bubble with
+                    nothing in the corner reads as somebody else's. */}
+                {mine ? (
+                  <span
+                    data-slot="chat-time"
+                    className="flex items-center gap-0.5"
+                  >
+                    {timeOf(message.createdAt)}
+                    {/* WhatsApp's blue, not a theme token: this is their
+                        read receipt, drawn as they draw it. */}
+                    <ChecksIcon className="size-3 shrink-0 text-[#53bdeb]" />
+                  </span>
+                ) : null}
+                {rich ? (
+                  <RichMessage message={rich} interactive={false} />
+                ) : (
+                  message.text
+                )}
+              </BubbleContent>
+            </Bubble>
+            {showFooter ? (
+              <MessageFooter>
+                {/* Only when the header above has not already said so:
+                    a run of team replies is named once, so the later
+                    ones still need marking as a person's. */}
+                {teamMark ? (
+                  <span className="flex items-center gap-1">
+                    <UserIcon className="size-3" />
+                    Your team{!mine || showLatency ? " ·" : ""}
+                  </span>
+                ) : null}
+                {mine ? null : timeOf(message.createdAt)}
+                {showLatency
+                  ? `${mine ? "" : " · "}${((message.latencyMs ?? 0) / 1000).toFixed(1)}s`
+                  : ""}
+              </MessageFooter>
+            ) : null}
+          </MessageContent>
+        </Message>
+      </MessageScrollerItem>
+    );
+  };
+
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
       <MessageScroller
@@ -267,156 +498,22 @@ export function TranscriptView({
               </MessageScrollerItem>
             ) : null}
 
-            {visible.map((message) => {
-              if (message.kind === "tool") {
-                return (
-                  <MessageScrollerItem
-                    key={message._id}
-                    messageId={message._id}
-                    // A tool call is part of the agent's turn, so it sits on
-                    // the agent's side — which moves with the perspective.
-                    // Left-aligned everywhere, it ends up opposite the reply
-                    // it belongs to the moment the agent is on the right.
-                    className={cn(
-                      "flex w-full",
-                      teamOnRight ? "justify-end" : "justify-start"
-                    )}
-                  >
-                    {/* Sized to its content, capped like a bubble: collapsed
-                        it is the width of the name, expanded it grows to fit
-                        the payload without running the width of the thread. */}
-                    <div className="min-w-0 max-w-[80%]">
-                      <ToolTrace message={message} />
-                    </div>
-                  </MessageScrollerItem>
-                );
-              }
-
-              if (message.kind === "handoff") {
-                return (
-                  <MessageScrollerItem
-                    key={message._id}
-                    messageId={message._id}
-                    className="mx-auto w-full"
-                  >
-                    <HandoffMarker message={message} />
-                  </MessageScrollerItem>
-                );
-              }
-
-              if (message.kind === "note") {
-                return (
-                  <MessageScrollerItem
-                    key={message._id}
-                    messageId={message._id}
-                    className="mx-auto w-full"
-                  >
-                    <NoteMarker message={message} />
-                  </MessageScrollerItem>
-                );
-              }
-
-              if (message.kind === "error") {
-                return (
-                  <MessageScrollerItem
-                    key={message._id}
-                    messageId={message._id}
-                  >
-                    {/* Also the agent's, so it follows the agent's side. */}
-                    <Bubble
-                      variant="destructive"
-                      align={teamOnRight ? "end" : "start"}
-                    >
-                      <BubbleContent className="font-mono text-xs">
-                        {message.text}
-                      </BubbleContent>
-                    </Bubble>
-                  </MessageScrollerItem>
-                );
-              }
-
-              const isCustomer = message.role === "user";
-              // Whose messages sit on the right in the tinted bubble: the
-              // reader's own side.
-              const mine = teamOnRight ? !isCustomer : isCustomer;
-
-              const sender = senderKeys.get(message._id);
-              const agent = message.agentId
-                ? agentById.get(message.agentId)
-                : undefined;
-              // Only the business side is ever more than one person — several
-              // agents, plus whoever on the team picked the thread up — so it
-              // is the only side that needs naming.
-              const attributed =
-                !isCustomer && (Boolean(agent) || Boolean(message.sentByHuman));
-
-              // What the customer was actually shown, rendered the same way
-              // the chat renders it — a line of prose describing a menu is no
-              // use to someone working out why a conversation went wrong.
-              // Inert here: clicking a button in a transcript must not answer
-              // on the customer's behalf.
-              const rich = parseRichPayload(message.payload);
+            {visible.map((message, index) => {
+              const previous = visible[index - 1];
+              const day =
+                !previous ||
+                dayKeyOf(previous.createdAt) !== dayKeyOf(message.createdAt)
+                  ? dayLabelOf(message.createdAt)
+                  : null;
               return (
-                <MessageScrollerItem key={message._id} messageId={message._id}>
-                  <Message align={mine ? "end" : "start"}>
-                    {attributed ? (
-                      sender?.first ? (
-                        <MessageAvatar className="bg-transparent">
-                          {message.sentByHuman || !agent ? (
-                            <span className="flex size-7 items-center justify-center rounded-full border bg-muted">
-                              <UserIcon className="size-3.5" />
-                            </span>
-                          ) : (
-                            <AgentAvatar
-                              name={agent.botName}
-                              gender={agent.gender}
-                              size={28}
-                            />
-                          )}
-                        </MessageAvatar>
-                      ) : (
-                        // Holds the gutter, so a run of replies stays in line
-                        // under the one carrying the face.
-                        <div className="w-8 shrink-0" aria-hidden />
-                      )
-                    ) : null}
-                    <MessageContent>
-                      {attributed && sender?.first ? (
-                        <MessageHeader>
-                          {message.sentByHuman ? "Your team" : agent?.botName}
-                        </MessageHeader>
-                      ) : null}
-                      <Bubble variant={mine ? "tinted" : "outline"}>
-                        <BubbleContent
-                          className={
-                            rich ? "min-w-56" : "whitespace-pre-wrap"
-                          }
-                        >
-                          {rich ? (
-                            <RichMessage message={rich} interactive={false} />
-                          ) : (
-                            message.text
-                          )}
-                        </BubbleContent>
-                      </Bubble>
-                      <MessageFooter>
-                        {/* Only when the header above has not already said so:
-                            a run of team replies is named once, so the later
-                            ones still need marking as a person's. */}
-                        {message.sentByHuman && !sender?.first ? (
-                          <span className="flex items-center gap-1">
-                            <UserIcon className="size-3" />
-                            Your team ·
-                          </span>
-                        ) : null}
-                        {timeOf(message.createdAt)}
-                        {message.latencyMs
-                          ? ` · ${(message.latencyMs / 1000).toFixed(1)}s`
-                          : ""}
-                      </MessageFooter>
-                    </MessageContent>
-                  </Message>
-                </MessageScrollerItem>
+                <Fragment key={message._id}>
+                  {day ? (
+                    <MessageScrollerItem messageId={`day-${message._id}`}>
+                      <DaySeparator label={day} />
+                    </MessageScrollerItem>
+                  ) : null}
+                  {renderMessage(message)}
+                </Fragment>
               );
             })}
 

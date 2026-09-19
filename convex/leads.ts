@@ -497,6 +497,7 @@ export const recordFollowUp = internalMutation({
         // thread up again immediately: it is only due once the customer speaks.
         lastMessageAt: now,
         lastMessagePreview: args.text.slice(0, 140),
+        lastMessageRole: "assistant",
       });
     }
     return { success: true };

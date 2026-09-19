@@ -5,6 +5,7 @@ import {
   action,
   internalMutation,
   internalQuery,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -67,9 +68,97 @@ export const listByWorkspace = query({
         contactLabel:
           contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown",
         contactExternalId: contact?.externalId,
+        // The customer spoke last, so the thread is waiting on somebody. This
+        // is what the inbox calls unread.
+        awaitingReply: await spokeLast(ctx, row),
       });
     }
     return out;
+  },
+});
+
+/**
+ * Whether the customer has the last word on a thread.
+ *
+ * Reads the denormalised `lastMessageRole` where it is there, and falls back
+ * to the tail of the transcript where it is not — rows written before that
+ * field existed. Bounded rather than take(1) because the last row can be a
+ * tool call or an internal note, neither of which anybody said.
+ */
+async function spokeLast(
+  ctx: QueryCtx,
+  row: Doc<"conversations">
+): Promise<boolean> {
+  if (row.lastMessageRole) return row.lastMessageRole === "user";
+
+  const tail = await ctx.db
+    .query("messages")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", row._id))
+    .order("desc")
+    .take(6);
+  const spoken = tail.find(
+    (message) =>
+      (message.kind === "text" || message.kind === "rich") &&
+      (message.role === "user" || message.role === "assistant")
+  );
+  return spoken?.role === "user";
+}
+
+/**
+ * Open a thread with somebody the workspace already knows, from the inbox.
+ *
+ * Get-or-create, on the same (contact, agent) key the inbound webhook uses, so
+ * "New conversation" on a contact who has written before lands on the thread
+ * that already exists rather than forking a second one beside it. No message
+ * is sent: this only puts the thread on screen so the composer has somewhere
+ * to post to.
+ */
+export const startFromContact = mutation({
+  args: {
+    contactId: v.id("contacts"),
+    agentId: v.id("agents"),
+  },
+  handler: async (ctx, args) => {
+    const contact = await requireContact(ctx, args.contactId);
+    const agent = await requireAgent(ctx, args.agentId);
+    if (agent.workspaceId !== contact.workspaceId) {
+      throw new Error("That agent belongs to another workspace.");
+    }
+
+    const existing = await ctx.db
+      .query("conversations")
+      .withIndex("by_contact_agent", (q) =>
+        q.eq("contactId", args.contactId).eq("agentId", args.agentId)
+      )
+      .unique();
+    if (existing) return { conversationId: existing._id, created: false };
+
+    // Where a reply would go out. A WhatsApp thread with no channel attached
+    // can be read but not answered, so prefer a live one and settle for a
+    // paused one rather than leaving it unset.
+    const channels = await ctx.db
+      .query("channels")
+      .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
+      .collect();
+    const matching = channels.filter((c) => c.type === contact.channelType);
+    const channel =
+      matching.find((c) => c.status === "active") ?? matching[0] ?? undefined;
+
+    const now = Date.now();
+    const conversationId = await ctx.db.insert("conversations", {
+      workspaceId: contact.workspaceId,
+      agentId: args.agentId,
+      activeAgentId: args.agentId,
+      handoffCount: 0,
+      contactId: args.contactId,
+      channelId: channel?._id,
+      channelType: contact.channelType,
+      status: "open",
+      messageCount: 0,
+      lastMessageAt: now,
+      createdAt: now,
+    });
+    return { conversationId, created: true };
   },
 });
 
@@ -174,6 +263,7 @@ export const reset = mutation({
       messageCount: 0,
       status: "open",
       lastMessagePreview: undefined,
+      lastMessageRole: undefined,
       lastMessageAt: Date.now(),
       // Give the thread back to the entry agent. Clearing the transcript alone
       // left whichever specialist the last handoff put in charge still holding
@@ -302,6 +392,7 @@ export const recordManualReply = internalMutation({
         messageCount: conversation.messageCount + 1,
         lastMessageAt: now,
         lastMessagePreview: args.text.slice(0, 140),
+        lastMessageRole: "assistant",
         // Replying by hand is the takeover. Anything else would have the agent
         // answer the customer's next message over the top of a colleague who
         // is mid-conversation with them.
@@ -523,6 +614,7 @@ export const startTurn = internalMutation({
       messageCount: conversation.messageCount + 1,
       lastMessageAt: now,
       lastMessagePreview: args.text.slice(0, 140),
+      lastMessageRole: "user",
       channelId: conversation.channelId ?? args.channelId,
     });
 
@@ -617,6 +709,7 @@ export const finishTurn = internalMutation({
           messageCount: conversation.messageCount + 1,
           lastMessageAt: now,
           lastMessagePreview: args.replyText.slice(0, 140),
+          lastMessageRole: "assistant",
         });
       }
     }
@@ -712,6 +805,7 @@ export const recordRichMessage = internalMutation({
         messageCount: conversation.messageCount + 1,
         lastMessageAt: now,
         lastMessagePreview: args.summary.slice(0, 140),
+        lastMessageRole: "assistant",
       });
     }
     return { success: true };
