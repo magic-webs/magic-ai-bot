@@ -176,21 +176,21 @@ function NoteMarker({ message }: { message: Doc<"messages"> }) {
   return (
     // Amber, and the only amber on the thread. On the chat wallpaper a note in
     // the neutral palette reads as another bubble that happens to be wide; a
-    // colour nothing else uses says "this is not part of the conversation"
-    // before the label underneath it is read.
-    <div className="mx-auto w-full max-w-2xl rounded-lg border border-amber-300/70 bg-amber-50/95 px-3 py-2 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/10">
-      <div className="flex items-center gap-1.5">
-        <ClipboardTextIcon className="size-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
-        <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
-          Internal note · Not sent to the customer
-        </p>
-        <span className="ml-auto shrink-0 text-xs text-amber-800/70 dark:text-amber-200/60">
-          {timeOf(message.createdAt)}
-        </span>
-      </div>
-      <p className="mt-1 text-xs leading-relaxed whitespace-pre-wrap text-amber-950/90 dark:text-amber-100/80">
+    // colour nothing else uses, on a card rather than a bubble, is enough to
+    // say this was never sent — which is why the banner that used to spell
+    // that out on every note is gone, and only the hover title is left for
+    // whoever has not met one before.
+    <div
+      title="Internal note — not sent to the customer"
+      className="mx-auto flex w-full max-w-2xl gap-2 rounded-lg border border-amber-300/70 bg-amber-50/95 px-3 py-2 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/10"
+    >
+      <ClipboardTextIcon className="mt-0.5 size-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+      <p className="min-w-0 flex-1 text-xs leading-relaxed whitespace-pre-wrap text-amber-950/90 dark:text-amber-100/80">
         {message.text}
       </p>
+      <span className="shrink-0 text-xs text-amber-800/70 dark:text-amber-200/60">
+        {timeOf(message.createdAt)}
+      </span>
     </div>
   );
 }
