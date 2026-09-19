@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -45,6 +46,24 @@ export function WorkspaceSwitcher({
   const { isMobile } = useSidebar();
   // Admin-only query, so it is skipped rather than refused for a company.
   const workspaces = useQuery(api.workspaces.list, isAdmin ? {} : "skip");
+  const pathname = usePathname();
+
+  /**
+   * Which page of the console to open in the workspace being switched to.
+   *
+   * Switching company is a change of subject, not of task: somebody comparing
+   * two catalogues wants the other catalogue, and being dropped on the
+   * dashboard every time means navigating back to the same page on every
+   * switch. So the section carries across.
+   *
+   * Only the section — `/w/<slug>/products`, never `/w/<slug>/agents/<id>`.
+   * Everything below it names a record, and a record id from one workspace
+   * resolves to nothing in another. Nothing dynamic sits at this depth, so
+   * the first segment after the slug is always a real page.
+   */
+  const segments = pathname.split("/").filter(Boolean);
+  const section =
+    segments[0] === "w" && segments[2] ? `/${segments[2]}` : "";
 
   // A neutral tile, not the brand one the shadcn reference uses: the mark is
   // a green outline on transparency and `bg-sidebar-primary` is that same
@@ -133,7 +152,7 @@ export function WorkspaceSwitcher({
               {(workspaces ?? []).map((row) => (
                 <DropdownMenuItem
                   key={row._id}
-                  render={<Link href={`/w/${row.slug}`} />}
+                  render={<Link href={`/w/${row.slug}${section}`} />}
                 >
                   <span className="truncate">{row.name}</span>
                   {row.slug === workspace.slug ? (
