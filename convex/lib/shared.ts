@@ -222,6 +222,11 @@ export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
  * An agent saved before the gateway holds a bare id like `gpt-4.1-mini`; that
  * still runs, qualified to `openai/…` at the call, so this list does not have
  * to carry history.
+ *
+ * Not the last word on what the picker shows. An administrator adds, relabels
+ * and retires models from /admin/models, and the picker reads the merged
+ * result through `api.models.catalogue`. This array is what a deployment with
+ * an empty `aiModels` table offers — and the order the merged list keeps.
  */
 export const CHAT_MODELS = [
   {
@@ -235,6 +240,10 @@ export const CHAT_MODELS = [
   {
     id: "deepseek/deepseek-v4-pro",
     label: "DeepSeek V4 Pro — stronger reasoning, dearer",
+  },
+  {
+    id: "xiaomi/mimo-v2.6-flash",
+    label: "MiMo V2.6 Flash — tool-capable, 1M context, cheap",
   },
   {
     id: "inclusionai/ling-3.0-flash-fin",

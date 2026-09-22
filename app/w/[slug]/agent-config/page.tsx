@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { BUILTIN_TOOLS, CHAT_MODELS } from "@/convex/lib/shared";
+import { BUILTIN_TOOLS } from "@/convex/lib/shared";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/components/workspace-provider";
 import { AgentFlow } from "@/components/agent-flow";
 import { SelectField } from "@/components/select-field";
+import { useChatModelOptions } from "@/components/use-chat-models";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -83,6 +84,7 @@ function Inspector({
   const update = useMutation(api.agents.update);
   const [draft, setDraft] = useState<Draft>(() => draftOf(agent));
   const [saving, setSaving] = useState(false);
+  const modelOptions = useChatModelOptions(draft.model);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -290,18 +292,12 @@ function Inspector({
             className="w-full min-w-0"
             value={draft.model}
             onValueChange={(value) => set("model", value)}
-            options={[
-              ...CHAT_MODELS.map((model) => ({
-                value: model.id,
-                label: model.label,
-              })),
-              // An agent saved before the gateway holds a bare id that is not
-              // in the list; without this the picker would show empty and
-              // saving would silently change the model.
-              ...(CHAT_MODELS.some((model) => model.id === draft.model)
-                ? []
-                : [{ value: draft.model, label: `${draft.model} (current)` }]),
-            ]}
+            // Read from the admin catalogue, so a model added at
+            // /admin/models is offered here without a deploy. The hook also
+            // appends the agent's own model when the picker no longer offers
+            // it — otherwise the trigger would show empty and saving would
+            // silently move the agent onto another model.
+            options={modelOptions}
           />
           <Label className="mt-1 text-xs text-muted-foreground">
             Temperature · {draft.temperature.toFixed(2)}

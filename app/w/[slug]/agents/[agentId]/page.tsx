@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { BUILTIN_TOOLS, CHAT_MODELS } from "@/convex/lib/shared";
+import { BUILTIN_TOOLS } from "@/convex/lib/shared";
 import { recordToolNames } from "@/convex/lib/records";
 import { INTEGRATIONS } from "@/convex/lib/integrations";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Slider } from "@/components/ui/slider";
 import { SelectField } from "@/components/select-field";
+import { useChatModelOptions } from "@/components/use-chat-models";
 import {
   Card,
   CardContent,
@@ -159,6 +160,9 @@ export default function AgentConfigPage({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftFor, setDraftFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The catalogue an administrator maintains at /admin/models, plus the
+  // agent's own model when that list no longer offers it.
+  const modelOptions = useChatModelOptions(draft?.model);
 
   // Seed the editable draft from the server document, and re-seed if a
   // different agent is opened. Adjusting state during render rather than in an
@@ -1147,10 +1151,7 @@ export default function AgentConfigPage({
                     className="w-full max-w-sm"
                     value={draft.model}
                     onValueChange={(next) => set("model", next)}
-                    options={CHAT_MODELS.map((model) => ({
-                      value: model.id,
-                      label: model.label,
-                    }))}
+                    options={modelOptions}
                   />
                 </div>
 

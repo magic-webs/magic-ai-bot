@@ -1026,6 +1026,37 @@ export default defineSchema({
   // Outbound webhook delivery log.
   // -------------------------------------------------------------------------
   // -------------------------------------------------------------------------
+  // Models an administrator has added or repriced without a deploy.
+  //
+  // convex/lib/pricing.ts is still the floor: it carries the models the
+  // platform shipped with, and history stays priced by it. A row here either
+  // introduces a model that table has never heard of — the gateway adds them
+  // faster than this repo ships — or overrides one whose list price has moved.
+  // Lookup order is this table first, then the built-in table, so an override
+  // wins without anyone having to delete the constant.
+  // -------------------------------------------------------------------------
+  aiModels: defineTable({
+    // How the gateway addresses it, `creator/model`, e.g.
+    // "xiaomi/mimo-v2.6-flash". Unique across the table.
+    modelId: v.string(),
+    // What the picker shows. The built-in list writes these as
+    // "Name — what it is for", and an admin-added one should read the same.
+    label: v.string(),
+    kind: v.union(v.literal("chat"), v.literal("embedding")),
+    // USD per 1M tokens, the unit the gateway's own catalogue publishes.
+    // Output is zero for an embedding model.
+    inputPer1M: v.number(),
+    outputPer1M: v.number(),
+    // Whether the model picker offers it. Off is not the same as deleted: a
+    // retired model has to keep its price or every row it ever wrote becomes
+    // an unpriced gap.
+    enabled: v.boolean(),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_modelId", ["modelId"]),
+
+  // -------------------------------------------------------------------------
   // One row per model call, so spend can be attributed rather than estimated.
   // -------------------------------------------------------------------------
   usageEvents: defineTable({

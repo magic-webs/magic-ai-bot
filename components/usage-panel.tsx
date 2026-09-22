@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useHourBucket } from "@/components/use-now";
@@ -99,9 +100,9 @@ export function UsagePanel() {
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-xl text-sm text-muted-foreground">
-          One row is recorded for every model call, priced from a per-model
-          table. Figures are OpenAI list prices and exclude tax — treat them as
-          an attribution of spend, not an invoice.
+          One row is recorded for every model call, priced from the model
+          catalogue. Figures are list prices and exclude tax — treat them as an
+          attribution of spend, not an invoice.
         </p>
         <div className="flex items-center gap-2">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -141,8 +142,11 @@ export function UsagePanel() {
             Tokens for{" "}
             <span className="font-mono">{data.unpricedModels.join(", ")}</span>{" "}
             are counted but costed at zero, so the cost below is understated.
-            Add {data.unpricedModels.length === 1 ? "it" : "them"} to
-            convex/lib/pricing.ts.
+            Add {data.unpricedModels.length === 1 ? "it" : "them"} under{" "}
+            <Link href="/admin/models" className="underline">
+              AI models
+            </Link>
+            , then reprice past usage from that page.
           </AlertDescription>
         </Alert>
       ) : null}

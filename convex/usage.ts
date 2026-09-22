@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import { requireAdmin, requireWorkspace } from "./lib/auth";
-import { costNanoUsd, MODEL_PRICES } from "./lib/pricing";
+import { lookupPrice, mergedCatalogue } from "./lib/modelCatalogue";
+import { costNanoUsd } from "./lib/pricing";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // The dashboard reads rows, not a rollup, so one read is capped.
@@ -23,7 +24,8 @@ const sourceValidator = v.union(
  *
  * Internal: only the actions that made the call can report it, and they pass
  * the token counts the provider returned rather than any estimate. Pricing is
- * applied here so every row is costed by the same table.
+ * applied here so every row is costed by the same table — the `aiModels` row
+ * an administrator added, if there is one, otherwise the shipped constants.
  */
 export const record = internalMutation({
   args: {
@@ -46,7 +48,8 @@ export const record = internalMutation({
     const { costNanoUsd: cost, priced } = costNanoUsd(
       args.model,
       inputTokens,
-      outputTokens
+      outputTokens,
+      await lookupPrice(ctx, args.model)
     );
 
     return await ctx.db.insert("usageEvents", {
@@ -201,7 +204,9 @@ export const adminSummary = query({
       bySource: rank(bySource),
       byChannel: rank(byChannel),
       unpricedModels: [...unpriced],
-      pricedModels: Object.keys(MODEL_PRICES).length,
+      // The merged catalogue, not the constant: a model an admin added from
+      // /admin/models counts, or the figure contradicts the page that added it.
+      pricedModels: (await mergedCatalogue(ctx)).length,
     };
   },
 });
