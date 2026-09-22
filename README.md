@@ -52,6 +52,18 @@ bun dev
 **on the Convex deployment**, not just in `.env.local`, because every model call
 and every token signature happens inside a Convex action.
 
+### Deploying
+
+`vercel.json` builds with `convex deploy --cmd 'bun run build'`, so the backend
+and the frontend ship in one step. They have to: the two halves are one program,
+and a frontend that knows about a Convex function the backend has not got yet
+does not fail at build — it fails in the browser, as a blank page, on whichever
+route calls it first.
+
+That build command needs **`CONVEX_DEPLOY_KEY`** in the Vercel project's
+environment variables — a production deploy key from the Convex dashboard
+(Settings → Deploy keys). Without it the build stops before Next runs.
+
 Open `/login`. While no administrator exists that page offers a one-time setup
 form to create the first one; it locks itself the moment an account exists.
 
