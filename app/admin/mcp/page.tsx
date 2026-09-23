@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
 import { api } from "@/convex/_generated/api";
@@ -232,7 +231,13 @@ export default function AdminMcpPage() {
         </p>
       </header>
 
-      <Card>
+      {/* shrink-0, or the page does not scroll and this card clips instead.
+          `Card` carries `overflow-hidden`, and a flex item whose overflow is
+          not `visible` gets an automatic minimum size of zero — so rather than
+          growing past the scrolling column it shrinks into whatever space is
+          left. Nothing overflows, no scrollbar appears, and the content is
+          simply cut off. Every card directly in this column carries it. */}
+      <Card className="shrink-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PlugsConnectedIcon className="size-4" />
@@ -449,94 +454,45 @@ export default function AdminMcpPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>What the assistant can do</CardTitle>
-            <CardDescription>
-              Your permissions, checked by the same Convex guards the dashboard
-              runs — on every call.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {TOOL_GROUPS.map((section) => (
-              <div key={section.group} className="flex flex-col gap-1.5">
-                <p className="flex items-center gap-2 text-xs font-medium">
-                  {section.group}
-                  {section.admin ? (
-                    <Badge variant="destructive">administrator only</Badge>
-                  ) : null}
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {section.tools.map((tool) => (
-                    <Badge
-                      key={tool}
-                      variant="secondary"
-                      className="font-mono text-[11px]"
-                    >
-                      {tool}
-                    </Badge>
-                  ))}
-                </div>
+      <Card className="shrink-0">
+        <CardHeader>
+          <CardTitle>What the assistant can do</CardTitle>
+          <CardDescription>
+            Your permissions, checked by the same Convex guards the dashboard
+            runs — on every call.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {TOOL_GROUPS.map((section) => (
+            <div key={section.group} className="flex flex-col gap-1.5">
+              <p className="flex items-center gap-2 text-xs font-medium">
+                {section.group}
+                {section.admin ? (
+                  <Badge variant="destructive">administrator only</Badge>
+                ) : null}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {section.tools.map((tool) => (
+                  <Badge
+                    key={tool}
+                    variant="secondary"
+                    className="font-mono text-[11px]"
+                  >
+                    {tool}
+                  </Badge>
+                ))}
               </div>
-            ))}
-            <p className="text-xs text-muted-foreground">
-              The tenant-level tools will not guess a workspace: archiving,
-              re-credentialing and deleting all require an explicit slug, and{" "}
-              <span className="font-mono">delete_workspace</span> also wants the
-              workspace&apos;s exact name — so a confused caller cannot take out
-              a company on one wrong argument.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Keep it narrow</CardTitle>
-            <CardDescription>
-              What this URL is worth, and the two alternatives to handing it out.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
-            <p>
-              Anyone holding the URL has everything you have. If it is ever
-              pasted somewhere shared, rotate it here — that is enough, and it
-              is instant.
-            </p>
-            <ul className="flex list-disc flex-col gap-1.5 pl-5">
-              <li>
-                One company only? Issue{" "}
-                <Link href="/admin/workspaces" className="underline">
-                  their own connector
-                </Link>{" "}
-                from that workspace&apos;s settings instead. It reaches just
-                them, and the platform tools stay refused.
-              </li>
-              <li>
-                Prefer a connector nobody can revoke out from under the
-                deployment? The environment route still exists —{" "}
-                <span className="font-mono text-xs">
-                  MAGIC_AI_BOT_MCP_TOKEN
-                </span>{" "}
-                with an admin{" "}
-                <span className="font-mono text-xs">
-                  MAGIC_AI_BOT_USERNAME
-                </span>
-                /
-                <span className="font-mono text-xs">
-                  MAGIC_AI_BOT_PASSWORD
-                </span>
-                . Unset, that route 404s and only the connectors on this page
-                exist.
-              </li>
-            </ul>
-            <p className="text-xs">
-              <span className="font-mono">mcp/README.md</span> has the rest,
-              including running the server over stdio for a local assistant.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground">
+            The tenant-level tools will not guess a workspace: archiving,
+            re-credentialing and deleting all require an explicit slug, and{" "}
+            <span className="font-mono">delete_workspace</span> also wants the
+            workspace&apos;s exact name — so a confused caller cannot take out
+            a company on one wrong argument.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
