@@ -414,8 +414,11 @@ export default function AgentConfigPage() {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <CursorClickIcon className="size-4" />
-          Pick a node to configure it
+          <CursorClickIcon className="size-4 shrink-0" />
+          {/* On a phone there is no cursor and the sentence is the widest
+              thing in the bar. Tapping a node still opens the panel. */}
+          <span className="hidden sm:inline">Pick a node to configure it</span>
+          <span className="sm:hidden">Tap a node</span>
         </p>
         <Button
           size="sm"

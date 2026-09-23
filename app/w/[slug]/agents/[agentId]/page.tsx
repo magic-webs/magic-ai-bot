@@ -425,13 +425,18 @@ export default function AgentConfigPage({
           />
           <Button
             variant="outline"
+            aria-label="Test in chat"
             nativeButton={false}
             render={<Link href={`${base}/agents/${agentId}/test`} />}
           >
-            <ChatsIcon /> Test in chat
+            {/* The label is the first thing to give up on a phone: the icon
+                carries it, the aria-label keeps the button named, and the
+                header stops wrapping onto a third line. */}
+            <ChatsIcon /> <span className="hidden sm:inline">Test in chat</span>
           </Button>
-          <Button onClick={save} disabled={saving}>
-            {saving ? <Spinner /> : <FloppyDiskIcon />} Save
+          <Button onClick={save} disabled={saving} aria-label="Save">
+            {saving ? <Spinner /> : <FloppyDiskIcon />}{" "}
+            <span className="hidden sm:inline">Save</span>
           </Button>
         </div>
       </header>
