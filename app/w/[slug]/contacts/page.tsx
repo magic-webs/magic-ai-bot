@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -49,6 +50,7 @@ import {
   MagnifyingGlassIcon,
   FloppyDiskIcon,
   RobotIcon,
+  SignpostIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
@@ -68,6 +70,15 @@ type ContactRow = {
   messageCount: number;
   handledBy: string | null;
   conversationStatus: "open" | "escalated" | "closed" | null;
+  /** Where the follow-up desk filed the latest conversation. */
+  leadStage: { name: string; outcome: "open" | "won" | "lost" } | null;
+  /** One entry per record book this person has something filed in. */
+  records: Array<{
+    bookId: string;
+    stage: string | null;
+    reference: string;
+    count: number;
+  }>;
 };
 
 // A web visitor's id is a random string, which is no use as a label.
@@ -82,6 +93,62 @@ function displayName(contact: ContactRow): string {
 
 function Blank() {
   return <span className="text-muted-foreground">—</span>;
+}
+
+/**
+ * The lead stage, as a badge that says which way it went.
+ *
+ * Only the two terminal outcomes get a colour. An open stage is the normal
+ * case and there are as many of them as the workspace cares to define, so
+ * tinting each one would need the leads page's whole palette out here to say
+ * nothing the name does not already.
+ */
+function StageBadge({ stage }: { stage: NonNullable<ContactRow["leadStage"]> }) {
+  return (
+    <Badge
+      variant={
+        stage.outcome === "won"
+          ? "default"
+          : stage.outcome === "lost"
+            ? "destructive"
+            : "secondary"
+      }
+      className="max-w-full truncate"
+      title={`Lead stage · ${stage.name}`}
+    >
+      {stage.name}
+    </Badge>
+  );
+}
+
+/**
+ * What this person has in one record book: the stage their latest record is
+ * at, and how many of them there are.
+ *
+ * A book with no stages — plenty are a thing that happened rather than a thing
+ * in progress — reads "Filed", because "there is one" is still the answer to
+ * the question the column asks. The reference is not shown: it is the string a
+ * customer quotes back, not a status, and it belongs on the record itself. It
+ * stays searchable from the box above.
+ */
+function RecordCell({
+  row,
+}: {
+  row: ContactRow["records"][number] | undefined;
+}) {
+  if (!row) return <Blank />;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <Badge variant="outline" className="max-w-full truncate">
+        {row.stage ?? "Filed"}
+      </Badge>
+      {row.count > 1 ? (
+        <span className="text-xs tabular-nums text-muted-foreground">
+          ×{row.count}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -238,16 +305,28 @@ const WINDOWS = [
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// The lead stage filter's fixed entries. The stages themselves are appended at
+// render, since a workspace renames and adds to them.
+const ANY_STAGE = { value: "all", label: "Any stage" };
+const NO_STAGE = { value: "none", label: "Not filed yet" };
+
 export default function ContactsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
   const contacts = useQuery(api.contacts.listByWorkspace, {
     workspaceId: workspace._id,
   });
+  // A column per book, named by the workspace. The same names-only query the
+  // sidebar reads, so this costs nothing extra on a page that already has it.
+  const books = useQuery(api.records.listBookLinks, {
+    workspaceId: workspace._id,
+  });
+  const stages = useQuery(api.leads.listStages, { workspaceId: workspace._id });
 
   const [search, setSearch] = useState("");
   const [channel, setChannel] = useState("all");
   const [status, setStatus] = useState("all");
+  const [stage, setStage] = useState("all");
   const [seen, setSeen] = useState("all");
   // The last-seen window needs the clock, and a render must not read it
   // directly. Hour granularity is ample for a 24-hour bucket and keeps the
@@ -258,12 +337,20 @@ export default function ContactsPage() {
 
   const term = search.trim().toLowerCase();
   const filtered =
-    Boolean(term) || channel !== "all" || status !== "all" || seen !== "all";
+    Boolean(term) ||
+    channel !== "all" ||
+    status !== "all" ||
+    stage !== "all" ||
+    seen !== "all";
 
   const rows = all.filter((contact) => {
     if (channel !== "all" && contact.channelType !== channel) return false;
 
     if (status !== "all" && (contact.conversationStatus ?? "none") !== status) {
+      return false;
+    }
+
+    if (stage !== "all" && (contact.leadStage?.name ?? "none") !== stage) {
       return false;
     }
 
@@ -280,6 +367,8 @@ export default function ContactsPage() {
       contact.remark,
       contact.handledBy,
       contact.externalId,
+      contact.leadStage?.name,
+      ...contact.records.flatMap((row) => [row.reference, row.stage]),
     ]
       .filter(Boolean)
       .join(" ")
@@ -291,8 +380,22 @@ export default function ContactsPage() {
     setSearch("");
     setChannel("all");
     setStatus("all");
+    setStage("all");
     setSeen("all");
   };
+
+  // Drawn even where no contact has a record in them yet: an empty column says
+  // the book exists and nobody is in it, which is the thing worth knowing.
+  const columns = books ?? [];
+
+  const stageOptions = useMemo(
+    () => [
+      ANY_STAGE,
+      ...(stages ?? []).map((row) => ({ value: row.name, label: row.name })),
+      NO_STAGE,
+    ],
+    [stages]
+  );
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -337,6 +440,13 @@ export default function ContactsPage() {
         />
 
         <SelectField
+          aria-label="Filter by lead stage"
+          value={stage}
+          onValueChange={setStage}
+          options={stageOptions}
+        />
+
+        <SelectField
           aria-label="Filter by when the contact was last seen"
           value={seen}
           onValueChange={setSeen}
@@ -359,7 +469,7 @@ export default function ContactsPage() {
       </div>
 
       {contacts === undefined ? (
-        <TableSkeleton rows={8} columns={6} />
+        <TableSkeleton rows={8} columns={7 + columns.length} />
       ) : rows.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -391,6 +501,12 @@ export default function ContactsPage() {
                 <TableHead className="min-w-44">Name</TableHead>
                 <TableHead className="min-w-40">Phone / Email</TableHead>
                 <TableHead className="min-w-28">Handled by</TableHead>
+                <TableHead className="min-w-28">Lead stage</TableHead>
+                {columns.map((book) => (
+                  <TableHead key={book._id} className="min-w-32">
+                    {book.pluralName}
+                  </TableHead>
+                ))}
                 <TableHead className="min-w-52">Remark</TableHead>
                 <TableHead className="min-w-24 text-right">Last seen</TableHead>
                 <TableHead className="w-28" />
@@ -452,6 +568,31 @@ export default function ContactsPage() {
                       <Blank />
                     )}
                   </TableCell>
+
+                  <TableCell className="max-w-40 min-w-0">
+                    {contact.leadStage ? (
+                      <StageBadge stage={contact.leadStage} />
+                    ) : contact.conversationId ? (
+                      <span
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                        title="The desk reads a conversation an hour after it goes quiet."
+                      >
+                        <SignpostIcon className="size-3.5" /> Not reviewed
+                      </span>
+                    ) : (
+                      <Blank />
+                    )}
+                  </TableCell>
+
+                  {columns.map((book) => (
+                    <TableCell key={book._id} className="max-w-40 min-w-0">
+                      <RecordCell
+                        row={contact.records.find(
+                          (row) => row.bookId === book._id
+                        )}
+                      />
+                    </TableCell>
+                  ))}
 
                   <TableCell className="max-w-64 min-w-0">
                     {contact.remark ? (
