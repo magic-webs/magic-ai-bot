@@ -27,6 +27,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Slider } from "@/components/ui/slider";
 import { SelectField } from "@/components/select-field";
 import { useChatModelOptions } from "@/components/use-chat-models";
+import { useSession } from "@/components/use-session";
 import {
   Card,
   CardContent,
@@ -157,12 +158,25 @@ export default function AgentConfigPage({
   const recordBooks = useQuery(api.records.listBooks, {
     workspaceId: workspace._id,
   });
+  // The whole roster, so the heading can double as a switcher. Configuring a
+  // team means going through them one after another, and the round trip out to
+  // the list and back was two clicks and a lost scroll position each time.
+  const roster = useQuery(api.agents.listByWorkspace, {
+    workspaceId: workspace._id,
+  });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftFor, setDraftFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // The catalogue an administrator maintains at /admin/models, plus the
   // agent's own model when that list no longer offers it.
   const modelOptions = useChatModelOptions(draft?.model);
+  // The Model tab is an administrator's. Which model an agent runs on is a
+  // billing decision made from the other side of the account, and the dials
+  // beside it — temperature, tool-loop budget, history replayed — are the
+  // same kind of knob. `mayChooseModel` in convex/agents.ts drops the model
+  // on the way in for anyone else, so hiding the tab is presentation rather
+  // than the permission itself.
+  const { isAdmin } = useSession();
 
   // Seed the editable draft from the server document, and re-seed if a
   // different agent is opened. Adjusting state during render rather than in an
@@ -310,6 +324,25 @@ export default function AgentConfigPage({
   const scopedCustomTools = scopedTools.filter((tool) => !tool.integration);
 
   const isRouter = agent.kind === "router";
+
+  // Front desk first, then everyone else by name: the router is the one agent
+  // whose position in the list is meaningful, since every conversation starts
+  // there. A paused or draft agent is marked, because switching to one and
+  // wondering why it answers nothing is a minute wasted.
+  const agentOptions = [...(roster ?? [])]
+    .sort((a, b) => {
+      if (a.kind === "router" !== (b.kind === "router")) {
+        return a.kind === "router" ? -1 : 1;
+      }
+      return a.botName.localeCompare(b.botName);
+    })
+    .map((row) => ({
+      value: row._id as string,
+      label:
+        row.status === "active"
+          ? row.botName
+          : `${row.botName} · ${row.status}`,
+    }));
   // The roster the prompt preview was compiled against, so the Routing tab and
   // the compiled prompt can never disagree.
   const team = promptPreview?.team ?? [];
@@ -327,10 +360,38 @@ export default function AgentConfigPage({
           >
             <ArrowLeftIcon />
           </Button>
-          <div className="min-w-0">
-            <h1 className="truncate font-heading text-lg font-semibold tracking-tight">
-              {draft.botName || draft.name}
-            </h1>
+          <div className="flex min-w-0 flex-col">
+            {/* The title is the switcher. A separate "change agent" control
+                beside a heading that already names the agent would say the
+                same thing twice, so the heading itself opens the roster — the
+                pattern a breadcrumb uses. The real <h1> stays for anything
+                reading the document outline; the trigger carries its own
+                label.
+
+                `data-[size=default]:h-auto`, not a bare `h-auto`:
+                SelectTrigger writes its height as `data-[size=default]:h-8`
+                and tailwind-merge keeps an unqualified class alongside a
+                variant-qualified one, where it then loses on specificity. */}
+            <h1 className="sr-only">{draft.botName || draft.name}</h1>
+            <SelectField
+              value={typedAgentId}
+              aria-label="Switch to another agent"
+              className="-mx-1.5 w-fit max-w-full gap-1 border-0 bg-transparent px-1.5 py-0 font-heading text-lg font-semibold tracking-tight shadow-none hover:bg-muted data-[size=default]:h-auto focus-visible:ring-0 dark:bg-transparent dark:hover:bg-muted/50"
+              onValueChange={(next) => {
+                // Guarded, or picking the agent you are already on pushes the
+                // route you are already at and re-seeds the draft.
+                if (next && next !== typedAgentId) {
+                  router.push(`${base}/agents/${next}`);
+                }
+              }}
+              options={
+                agentOptions.length > 0
+                  ? agentOptions
+                  : // The roster query has not landed yet; without an option
+                    // matching the value the trigger renders empty.
+                    [{ value: typedAgentId, label: draft.botName || draft.name }]
+              }
+            />
             <p className="truncate text-xs text-muted-foreground">
               {draft.role}
             </p>
@@ -383,7 +444,9 @@ export default function AgentConfigPage({
             <TabsTrigger value="tone">Tone</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="capabilities">Knowledge & tools</TabsTrigger>
-            <TabsTrigger value="model">Model</TabsTrigger>
+            {isAdmin ? (
+              <TabsTrigger value="model">Model</TabsTrigger>
+            ) : null}
             <TabsTrigger value="prompt">Compiled prompt</TabsTrigger>
           </TabsList>
 
@@ -1138,120 +1201,122 @@ export default function AgentConfigPage({
           </TabsContent>
 
           {/* ------------------------------------------------------- Model */}
-          <TabsContent value="model" className="flex flex-col gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Model settings</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-5">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="f-model">Chat model</Label>
-                  <SelectField
-                    id="f-model"
-                    className="w-full max-w-sm"
-                    value={draft.model}
-                    onValueChange={(next) => set("model", next)}
-                    options={modelOptions}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <Label className="text-sm font-medium">
-                    Temperature — {draft.temperature.toFixed(2)}
-                  </Label>
-                  <Slider
-                    value={[draft.temperature]}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    onValueChange={(value) => set("temperature", firstNumber(value))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Lower is more consistent. 0.3–0.5 suits qualification bots.
-                  </p>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <Label className="text-sm font-medium">
-                      Tool-loop budget — {draft.maxSteps} steps
-                    </Label>
-                    <Slider
-                      value={[draft.maxSteps]}
-                      min={1}
-                      max={12}
-                      step={1}
-                      onValueChange={(value) => set("maxSteps", firstNumber(value))}
+          {isAdmin ? (
+            <TabsContent value="model" className="flex flex-col gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Model settings</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="f-model">Chat model</Label>
+                    <SelectField
+                      id="f-model"
+                      className="w-full max-w-sm"
+                      value={draft.model}
+                      onValueChange={(next) => set("model", next)}
+                      options={modelOptions}
                     />
                   </div>
+
                   <div className="flex flex-col gap-2">
                     <Label className="text-sm font-medium">
-                      History replayed — {draft.historyLimit} messages
+                      Temperature — {draft.temperature.toFixed(2)}
                     </Label>
                     <Slider
-                      value={[draft.historyLimit]}
-                      min={2}
-                      max={40}
-                      step={2}
-                      onValueChange={(value) => set("historyLimit", firstNumber(value))}
+                      value={[draft.temperature]}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      onValueChange={(value) => set("temperature", firstNumber(value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Lower is more consistent. 0.3–0.5 suits qualification bots.
+                    </p>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Danger zone</CardTitle>
-                <CardDescription>
-                  Deleting an agent also deletes its conversations, channels,
-                  agent-scoped knowledge and agent-scoped tools.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={
-                      <Button variant="destructive">
-                        <TrashIcon /> Delete this agent
-                      </Button>
-                    }
-                  />
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        Delete {draft.botName}?
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This cannot be undone. Its conversations, channels and
-                        agent-scoped knowledge and tools are removed too.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel render={<Button variant="ghost">Cancel</Button>} />
-                      <AlertDialogAction
-                        render={
-                          <Button
-                            variant="destructive"
-                            onClick={async () => {
-                              await removeAgent({ agentId: typedAgentId });
-                              toast.add({
-                                title: "Agent deleted",
-                                type: "success",
-                              });
-                              router.push(`${base}/agents`);
-                            }}
-                          >
-                            Delete permanently
-                          </Button>
-                        }
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-sm font-medium">
+                        Tool-loop budget — {draft.maxSteps} steps
+                      </Label>
+                      <Slider
+                        value={[draft.maxSteps]}
+                        min={1}
+                        max={12}
+                        step={1}
+                        onValueChange={(value) => set("maxSteps", firstNumber(value))}
                       />
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-sm font-medium">
+                        History replayed — {draft.historyLimit} messages
+                      </Label>
+                      <Slider
+                        value={[draft.historyLimit]}
+                        min={2}
+                        max={40}
+                        step={2}
+                        onValueChange={(value) => set("historyLimit", firstNumber(value))}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Danger zone</CardTitle>
+                  <CardDescription>
+                    Deleting an agent also deletes its conversations, channels,
+                    agent-scoped knowledge and agent-scoped tools.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AlertDialog>
+                    <AlertDialogTrigger
+                      render={
+                        <Button variant="destructive">
+                          <TrashIcon /> Delete this agent
+                        </Button>
+                      }
+                    />
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Delete {draft.botName}?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This cannot be undone. Its conversations, channels and
+                          agent-scoped knowledge and tools are removed too.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel render={<Button variant="ghost">Cancel</Button>} />
+                        <AlertDialogAction
+                          render={
+                            <Button
+                              variant="destructive"
+                              onClick={async () => {
+                                await removeAgent({ agentId: typedAgentId });
+                                toast.add({
+                                  title: "Agent deleted",
+                                  type: "success",
+                                });
+                                router.push(`${base}/agents`);
+                              }}
+                            >
+                              Delete permanently
+                            </Button>
+                          }
+                        />
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          ) : null}
 
           {/* ------------------------------------------------------ Prompt */}
           <TabsContent value="prompt" className="flex flex-col gap-4">
