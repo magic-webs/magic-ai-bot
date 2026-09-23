@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -27,12 +27,22 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ListSkeleton } from "@/components/skeletons";
 import { useHourBucket } from "@/components/use-now";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
   ArrowRightIcon,
+  CardsThreeIcon,
   ChatCircleIcon,
   ChatsIcon,
   CheckCircleIcon,
@@ -43,11 +53,13 @@ import {
   FunnelIcon,
   GlobeIcon,
   HandshakeIcon,
+  KanbanIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   ProhibitIcon,
   SignpostIcon,
   SparkleIcon,
+  TableIcon,
   TrophyIcon,
   UserIcon,
   WarningIcon,
@@ -238,6 +250,31 @@ const WINDOWS = [
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Views
+// ---------------------------------------------------------------------------
+
+/**
+ * The same leads, three ways. Kanban is the default: this page is about where
+ * each conversation has got to, and columns side by side is the only one of
+ * the three that answers that without scrolling.
+ *
+ * Cards is the stacked-panel reading of the same grouping, for a pipeline with
+ * more stages than fit across a screen. List drops the grouping entirely and
+ * sorts by recency — the view for finding one lead rather than surveying them.
+ */
+type View = "kanban" | "cards" | "list";
+
+const VIEWS = [
+  { value: "kanban", label: "Kanban", icon: KanbanIcon },
+  { value: "cards", label: "Cards", icon: CardsThreeIcon },
+  { value: "list", label: "List", icon: TableIcon },
+] as const satisfies ReadonlyArray<{
+  value: View;
+  label: string;
+  icon: Icon;
+}>;
 
 // ---------------------------------------------------------------------------
 // One lead
@@ -435,6 +472,305 @@ function LeadCard({
 }
 
 // ---------------------------------------------------------------------------
+// Kanban
+// ---------------------------------------------------------------------------
+
+/**
+ * The board: one column per stage, in pipeline order, with the unreviewed
+ * queue last.
+ *
+ * Empty columns are kept here where the card view drops them — an empty column
+ * is the thing you drag the first lead into, so hiding it would put that stage
+ * out of reach.
+ *
+ * Drag and drop is the browser's own rather than a library: the whole
+ * interaction is "pick a card up, let go over a column", the payload is one
+ * id, and `setStage` already exists because the card's own dropdown calls it.
+ * That dropdown stays on every card, so the board is still usable by keyboard
+ * and on touch, where HTML drag events do not fire.
+ */
+function KanbanBoard({
+  groups,
+  stages,
+  base,
+}: {
+  groups: Group[];
+  stages: LeadStage[];
+  base: string;
+}) {
+  const setStage = useMutation(api.leads.setStage);
+  // The column under the pointer, by key. Held on the board rather than in
+  // each column so only one can be lit at a time: `dragleave` fires for every
+  // child element a card passes over, so a column cannot reliably clear its
+  // own flag.
+  const [over, setOver] = useState<string | null>(null);
+  const dragging = useRef<Id<"conversations"> | null>(null);
+
+  const move = async (group: Group) => {
+    const conversationId = dragging.current;
+    dragging.current = null;
+    setOver(null);
+    if (!conversationId) return;
+    // Dropped back where it came from: no mutation, and no toast for a drag
+    // that changed nothing.
+    const alreadyHere = group.rows.some(
+      (row) => row.conversationId === conversationId
+    );
+    if (alreadyHere) return;
+    try {
+      await setStage({
+        conversationId,
+        stageId:
+          group.key === "unfiled" ? undefined : (group.key as Id<"leadStages">),
+      });
+    } catch (error) {
+      toast.add({
+        title: "Could not move the lead",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
+
+  return (
+    // The board scrolls sideways on its own rather than widening the page —
+    // the filters and the funnel chips above it have to stay put. The negative
+    // margin lets a column reach the edge of the screen instead of stopping at
+    // the page padding, so it does not read as a cut-off card.
+    //
+    // shrink-0 is what keeps the columns whole. `overflow-x-auto` computes
+    // `overflow-y` to `auto` as well — CSS will not leave one axis visible
+    // while the other is not — and a flex child whose overflow is not visible
+    // gets an automatic minimum size of zero. So this box was being squeezed
+    // into whatever the scrolling page had left over, the column panels
+    // stretched to that squeezed height, and the cards inside them carried on
+    // rendering out through the bottom of the panel.
+    <div className="-mx-4 flex shrink-0 gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
+      {groups.map((group) => {
+        const tone = TONES[group.tone];
+        return (
+          <section
+            key={group.key}
+            onDragOver={(event) => {
+              // Without this the browser refuses the drop outright.
+              event.preventDefault();
+              setOver(group.key);
+            }}
+            onDragLeave={() =>
+              setOver((prev) => (prev === group.key ? null : prev))
+            }
+            onDrop={(event) => {
+              event.preventDefault();
+              void move(group);
+            }}
+            className={cn(
+              "flex w-80 shrink-0 flex-col rounded-2xl border p-3",
+              tone.panel,
+              over === group.key && "ring-2 ring-primary/50"
+            )}
+          >
+            <header className="mb-3 flex items-center gap-2">
+              <span
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-lg",
+                  tone.tile
+                )}
+              >
+                <group.icon className="size-4" />
+              </span>
+              <h2
+                className={cn(
+                  "min-w-0 flex-1 truncate font-heading text-sm font-semibold",
+                  tone.title
+                )}
+                title={group.hint}
+              >
+                {group.title}
+              </h2>
+              <Badge variant="ghost" className="tabular-nums">
+                {group.rows.length}
+              </Badge>
+            </header>
+
+            <div className="flex flex-col gap-3">
+              {group.rows.map((lead) => (
+                <div
+                  key={lead.conversationId}
+                  draggable
+                  onDragStart={() => {
+                    dragging.current = lead.conversationId;
+                  }}
+                  onDragEnd={() => {
+                    dragging.current = null;
+                    setOver(null);
+                  }}
+                  className="cursor-grab active:cursor-grabbing"
+                >
+                  <LeadCard
+                    lead={lead}
+                    group={group}
+                    stages={stages}
+                    base={base}
+                  />
+                </div>
+              ))}
+              {group.rows.length === 0 ? (
+                <p className="rounded-xl border border-dashed px-3 py-6 text-center text-xs text-muted-foreground">
+                  Drop a lead here
+                </p>
+              ) : null}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// List
+// ---------------------------------------------------------------------------
+
+/**
+ * Every lead on one line, newest first, with no grouping at all.
+ *
+ * The stage is a control rather than a label, the same select the card
+ * carries: the reason to see them in one flat list is usually to correct where
+ * a few of them have been filed.
+ */
+function LeadTable({
+  rows,
+  groupOf,
+  stages,
+  base,
+}: {
+  rows: Lead[];
+  /** The group a lead sits in, for its stage tint. */
+  groupOf: (lead: Lead) => Group | undefined;
+  stages: LeadStage[];
+  base: string;
+}) {
+  const setStage = useMutation(api.leads.setStage);
+  const sorted = [...rows].sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Lead</TableHead>
+            <TableHead>Stage</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Messages</TableHead>
+            <TableHead>Last heard</TableHead>
+            <TableHead className="w-10" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sorted.map((lead) => {
+            const group = groupOf(lead);
+            const tone = TONES[group?.tone ?? "slate"];
+            return (
+              <TableRow key={lead.conversationId}>
+                <TableCell>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "shrink-0",
+                        lead.channelType === "whatsapp"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-muted-foreground"
+                      )}
+                      title={
+                        lead.channelType === "whatsapp" ? "WhatsApp" : "Website"
+                      }
+                    >
+                      {lead.channelType === "whatsapp" ? (
+                        <WhatsappLogoIcon className="size-4" />
+                      ) : (
+                        <GlobeIcon className="size-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">
+                        {lead.contactLabel}
+                      </span>
+                      {lead.contactCompany ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {lead.contactCompany}
+                        </span>
+                      ) : null}
+                    </span>
+                  </span>
+                </TableCell>
+
+                <TableCell>
+                  <SelectField
+                    size="sm"
+                    aria-label={`Stage for ${lead.contactLabel}`}
+                    className={cn("font-medium", tone.pill)}
+                    value={lead.leadStageId ?? "none"}
+                    onValueChange={async (next) => {
+                      try {
+                        await setStage({
+                          conversationId: lead.conversationId,
+                          stageId:
+                            next === "none"
+                              ? undefined
+                              : (next as Id<"leadStages">),
+                        });
+                      } catch (error) {
+                        toast.add({
+                          title: "Could not move the lead",
+                          description:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                          type: "error",
+                        });
+                      }
+                    }}
+                    options={[
+                      { value: "none", label: "Unfiled" },
+                      ...stages.map((option) => ({
+                        value: option._id as string,
+                        label: option.name,
+                      })),
+                    ]}
+                  />
+                </TableCell>
+
+                <TableCell>
+                  {lead.status === "escalated" ? (
+                    <Badge variant="destructive">escalated</Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground capitalize">
+                      {lead.status}
+                    </span>
+                  )}
+                </TableCell>
+
+                <TableCell className="text-right text-sm tabular-nums">
+                  {lead.messageCount}
+                </TableCell>
+
+                <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
+                  {formatDistanceToNow(lead.lastMessageAt, { addSuffix: true })}
+                </TableCell>
+
+                <TableCell>
+                  <LeadMenu lead={lead} base={base} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The funnel row
 // ---------------------------------------------------------------------------
 
@@ -508,6 +844,7 @@ export default function LeadsPage() {
   });
 
   const [stagesOpen, setStagesOpen] = useState(false);
+  const [view, setView] = useState<View>("kanban");
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState("all");
   const [channel, setChannel] = useState("all");
@@ -607,10 +944,25 @@ export default function LeadsPage() {
     return out;
   }, [stages, rows]);
 
-  // A stage nobody is at is noise on a page about who is where.
+  // A stage nobody is at is noise on a page about who is where — in the card
+  // view. The board keeps its empty columns; see KanbanBoard.
   const filled = groups.filter((group) => group.rows.length > 0);
   const shown =
     stage === "all" ? filled : filled.filter((group) => group.key === stage);
+  const columns =
+    stage === "all" ? groups : groups.filter((group) => group.key === stage);
+
+  // Which group a lead landed in, for the list view's stage tint. Built from
+  // `groups` rather than from `stages` so the unfiled rows get their tone too.
+  const groupOf = useMemo(() => {
+    const byConversation = new Map<string, Group>();
+    for (const group of groups) {
+      for (const row of group.rows) {
+        byConversation.set(row.conversationId, group);
+      }
+    }
+    return (lead: Lead) => byConversation.get(lead.conversationId);
+  }, [groups]);
 
   const clear = () => {
     setSearch("");
@@ -632,14 +984,38 @@ export default function LeadsPage() {
             Every conversation, filed at the stage it has reached.
           </p>
         </div>
-        <Button
-          size="lg"
-          variant="outline"
-          className="shrink-0"
-          onClick={() => setStagesOpen(true)}
-        >
-          <SignpostIcon /> Manage stages
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Icons only: three labelled buttons is a wider control than the
+              heading beside it, and each one carries its name as a tooltip
+              and an aria-label. */}
+          <ToggleGroup
+            value={[view]}
+            onValueChange={(value) => {
+              const next = value[0] as View | undefined;
+              if (next) setView(next);
+            }}
+            className="rounded-lg border p-0.5"
+          >
+            {VIEWS.map((option) => (
+              <ToggleGroupItem
+                key={option.value}
+                value={option.value}
+                title={`${option.label} view`}
+                aria-label={`${option.label} view`}
+              >
+                <option.icon className="size-4" />
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={() => setStagesOpen(true)}
+          >
+            <SignpostIcon /> Manage stages
+          </Button>
+        </div>
       </header>
 
       {stages ? (
@@ -785,6 +1161,10 @@ export default function LeadsPage() {
             )}
           </EmptyContent>
         </Empty>
+      ) : view === "kanban" ? (
+        <KanbanBoard groups={columns} stages={stages} base={base} />
+      ) : view === "list" ? (
+        <LeadTable rows={rows} groupOf={groupOf} stages={stages} base={base} />
       ) : (
         /* The stages still in play take the full width and run their cards
            two-up; the closed outcomes and the unreviewed queue share a row
