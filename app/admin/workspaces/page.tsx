@@ -35,17 +35,30 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { WorkspaceAccessDialog } from "@/components/workspace-access";
 import { SelectField } from "@/components/select-field";
 import { toast } from "@/components/ui/toast";
-import { CardGridSkeleton } from "@/components/skeletons";
+import { CardGridSkeleton, TableSkeleton } from "@/components/skeletons";
 import {
   BuildingsIcon,
+  CardsThreeIcon,
   PlusIcon,
   ArrowRightIcon,
   SparkleIcon,
+  TableIcon,
+  type Icon,
 } from "@phosphor-icons/react";
+import { formatDistanceToNow } from "date-fns";
 
 const LOCALES = ["en-GB", "en-US", "en-IN", "en-AU", "de-DE", "fr-FR", "es-ES"];
 const CURRENCIES = ["GBP", "USD", "EUR", "INR", "AUD", "CAD", "AED"];
@@ -58,6 +71,26 @@ const TIMEZONES = [
   "Asia/Dubai",
   "Australia/Sydney",
 ];
+
+/**
+ * The two ways to read the same list.
+ *
+ * List is the default: this is the page an administrator opens to find one
+ * workspace among all of them, and a table puts four times as many on screen
+ * with the slug — the thing you actually search by — in a column of its own.
+ * Cards are the better read when there are a dozen and you are surveying
+ * rather than looking something up, which is what the page used to assume.
+ */
+type View = "list" | "cards";
+
+const VIEWS = [
+  { value: "list", label: "List", icon: TableIcon },
+  { value: "cards", label: "Cards", icon: CardsThreeIcon },
+] as const satisfies ReadonlyArray<{
+  value: View;
+  label: string;
+  icon: Icon;
+}>;
 
 function CreateWorkspaceDialog() {
   const router = useRouter();
@@ -256,6 +289,7 @@ export default function AdminWorkspacesPage() {
   const seedDemo = useMutation(api.workspaces.seedDemo);
   const router = useRouter();
   const [seeding, setSeeding] = useState(false);
+  const [view, setView] = useState<View>("list");
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -268,14 +302,43 @@ export default function AdminWorkspacesPage() {
             One company or project each, with its own agents and data.
           </p>
         </div>
-        <CreateWorkspaceDialog />
+        <div className="flex items-center gap-2">
+          {/* Icons only, each carrying its name as a tooltip and an
+              aria-label: two labelled buttons plus the create button would
+              run this row wider than the heading beside it. */}
+          <ToggleGroup
+            value={[view]}
+            onValueChange={(value) => {
+              const next = value[0] as View | undefined;
+              if (next) setView(next);
+            }}
+            className="rounded-lg border p-0.5"
+          >
+            {VIEWS.map((option) => (
+              <ToggleGroupItem
+                key={option.value}
+                value={option.value}
+                title={`${option.label} view`}
+                aria-label={`${option.label} view`}
+              >
+                <option.icon className="size-4" />
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+
+          <CreateWorkspaceDialog />
+        </div>
       </header>
 
       {workspaces === undefined ? (
-        <CardGridSkeleton
-          count={4}
-          className="sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-        />
+        view === "cards" ? (
+          <CardGridSkeleton
+            count={4}
+            className="sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          />
+        ) : (
+          <TableSkeleton rows={8} columns={5} />
+        )
       ) : workspaces.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -309,6 +372,76 @@ export default function AdminWorkspacesPage() {
             </div>
           </EmptyContent>
         </Empty>
+      ) : view === "list" ? (
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-44">Workspace</TableHead>
+                <TableHead className="min-w-36">Slug</TableHead>
+                <TableHead className="min-w-52">What it does</TableHead>
+                <TableHead className="min-w-24">Created</TableHead>
+                <TableHead className="w-44" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {workspaces.map((workspace) => (
+                <TableRow key={workspace._id}>
+                  <TableCell className="max-w-56 min-w-0">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium">
+                        {workspace.name}
+                      </span>
+                      {workspace.status === "archived" ? (
+                        <Badge variant="secondary">archived</Badge>
+                      ) : null}
+                    </span>
+                  </TableCell>
+
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    /{workspace.slug}
+                  </TableCell>
+
+                  <TableCell className="max-w-72 min-w-0">
+                    {/* Same fallback chain the card's description uses, so a
+                        workspace does not read as blank in one view and
+                        described in the other. */}
+                    <span className="line-clamp-1 text-sm text-muted-foreground">
+                      {workspace.tagline ||
+                        workspace.description ||
+                        workspace.industry ||
+                        "No description yet"}
+                    </span>
+                  </TableCell>
+
+                  <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                    {formatDistanceToNow(workspace.createdAt, {
+                      addSuffix: true,
+                    })}
+                  </TableCell>
+
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1">
+                      <WorkspaceAccessDialog
+                        workspaceId={workspace._id}
+                        name={workspace.name}
+                        slug={workspace.slug}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        nativeButton={false}
+                        render={<Link href={`/w/${workspace.slug}`} />}
+                      >
+                        Open <ArrowRightIcon />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {workspaces.map((workspace) => (
