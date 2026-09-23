@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
@@ -46,10 +46,10 @@ import {
   Alert02Icon,
   ArrowRight01Icon,
   Building06Icon,
-  BubbleChatIcon,
   ChartUpIcon,
   ConnectIcon,
   DashboardSpeed02Icon,
+  Folder01Icon,
   FolderLibraryIcon,
   FunnelIcon,
   InboxIcon,
@@ -66,6 +66,19 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 
+type NavItem = {
+  href: string;
+  label: string;
+  icon: IconSvgElement;
+  /**
+   * Active only on the row's own path, not on anything below it. Needed where
+   * one section owns a page and another owns its children: Build links
+   * `/records`, the book rows under Leads link `/records/<id>`, and without
+   * this both sections would light up on a book page.
+   */
+  exact?: boolean;
+};
+
 // Seven rows where there were sixteen. Sections that hold more than one page
 // are collapsed behind their own name and open themselves when you are inside
 // one, so the sidebar shows where you are rather than everything there is.
@@ -74,7 +87,7 @@ const NAV: Array<{
   icon: IconSvgElement;
   /** A section's own page, or the destination when it has no children. */
   href?: string;
-  items?: Array<{ href: string; label: string; icon: IconSvgElement }>;
+  items?: NavItem[];
 }> = [
   { label: "Dashboard", icon: DashboardSpeed02Icon, href: "" },
   // A row of its own rather than a child of Build: it is the whole roster,
@@ -87,38 +100,42 @@ const NAV: Array<{
     // mistake rather than a grouping.
     label: "Build",
     icon: ToolboxIcon,
-    // What the agents answer from first, then the agents themselves: you fill
-    // the profile, the knowledge and the catalogue before there is anything
-    // for an agent to say.
+    // Everything you set up before a conversation can happen, in the order it
+    // has to exist: what the agents answer from, the shelves they file onto,
+    // the agents themselves, then where customers reach them. Record books
+    // and channels are defined here and read elsewhere — a book's filed
+    // records show under Leads, its conversations under Inbox.
     items: [
       { href: "/company", label: "Company profile", icon: Building06Icon },
       { href: "/knowledge", label: "Knowledge base", icon: LibraryIcon },
       { href: "/products", label: "Catalogue", icon: Package01Icon },
+      // Exact: the books themselves live under Leads, on /records/<id>.
+      {
+        href: "/records",
+        label: "Record books",
+        icon: FolderLibraryIcon,
+        exact: true,
+      },
       { href: "/agents", label: "Agents", icon: Robot01Icon },
       { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/tools", label: "Custom tools", icon: Wrench01Icon },
-    ],
-  },
-  {
-    label: "Inbox",
-    icon: InboxIcon,
-    items: [
-      { href: "/conversations", label: "Conversations", icon: BubbleChatIcon },
       { href: "/channels", label: "Channels", icon: WhatsappIcon },
     ],
   },
+  // A leaf now that channels are set up under Build: a section that opens onto
+  // one child is a row with an extra click in front of it.
+  { label: "Inbox", icon: InboxIcon, href: "/conversations" },
   {
-    // In the order the work happens: a lead becomes a contact, then an order.
-    label: "Sales",
+    // In the order the work happens: a lead becomes a contact, then an order —
+    // and then whatever else the conversation produced. Each record book the
+    // workspace has defined is appended to this list at render, so filing a
+    // new kind of thing puts it on the sidebar under its own name.
+    label: "Leads",
     icon: ChartUpIcon,
     items: [
-      { href: "/leads", label: "Leads", icon: FunnelIcon },
+      { href: "/leads", label: "Stages", icon: FunnelIcon },
       { href: "/contacts", label: "Contacts", icon: UserMultipleIcon },
       { href: "/orders", label: "Orders", icon: ReceiptIcon },
-      // Everything an agent collects that is not an order: memberships,
-      // appointments, site visits. Under Sales rather than in a section of its
-      // own because it is the same shelf — what a conversation produced.
-      { href: "/records", label: "Records", icon: FolderLibraryIcon },
     ],
   },
   // Between the work and the settings: connecting Sheets or a calendar is
@@ -127,6 +144,12 @@ const NAV: Array<{
   { label: "Integrations", icon: ConnectIcon, href: "/integrations" },
   { label: "Settings", icon: Settings01Icon, href: "/settings" },
 ];
+
+/** Whether `pathname` is the row's page, or — unless `exact` — one below it. */
+function isOn(pathname: string, base: string, item: NavItem): boolean {
+  const href = `${base}${item.href}`;
+  return item.exact ? pathname === href : pathname.startsWith(href);
+}
 
 /**
  * One collapsible sidebar section.
@@ -151,7 +174,7 @@ function NavSection({
 }: {
   label: string;
   icon: IconSvgElement;
-  items: Array<{ href: string; label: string; icon: IconSvgElement }>;
+  items: NavItem[];
   base: string;
   pathname: string;
 }) {
@@ -159,9 +182,7 @@ function NavSection({
     null
   );
 
-  const holdsCurrent = items.some((item) =>
-    pathname.startsWith(`${base}${item.href}`)
-  );
+  const holdsCurrent = items.some((item) => isOn(pathname, base, item));
   const open =
     manual && manual.path === pathname ? manual.open : holdsCurrent;
 
@@ -197,7 +218,7 @@ function NavSection({
               return (
                 <SidebarMenuSubItem key={item.href}>
                   <SidebarMenuSubButton
-                    isActive={pathname.startsWith(href)}
+                    isActive={isOn(pathname, base, item)}
                     render={<Link href={href} />}
                   >
                     {/* SidebarMenuSubButton already sizes a direct svg child,
@@ -230,6 +251,31 @@ export default function WorkspaceLayout({
     api.workspaces.getBySlug,
     allowed ? { slug } : "skip"
   );
+
+  // Every record book the workspace keeps, as its own row under Leads. A book
+  // is a shelf this company invented — Memberships, Site visits — so the only
+  // honest label for it is the name they gave it, which means the nav cannot
+  // be a constant. Names only: `listBookLinks` skips the per-book record count
+  // that the Record books page reads, since the sidebar renders everywhere.
+  const books = useQuery(
+    api.records.listBookLinks,
+    workspace ? { workspaceId: workspace._id } : "skip"
+  );
+
+  const nav = useMemo(() => {
+    if (!books?.length) return NAV;
+    // Plural, because the row leads to the table of them, not to one.
+    const rows: NavItem[] = books.map((book) => ({
+      href: `/records/${book._id}`,
+      label: book.pluralName,
+      icon: Folder01Icon,
+    }));
+    return NAV.map((section) =>
+      section.label === "Leads"
+        ? { ...section, items: [...(section.items ?? []), ...rows] }
+        : section
+    );
+  }, [books]);
 
   if (session.me && !allowed) {
     return (
@@ -312,7 +358,7 @@ export default function WorkspaceLayout({
               <SidebarGroupLabel>Workspace</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {NAV.map((section) => {
+                  {nav.map((section) => {
                     // A leaf: Dashboard and Settings have no children, so they
                     // stay ordinary rows rather than sections that open onto
                     // one item.

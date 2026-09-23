@@ -184,6 +184,35 @@ export const listBooks = query({
   },
 });
 
+/**
+ * Just enough of each book to put it in the sidebar: the nav renders on every
+ * page, and `listBooks` reads up to 501 records and every webhook per book to
+ * work out its counts. A row that only shows a name should not pay for that.
+ *
+ * Archived books are left out — they take no new records, so a standing link
+ * to one is a shelf nobody is filling.
+ */
+export const listBookLinks = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const books = await ctx.db
+      .query("recordBooks")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    return books
+      .filter((book) => book.status !== "archived")
+      .sort((a, b) => a.pluralName.localeCompare(b.pluralName))
+      .map((book) => ({
+        _id: book._id,
+        name: book.name,
+        pluralName: book.pluralName,
+        status: book.status,
+      }));
+  },
+});
+
 export const getBook = query({
   args: { bookId: v.id("recordBooks") },
   handler: async (ctx, args) => {
