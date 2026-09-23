@@ -253,7 +253,14 @@ export default function AdminAccessPage() {
         </p>
       </header>
 
-      <Card>
+      {/* shrink-0, or this page does not scroll. `Card` carries
+          `overflow-hidden`, and a flex item whose overflow is not `visible`
+          gets an automatic minimum size of zero — so instead of growing past
+          the scrolling column and making it scroll, the card shrank into
+          whatever space was left and clipped its own table. Nothing
+          overflowed, so no scrollbar appeared and the list just stopped
+          mid-row. The same trap the agent map's canvas documents. */}
+      <Card className="shrink-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserIcon className="size-4" /> Workspace sign-ins
@@ -353,7 +360,8 @@ export default function AdminAccessPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      {/* shrink-0 for the same reason as the card above. */}
+      <Card className="shrink-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheckIcon className="size-4" /> Administrators
