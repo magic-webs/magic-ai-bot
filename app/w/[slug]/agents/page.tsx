@@ -66,7 +66,6 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   RobotIcon,
-  ShoppingCartSimpleIcon,
   SignpostIcon,
   SlidersIcon,
   SparkleIcon,
@@ -507,19 +506,13 @@ function FrontDeskHero({
             priority
             className="pointer-events-none absolute right-0 bottom-0 w-75 select-none"
           />
-          {/* Both bubbles sit above the head. The greeting used to print here
-              and was clipped mid-sentence by the clamp, which reads as a bug
-              rather than as a speech bubble — it is the front desk's own
-              screen that shows the real one. */}
+          {/* One bubble, above the head. The greeting used to print the
+              agent's own opening line here and was clipped mid-sentence by the
+              clamp, which reads as a bug rather than as a speech bubble — it
+              is the front desk's own screen that shows the real one. */}
           <div className="absolute top-6 left-8 max-w-40 rounded-2xl bg-card px-3.5 py-2.5 text-xs leading-snug shadow-lg ring-1 ring-foreground/5">
             Hi! 👋 How can I help you?
           </div>
-          <div className="absolute top-5 right-0 max-w-36 rounded-2xl bg-card px-3.5 py-2.5 text-xs leading-snug font-medium shadow-lg ring-1 ring-foreground/5">
-            From questions to purchases.
-          </div>
-          <span className="absolute right-3 bottom-10 flex size-10 items-center justify-center rounded-full bg-card text-primary shadow-lg ring-1 ring-foreground/5">
-            <ShoppingCartSimpleIcon className="size-5" />
-          </span>
         </div>
       </div>
     </div>
