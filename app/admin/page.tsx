@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { RankedBars, StatTile } from "@/components/dashboard-charts";
+import {
+  ActivityChart,
+  ChannelSplit,
+  RankedBars,
+  StatTile,
+} from "@/components/dashboard-charts";
 import { DashboardSkeleton } from "@/components/skeletons";
 import { useHourBucket } from "@/components/use-now";
 import { Badge } from "@/components/ui/badge";
@@ -24,10 +29,12 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   ArrowRightIcon,
   BuildingsIcon,
   CheckCircleIcon,
+  WarningIcon,
 } from "@phosphor-icons/react";
 
 const NANO = 1_000_000_000;
@@ -109,7 +116,20 @@ export default function AdminOverviewPage() {
     date: day.date,
     cost: day.costNanoUsd / NANO,
     tokens: day.totalTokens,
+    calls: day.calls,
   }));
+
+  // Which workspaces have not made a single model call in the window. Not
+  // "needs attention" — nothing is broken — but it is the question an operator
+  // asks next after seeing the spend, and the answer is otherwise a mental
+  // diff between two lists on two pages.
+  const spending = new Set(usage.byWorkspace.map((row) => row.key));
+  const quiet = active.filter((row) => !spending.has(row._id as string));
+
+  // ChannelSplit takes the two real channels; a call with no channel is the
+  // playground and internal jobs, which is a third thing and counted below.
+  const callsOn = (key: string) =>
+    usage.byChannel.find((row) => row.key === key)?.calls ?? 0;
 
   // What an operator would otherwise have to go looking for: a tenant that
   // cannot sign in, or one that has been put on ice.
@@ -161,9 +181,70 @@ export default function AdminOverviewPage() {
         </Button>
       </header>
 
+      {/* Both of these are things to go and do, so they sit above the
+          figures rather than as a footnote under them. */}
+      {usage.unpricedModels.length > 0 ? (
+        <Alert>
+          <WarningIcon />
+          <AlertTitle>
+            {usage.unpricedModels.length} model
+            {usage.unpricedModels.length === 1 ? " has" : "s have"} recorded
+            calls with no price
+          </AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span className="font-mono text-xs">
+              {usage.unpricedModels.slice(0, 6).join(", ")}
+              {usage.unpricedModels.length > 6
+                ? ` +${usage.unpricedModels.length - 6} more`
+                : ""}
+            </span>
+            <span>
+              Those calls are counted in the token totals but charged at zero,
+              so the cost above is a floor. Price them, then reprice what has
+              already been recorded.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/admin/models" />}
+            >
+              Set prices <ArrowRightIcon />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {usage.truncated ? (
+        <Alert>
+          <WarningIcon />
+          <AlertTitle>These figures are partial</AlertTitle>
+          <AlertDescription>
+            The window holds more usage events than one read returns, so
+            everything below is a floor rather than a total. Narrow the window
+            on the cost page to get an exact figure.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Workspaces" value={workspaces.length} previous={null} />
-        <StatTile label="Active" value={active.length} previous={null} />
+        <StatTile
+          label="Workspaces"
+          value={workspaces.length}
+          previous={null}
+          suffix={
+            active.length === workspaces.length
+              ? "all active"
+              : `${active.length} active`
+          }
+        />
+        <StatTile
+          label={`Model calls · ${WINDOW_DAYS}d`}
+          value={usage.totals.calls}
+          previous={usage.previous.calls}
+          data={costSeries}
+          dataKey="calls"
+        />
         <StatTile
           label={`Cost · ${WINDOW_DAYS}d`}
           value={usage.totals.costNanoUsd}
@@ -180,6 +261,42 @@ export default function AdminOverviewPage() {
           dataKey="tokens"
           format={tokens}
         />
+      </div>
+
+      {/* The tiles' sparklines say "roughly this shape"; this says which day.
+          One spike in a 30-day window is the whole story of most months on a
+          platform this size, and it was previously only legible as a bump
+          four pixels tall. */}
+      <div className="grid gap-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>Day by day</CardTitle>
+            <CardDescription>
+              Model calls per day across every workspace, with the tokens and
+              the money beside them under Values.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ActivityChart
+              data={costSeries}
+              windowDays={WINDOW_DAYS}
+              truncated={usage.truncated}
+              series={{ key: "calls", label: "Model calls" }}
+              noun="model calls"
+              emptyLabel="No model calls in this period."
+              columns={[
+                { key: "calls", label: "Calls" },
+                { key: "tokens", label: "Tokens", format: tokens },
+                {
+                  key: "cost",
+                  label: "Cost",
+                  fractional: true,
+                  format: (value) => usd(value * NANO),
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -248,6 +365,87 @@ export default function AdminOverviewPage() {
                 Manage access
               </Link>
             ) : null}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Spend by model</CardTitle>
+            <CardDescription>
+              What the {WINDOW_DAYS} days cost, per model in the catalogue.
+              This is the list to read before changing what the picker offers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RankedBars
+              data={usage.byModel.slice(0, 8).map((row) => ({
+                model: row.key,
+                cost: row.costNanoUsd,
+              }))}
+              categoryKey="model"
+              valueKey="cost"
+              valueLabel="Cost"
+              emptyLabel="No model calls in this period."
+              formatValue={usd}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Where the calls arrive</CardTitle>
+            <CardDescription>
+              Customer-facing calls by channel.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <ChannelSplit
+              whatsapp={callsOn("whatsapp")}
+              web={callsOn("web")}
+            />
+            {/* The playground, the follow-up sweep and anything else with no
+                channel on it. Kept out of the split above, which is about
+                where customers are, but worth its own line — a deployment
+                whose spend is mostly internal is a deployment being tested,
+                not one being used. */}
+            {callsOn("internal") > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {callsOn("internal").toLocaleString()} more from the playground
+                and background jobs.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>Quiet workspaces</CardTitle>
+            <CardDescription>
+              Active tenants with no model call in {WINDOW_DAYS} days — set up
+              but not in use, or finished with.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {quiet.length === 0 ? (
+              <span className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
+                <CheckCircleIcon className="size-4" />
+                Every active workspace has used the platform this month.
+              </span>
+            ) : (
+              quiet.map((row) => (
+                <Link
+                  key={row._id}
+                  href={`/w/${row.slug}`}
+                  className="rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+                >
+                  {row.name}
+                </Link>
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
