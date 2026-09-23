@@ -11,6 +11,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { AgentFlow } from "@/components/agent-flow";
 import { SelectField } from "@/components/select-field";
 import { useChatModelOptions } from "@/components/use-chat-models";
+import { useSession } from "@/components/use-session";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -85,6 +86,8 @@ function Inspector({
   const [draft, setDraft] = useState<Draft>(() => draftOf(agent));
   const [saving, setSaving] = useState(false);
   const modelOptions = useChatModelOptions(draft.model);
+  // Administrators only, the same as the full agent form's Model tab.
+  const { isAdmin } = useSession();
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -276,40 +279,48 @@ function Inspector({
           </p>
         </div>
 
-        <Separator />
+        {/* Administrators only, so the separator goes inside the guard too —
+            a company's panel would otherwise end on a rule with nothing under
+            it. The full agent form hides its whole Model tab the same way, and
+            for the same reason: see the note beside `isAdmin` above. */}
+        {isAdmin ? (
+          <>
+            <Separator />
 
-        {/* --- model ------------------------------------------------------- */}
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="model">Model</Label>
-          <SelectField
-            id="model"
-            // SelectTrigger is `w-fit whitespace-nowrap`, so a long label —
-            // "Ling 3.0 Flash Fin — finance-tuned, 256K context, free" — grew
-            // the trigger past the panel and set the whole sheet scrolling
-            // sideways. Full width with min-w-0 lets it shrink instead, and
-            // the value's own line-clamp then does the trimming. The dropdown
-            // still opens at its natural width, so nothing is unreadable.
-            className="w-full min-w-0"
-            value={draft.model}
-            onValueChange={(value) => set("model", value)}
-            // Read from the admin catalogue, so a model added at
-            // /admin/models is offered here without a deploy. The hook also
-            // appends the agent's own model when the picker no longer offers
-            // it — otherwise the trigger would show empty and saving would
-            // silently move the agent onto another model.
-            options={modelOptions}
-          />
-          <Label className="mt-1 text-xs text-muted-foreground">
-            Temperature · {draft.temperature.toFixed(2)}
-          </Label>
-          <Slider
-            value={[draft.temperature]}
-            min={0}
-            max={1}
-            step={0.05}
-            onValueChange={(value) => set("temperature", firstNumber(value))}
-          />
-        </div>
+            {/* --- model ------------------------------------------------------- */}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="model">Model</Label>
+              <SelectField
+                id="model"
+                // SelectTrigger is `w-fit whitespace-nowrap`, so a long label —
+                // "Ling 3.0 Flash Fin — finance-tuned, 256K context, free" — grew
+                // the trigger past the panel and set the whole sheet scrolling
+                // sideways. Full width with min-w-0 lets it shrink instead, and
+                // the value's own line-clamp then does the trimming. The dropdown
+                // still opens at its natural width, so nothing is unreadable.
+                className="w-full min-w-0"
+                value={draft.model}
+                onValueChange={(value) => set("model", value)}
+                // Read from the admin catalogue, so a model added at
+                // /admin/models is offered here without a deploy. The hook also
+                // appends the agent's own model when the picker no longer offers
+                // it — otherwise the trigger would show empty and saving would
+                // silently move the agent onto another model.
+                options={modelOptions}
+              />
+              <Label className="mt-1 text-xs text-muted-foreground">
+                Temperature · {draft.temperature.toFixed(2)}
+              </Label>
+              <Slider
+                value={[draft.temperature]}
+                min={0}
+                max={1}
+                step={0.05}
+                onValueChange={(value) => set("temperature", firstNumber(value))}
+              />
+            </div>
+          </>
+        ) : null}
 
         <Separator />
 

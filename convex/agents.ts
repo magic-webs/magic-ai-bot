@@ -26,6 +26,7 @@ import {
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import { enabledToolNames } from "./lib/records";
 import {
+  getPrincipal,
   requireAgent,
   requireWorkspace,
 } from "./lib/auth";
@@ -73,6 +74,23 @@ const agentFields = {
     v.union(v.literal("draft"), v.literal("active"), v.literal("paused"))
   ),
 };
+
+/**
+ * Which model an agent runs on is an administrator's call, not a company's.
+ *
+ * Models differ in what they cost per token and in what the gateway is
+ * contracted for, so a workspace that could move its agents onto the most
+ * expensive one in the catalogue is a billing decision made from the wrong
+ * side of the account. The catalogue itself is already admin-only, at
+ * /admin/models; this is the other half of it.
+ *
+ * Enforced here rather than only by hiding the picker: the mutation is the
+ * boundary, and a hidden field is not a permission.
+ */
+async function mayChooseModel(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const principal = await getPrincipal(ctx);
+  return principal?.role === "admin";
+}
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -432,6 +450,12 @@ export const create = mutation({
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (!workspace) throw new Error("Workspace not found");
 
+    // A company creating an agent gets the default model, whatever it asked
+    // for; only an administrator picks. See mayChooseModel.
+    const model = (await mayChooseModel(ctx))
+      ? (args.model ?? DEFAULT_CHAT_MODEL)
+      : DEFAULT_CHAT_MODEL;
+
     const now = Date.now();
     const agentId = await ctx.db.insert("agents", {
       workspaceId: args.workspaceId,
@@ -455,7 +479,7 @@ export const create = mutation({
       escalationPolicy:
         args.escalationPolicy ??
         "Hand over to a human if the customer asks for one, raises a complaint, or asks something you cannot answer after one attempt.",
-      model: args.model ?? DEFAULT_CHAT_MODEL,
+      model,
       temperature: 0.4,
       maxSteps: 6,
       historyLimit: 16,
@@ -489,6 +513,13 @@ export const update = mutation({
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {
       if (value !== undefined) patch[key] = value;
+    }
+
+    // Dropped rather than rejected, the way the router's fields below are: a
+    // company form that no longer shows the picker should not fail because it
+    // posted the agent's own model straight back.
+    if (patch.model !== undefined && !(await mayChooseModel(ctx))) {
+      delete patch.model;
     }
 
     // Only names the catalogue defines. Anything else is inert at runtime —
