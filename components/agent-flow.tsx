@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
@@ -11,7 +11,10 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useNodesInitialized,
+  useReactFlow,
   type Edge,
+  type FitViewOptions,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
@@ -331,6 +334,75 @@ function buildGraph(
 }
 
 // ---------------------------------------------------------------------------
+// Framing
+// ---------------------------------------------------------------------------
+
+/**
+ * `maxZoom` because a workspace with two agents would otherwise be fitted by
+ * blowing the nodes up to fill the canvas. Capped at 1 they stay their drawn
+ * size and the graph sits in the middle of the space instead.
+ */
+const FIT_VIEW: FitViewOptions = { padding: 0.2, maxZoom: 1 };
+
+/**
+ * Keeps the whole graph centred in the canvas.
+ *
+ * The `fitView` prop on `<ReactFlow>` only runs once, at init — which is
+ * before the nodes have been measured and before the channels query has come
+ * back. So the first fit is against the agents alone, and the channel column
+ * that arrives a moment later lands off the left edge with the view still
+ * centred on where the graph used to end. Re-fitting once the nodes are
+ * measured, and again whenever the set of them changes, is what actually
+ * centres it.
+ *
+ * It also re-fits when the canvas is resized: on the agent map the inspector
+ * takes 28rem out of the width when you pick a node, and without this the
+ * graph is cropped by it rather than reframed beside it.
+ *
+ * Rendered as a child of `<ReactFlow>` because that is what puts it inside the
+ * store provider `useReactFlow` reads. It draws nothing.
+ */
+function FitToContent({
+  signature,
+  container,
+}: {
+  /** The node ids, so a graph that gains or loses one is re-framed. */
+  signature: string;
+  container: React.RefObject<HTMLDivElement | null>;
+}) {
+  const { fitView } = useReactFlow();
+  const initialised = useNodesInitialized();
+  // The first fit is the page arriving, so it is instant; every later one is a
+  // change to a graph already on screen, and animating shows what moved.
+  const settled = useRef(false);
+
+  useEffect(() => {
+    if (!initialised) return;
+    void fitView(settled.current ? { ...FIT_VIEW, duration: 200 } : FIT_VIEW);
+    settled.current = true;
+  }, [initialised, signature, fitView]);
+
+  useEffect(() => {
+    const node = container.current;
+    if (!node) return;
+    // Skips the observer's initial call, which fires at the current size and
+    // would fight the fit above on mount.
+    let first = true;
+    const observer = new ResizeObserver(() => {
+      if (first) {
+        first = false;
+        return;
+      }
+      void fitView({ ...FIT_VIEW, duration: 200 });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [container, fitView]);
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 
 /**
  * The routing topology, drawn.
@@ -365,6 +437,7 @@ export function AgentFlow({
 }) {
   const workspace = useWorkspace();
   const router = useRouter();
+  const canvas = useRef<HTMLDivElement>(null);
   const channels = useQuery(api.channels.listByWorkspace, {
     workspaceId: workspace._id,
   });
@@ -382,6 +455,9 @@ export function AgentFlow({
     };
   }, [agents, channels, base, selectedId]);
 
+  // Selection is not a reason to re-frame — only the shape of the graph is.
+  const signature = nodes.map((node) => node.id).join("|");
+
   return (
     // React Flow measures its container, so the height has to come from
     // somewhere concrete — given a `flex-1` parent it renders 0px tall.
@@ -392,6 +468,7 @@ export function AgentFlow({
     // height-constrained, scrolling column this box absorbed the overflow and
     // collapsed to nothing, taking the whole diagram with it.
     <div
+      ref={canvas}
       className={cn(
         "w-full overflow-hidden border bg-muted/20",
         className ?? "h-96 shrink-0 rounded-xl"
@@ -402,7 +479,7 @@ export function AgentFlow({
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={FIT_VIEW}
         // A diagram, not a canvas.
         nodesDraggable={false}
         nodesConnectable={false}
@@ -427,6 +504,7 @@ export function AgentFlow({
           if (data.href) router.push(data.href);
         }}
       >
+        <FitToContent signature={signature} container={canvas} />
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
