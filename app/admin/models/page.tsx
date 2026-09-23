@@ -407,17 +407,18 @@ export default function AdminModelsPage() {
             the platform is charged for it.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             disabled={repricing}
             onClick={runReprice}
+            aria-label="Reprice past usage"
           >
-            {repricing ? <Spinner /> : <ArrowsClockwiseIcon />} Reprice past
-            usage
+            {repricing ? <Spinner /> : <ArrowsClockwiseIcon />}{" "}
+            <span className="hidden sm:inline">Reprice past usage</span>
           </Button>
-          <Button onClick={openNew}>
-            <PlusIcon /> Add model
+          <Button onClick={openNew} aria-label="Add model">
+            <PlusIcon /> <span className="hidden sm:inline">Add model</span>
           </Button>
         </div>
       </header>
@@ -457,10 +458,10 @@ export default function AdminModelsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Model</TableHead>
-                    <TableHead>Kind</TableHead>
+                    <TableHead className="hidden md:table-cell">Kind</TableHead>
                     <TableHead className="text-right">In · $/1M</TableHead>
                     <TableHead className="text-right">Out · $/1M</TableHead>
-                    <TableHead>Source</TableHead>
+                    <TableHead className="hidden lg:table-cell">Source</TableHead>
                     <TableHead className="text-center">Offered</TableHead>
                     <TableHead className="text-right">Edit</TableHead>
                   </TableRow>
@@ -481,7 +482,9 @@ export default function AdminModelsPage() {
                           </div>
                         ) : null}
                       </TableCell>
-                      <TableCell className="text-xs">{model.kind}</TableCell>
+                      <TableCell className="hidden md:table-cell text-xs">
+                        {model.kind}
+                      </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
                         {per1M(model.inputPer1M)}
                       </TableCell>
@@ -490,7 +493,7 @@ export default function AdminModelsPage() {
                           ? "—"
                           : per1M(model.outputPer1M)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden lg:table-cell">
                         <Badge
                           variant={
                             model.source === "builtin" ? "outline" : "secondary"

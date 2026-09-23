@@ -379,8 +379,8 @@ export default function AdminWorkspacesPage() {
               <TableRow>
                 <TableHead className="min-w-44">Workspace</TableHead>
                 <TableHead className="min-w-36">Slug</TableHead>
-                <TableHead className="min-w-52">What it does</TableHead>
-                <TableHead className="min-w-24">Created</TableHead>
+                <TableHead className="hidden lg:table-cell min-w-52">What it does</TableHead>
+                <TableHead className="hidden md:table-cell min-w-24">Created</TableHead>
                 <TableHead className="w-44" />
               </TableRow>
             </TableHeader>
@@ -402,7 +402,7 @@ export default function AdminWorkspacesPage() {
                     /{workspace.slug}
                   </TableCell>
 
-                  <TableCell className="max-w-72 min-w-0">
+                  <TableCell className="hidden lg:table-cell max-w-72 min-w-0">
                     {/* Same fallback chain the card's description uses, so a
                         workspace does not read as blank in one view and
                         described in the other. */}
@@ -414,7 +414,7 @@ export default function AdminWorkspacesPage() {
                     </span>
                   </TableCell>
 
-                  <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                  <TableCell className="hidden md:table-cell text-xs whitespace-nowrap text-muted-foreground">
                     {formatDistanceToNow(workspace.createdAt, {
                       addSuffix: true,
                     })}

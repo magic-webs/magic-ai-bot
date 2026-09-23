@@ -262,9 +262,9 @@ export default function OrdersPage() {
               <TableRow>
                 <TableHead>Reference</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Lines</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Captured</TableHead>
+                <TableHead className="hidden lg:table-cell">Lines</TableHead>
+                <TableHead className="hidden lg:table-cell">Source</TableHead>
+                <TableHead className="hidden md:table-cell">Captured</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-20" />
               </TableRow>
@@ -286,7 +286,7 @@ export default function OrdersPage() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden lg:table-cell">
                     <div className="flex flex-col gap-0.5">
                       {order.items.map((item, index) => (
                         <span key={index}>
@@ -295,10 +295,10 @@ export default function OrdersPage() {
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden lg:table-cell">
                     <Badge variant="secondary">{order.source}</Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="hidden md:table-cell text-xs text-muted-foreground">
                     {new Date(order.createdAt).toLocaleString()}
                   </TableCell>
                   <TableCell>

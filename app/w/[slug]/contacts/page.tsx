@@ -500,15 +500,17 @@ export default function ContactsPage() {
               <TableRow>
                 <TableHead className="min-w-44">Name</TableHead>
                 <TableHead className="min-w-40">Phone / Email</TableHead>
-                <TableHead className="min-w-28">Handled by</TableHead>
+                <TableHead className="hidden lg:table-cell min-w-28">Handled by</TableHead>
                 <TableHead className="min-w-28">Lead stage</TableHead>
                 {columns.map((book) => (
-                  <TableHead key={book._id} className="min-w-32">
+                  <TableHead key={book._id} className="hidden lg:table-cell min-w-32">
                     {book.pluralName}
                   </TableHead>
                 ))}
-                <TableHead className="min-w-52">Remark</TableHead>
-                <TableHead className="min-w-24 text-right">Last seen</TableHead>
+                <TableHead className="hidden xl:table-cell min-w-52">Remark</TableHead>
+                <TableHead className="hidden md:table-cell min-w-24 text-right">
+                  Last seen
+                </TableHead>
                 <TableHead className="w-28" />
               </TableRow>
             </TableHeader>
@@ -556,7 +558,7 @@ export default function ContactsPage() {
                     </div>
                   </TableCell>
 
-                  <TableCell className="text-sm">
+                  <TableCell className="hidden lg:table-cell text-sm">
                     {/* Not stored — this is whichever agent the conversation's
                         last handoff left in charge. */}
                     {contact.handledBy ? (
@@ -585,7 +587,10 @@ export default function ContactsPage() {
                   </TableCell>
 
                   {columns.map((book) => (
-                    <TableCell key={book._id} className="max-w-40 min-w-0">
+                    <TableCell
+                      key={book._id}
+                      className="hidden lg:table-cell max-w-40 min-w-0"
+                    >
                       <RecordCell
                         row={contact.records.find(
                           (row) => row.bookId === book._id
@@ -594,7 +599,7 @@ export default function ContactsPage() {
                     </TableCell>
                   ))}
 
-                  <TableCell className="max-w-64 min-w-0">
+                  <TableCell className="hidden xl:table-cell max-w-64 min-w-0">
                     {contact.remark ? (
                       <span
                         className="line-clamp-2 text-sm text-muted-foreground"
@@ -607,7 +612,7 @@ export default function ContactsPage() {
                     )}
                   </TableCell>
 
-                  <TableCell className="text-right text-xs whitespace-nowrap text-muted-foreground">
+                  <TableCell className="hidden md:table-cell text-right text-xs whitespace-nowrap text-muted-foreground">
                     {formatDistanceToNow(contact.lastSeenAt, {
                       addSuffix: true,
                     })}

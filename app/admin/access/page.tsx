@@ -291,8 +291,8 @@ export default function AdminAccessPage() {
                   <TableRow>
                     <TableHead>Workspace</TableHead>
                     <TableHead>Password</TableHead>
-                    <TableHead>Issued</TableHead>
-                    <TableHead>Last sign-in</TableHead>
+                    <TableHead className="hidden md:table-cell">Issued</TableHead>
+                    <TableHead className="hidden lg:table-cell">Last sign-in</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -332,10 +332,10 @@ export default function AdminAccessPage() {
                             ) : null}
                           </div>
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
+                        <TableCell className="hidden md:table-cell text-muted-foreground">
                           {relative(row?.issuedAt ?? null)}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
+                        <TableCell className="hidden lg:table-cell text-muted-foreground">
                           {relative(row?.lastLoginAt ?? null)}
                         </TableCell>
                         <TableCell className="text-right">
@@ -383,8 +383,8 @@ export default function AdminAccessPage() {
                   <TableRow>
                     <TableHead>Email</TableHead>
                     <TableHead>Name</TableHead>
-                    <TableHead>Added</TableHead>
-                    <TableHead>Last sign-in</TableHead>
+                    <TableHead className="hidden md:table-cell">Added</TableHead>
+                    <TableHead className="hidden lg:table-cell">Last sign-in</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -396,10 +396,10 @@ export default function AdminAccessPage() {
                       <TableCell className="text-muted-foreground">
                         {admin.name ?? "—"}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="hidden md:table-cell text-muted-foreground">
                         {relative(admin.createdAt)}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {relative(admin.lastLoginAt)}
                       </TableCell>
                     </TableRow>

@@ -768,8 +768,11 @@ function WebhooksTab({ book }: { book: Book }) {
               <TableHeader>
                 <TableRow>
                   <TableHead>When</TableHead>
-                  <TableHead>Event</TableHead>
-                  <TableHead>To</TableHead>
+                  <TableHead className="hidden sm:table-cell">Event</TableHead>
+                  {/* A destination is a full URL and the widest thing in the
+                      row; the event name and the result are what a failed
+                      delivery is read for. */}
+                  <TableHead className="hidden lg:table-cell">To</TableHead>
                   <TableHead>Result</TableHead>
                 </TableRow>
               </TableHeader>
@@ -779,10 +782,12 @@ function WebhooksTab({ book }: { book: Book }) {
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {new Date(delivery.createdAt).toLocaleString()}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="hidden font-mono text-xs sm:table-cell">
                       {delivery.event}
                     </TableCell>
-                    <TableCell>{delivery.destination ?? "—"}</TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      {delivery.destination ?? "—"}
+                    </TableCell>
                     <TableCell>
                       <Badge
                         variant={

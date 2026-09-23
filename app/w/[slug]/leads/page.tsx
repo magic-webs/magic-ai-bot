@@ -660,9 +660,9 @@ function LeadTable({
           <TableRow>
             <TableHead>Lead</TableHead>
             <TableHead>Stage</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Messages</TableHead>
-            <TableHead>Last heard</TableHead>
+            <TableHead className="hidden md:table-cell">Status</TableHead>
+            <TableHead className="hidden lg:table-cell text-right">Messages</TableHead>
+            <TableHead className="hidden md:table-cell">Last heard</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
@@ -740,7 +740,7 @@ function LeadTable({
                   />
                 </TableCell>
 
-                <TableCell>
+                <TableCell className="hidden md:table-cell">
                   {lead.status === "escalated" ? (
                     <Badge variant="destructive">escalated</Badge>
                   ) : (
@@ -750,11 +750,11 @@ function LeadTable({
                   )}
                 </TableCell>
 
-                <TableCell className="text-right text-sm tabular-nums">
+                <TableCell className="hidden lg:table-cell text-right text-sm tabular-nums">
                   {lead.messageCount}
                 </TableCell>
 
-                <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
+                <TableCell className="hidden md:table-cell text-sm whitespace-nowrap text-muted-foreground">
                   {formatDistanceToNow(lead.lastMessageAt, { addSuffix: true })}
                 </TableCell>
 
