@@ -10,11 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Message, MessageContent } from "@/components/ui/message";
 import {
-  Message,
-  MessageContent,
-  MessageFooter,
-} from "@/components/ui/message";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -27,7 +30,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   ArrowRightIcon,
   PaperPlaneRightIcon,
-  PhoneIcon,
   UserIcon,
   WarningIcon,
   XIcon,
@@ -39,6 +41,14 @@ import { Robot01Icon } from "@hugeicons/core-free-icons";
 import { toast } from "@/components/ui/toast";
 import { RichMessage, parseRichPayload } from "@/components/rich-message";
 import { TypingBubble } from "@/components/typing-bubble";
+import {
+  DEFAULT_ISO,
+  DIAL_CODES,
+  dialCodeFor,
+  guessIso,
+  splitDialCode,
+  stripDialCode,
+} from "@/lib/dial-codes";
 
 // One browser == one contact, so a returning visitor keeps their conversation.
 // localStorage is an external store rather than React state, so it is read
@@ -165,6 +175,86 @@ function readAccent(): React.CSSProperties | undefined {
 
 function useAccent(): React.CSSProperties | undefined {
   return useSyncExternalStore(noopSubscribe, readAccent, () => undefined);
+}
+
+/**
+ * Which country the code select starts on, from the browser locale.
+ *
+ * Through useSyncExternalStore for the same reason the accent and the stored
+ * session id are: the server has no `navigator`, so reading it in a `useState`
+ * initialiser would render the default into the HTML and something else on
+ * hydration. Here the server snapshot is the default by construction and React
+ * re-renders into the real guess after hydrating, with no mismatch and no
+ * effect setting state — which the lint rules forbid anyway.
+ */
+function useGuessedIso(): string {
+  return useSyncExternalStore(noopSubscribe, guessIso, () => DEFAULT_ISO);
+}
+
+/**
+ * The country code beside the phone field.
+ *
+ * The trigger shows the flag and the code alone — it sits inside the phone
+ * input's own box and has to leave room for the number — while the list names
+ * every country, since "+673" identifies nothing on its own. Base UI's
+ * `Select.Value` takes a render function for exactly this, which is why this
+ * uses the primitives rather than the `SelectField` wrapper every dashboard
+ * form uses.
+ */
+function DialCodeSelect({
+  iso,
+  onChange,
+  disabled,
+}: {
+  iso: string;
+  onChange: (iso: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select
+      value={iso}
+      onValueChange={(next) => onChange(String(next))}
+      disabled={disabled}
+    >
+      <SelectTrigger
+        aria-label="Country code"
+        // `data-[size=default]:h-full`, not a bare `h-full`: SelectTrigger's
+        // own height is written `data-[size=default]:h-8`, and tailwind-merge
+        // only drops a class when the variants match too — so an unqualified
+        // one is kept alongside it and then loses to the attribute selector on
+        // specificity. The trigger would sit 8 units tall inside an 11-unit
+        // row, which is the same trap the agent map's inspector documents.
+        className="w-auto shrink-0 gap-1 rounded-none border-0 bg-transparent pr-2 pl-3 shadow-none focus-visible:ring-0 data-[size=default]:h-full dark:bg-transparent dark:hover:bg-transparent"
+      >
+        <SelectValue>
+          {(value) => {
+            const entry = dialCodeFor(String(value));
+            return (
+              <span className="flex items-center gap-1.5 text-sm">
+                <span aria-hidden>{entry.flag}</span>
+                <span className="tabular-nums">{entry.dial}</span>
+              </span>
+            );
+          }}
+        </SelectValue>
+      </SelectTrigger>
+      {/* Bounded and scrolling: the list is every country, and an unbounded
+          popup would run off both ends of a 620px panel. */}
+      <SelectContent className="max-h-72 w-auto min-w-64">
+        {DIAL_CODES.map((entry) => (
+          <SelectItem key={entry.iso} value={entry.iso}>
+            <span className="flex w-full items-center gap-2">
+              <span aria-hidden>{entry.flag}</span>
+              <span className="flex-1 truncate">{entry.name}</span>
+              <span className="tabular-nums text-muted-foreground">
+                {entry.dial}
+              </span>
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 // utm_name / utm_phone let a site that already knows the visitor skip the form.
@@ -336,11 +426,25 @@ function RegisterForm({
   workspaceName: string;
 }) {
   const register = useMutation(api.widget.register);
+  const guessed = useGuessedIso();
   const [form, setForm] = useState(() => {
     const prefill = prefillFromQuery();
-    return { name: prefill.name ?? "", phone: prefill.phone ?? "" };
+    // A prefilled number may already carry its country code, in which case the
+    // select should open on that country rather than making the visitor
+    // reconcile "+44" in the box with "🇮🇳 +91" beside it.
+    const split = splitDialCode(prefill.phone ?? "");
+    return {
+      name: prefill.name ?? "",
+      phone: split.rest,
+      // Null until either the prefill says so or the visitor picks: the guess
+      // is not state, and storing it here would freeze whatever the server
+      // rendered before the browser locale was readable.
+      iso: prefill.phone ? split.iso : null,
+    };
   });
   const [submitting, setSubmitting] = useState(false);
+
+  const iso = form.iso ?? guessed;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -355,7 +459,10 @@ function RegisterForm({
         channelKey,
         sessionId,
         name: form.name.trim(),
-        phone: form.phone.trim(),
+        // Stored in full, with the code: the number is what WhatsApp dials and
+        // what the team reads off the contacts table, and neither can do
+        // anything with a local number whose country is only in the widget.
+        phone: `${dialCodeFor(iso).dial} ${stripDialCode(form.phone)}`,
       });
       // No local flag to set: `widget.session` now reports this visitor as
       // registered, and the subscription re-renders into the chat by itself.
@@ -431,14 +538,26 @@ function RegisterForm({
             >
               Phone number
             </Label>
-            <div className="relative">
-              <PhoneIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            {/* The select and the input read as one control: the border and
+                the rounding are on this row, and both children give up their
+                own so the seam between them is a single divider. focus-within
+                moves the input's focus ring out to the whole group, which is
+                what stops a focused number field from looking detached from
+                the code beside it. */}
+            <div className="flex h-11 items-stretch overflow-hidden rounded-xl border bg-transparent transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+              <DialCodeSelect
+                iso={iso}
+                disabled={submitting}
+                onChange={(iso) => setForm((prev) => ({ ...prev, iso }))}
+              />
+              <span aria-hidden className="my-2 w-px shrink-0 bg-border" />
               <Input
                 id="widget-phone"
                 type="tel"
-                autoComplete="tel"
-                placeholder="Your phone number"
-                className="h-11 rounded-xl pl-9"
+                inputMode="tel"
+                autoComplete="tel-national"
+                placeholder="Phone number"
+                className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
                 value={form.phone}
                 disabled={submitting}
                 onChange={(event) =>
@@ -595,11 +714,6 @@ function WidgetChat({
                             )}
                           </BubbleContent>
                         </Bubble>
-                        {/* Named once the front desk has routed the chat, so
-                            the visitor can see who they are talking to now. */}
-                        {!isUser && message.botName ? (
-                          <MessageFooter>{message.botName}</MessageFooter>
-                        ) : null}
                       </MessageContent>
                     </Message>
                   </MessageScrollerItem>
