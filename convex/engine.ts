@@ -485,7 +485,7 @@ function buildBuiltinTools(
         field: z
           .string()
           .describe(
-            "One of name, email, phone, company, or a short snake_case label for anything else"
+            "One of name, email, phone, company, birthday, or a short snake_case label for anything else"
           ),
         value: z.string(),
       }),

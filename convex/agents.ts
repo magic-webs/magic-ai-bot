@@ -25,6 +25,7 @@ import {
 } from "./lib/integrations";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import { enabledToolNames } from "./lib/records";
+import { MARKETING_DEFAULTS } from "./lib/marketing";
 import {
   getPrincipal,
   requireAgent,
@@ -346,6 +347,60 @@ async function ensureFollowUpDesk(
     historyLimit: 40,
     // It is handed the transcript directly and calls no tools, so retrieval
     // would only add cost.
+    knowledgeEnabled: false,
+    knowledgeTopK: 0,
+    builtinTools: [],
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return { agentId, created: true };
+}
+
+/**
+ * Provision the workspace's marketing desk. Idempotent.
+ *
+ * Out of every roster for the same reason as the follow-up desk: it never
+ * answers a live turn. It exists so the scheduled greetings have a voice to be
+ * drafted in and an agent to be recorded as in the transcript. Created on the
+ * first visit to the marketing screen rather than with the workspace, so
+ * nobody who never markets gets an agent they did not ask for.
+ */
+export async function ensureMarketingDesk(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">
+): Promise<{ agentId: Id<"agents">; created: boolean }> {
+  const existing = await ctx.db
+    .query("agents")
+    .withIndex("by_workspace_kind", (q) =>
+      q.eq("workspaceId", workspaceId).eq("kind", "marketing")
+    )
+    .first();
+  if (existing) return { agentId: existing._id, created: false };
+
+  const workspace = await ctx.db.get("workspaces", workspaceId);
+  if (!workspace) throw new Error("Workspace not found");
+
+  const now = Date.now();
+  const agentId = await ctx.db.insert("agents", {
+    workspaceId,
+    kind: "marketing",
+    acceptsHandoff: false,
+    name: MARKETING_DEFAULTS.name,
+    botName: workspace.name,
+    role: MARKETING_DEFAULTS.role,
+    objective: MARKETING_DEFAULTS.objective,
+    jobDescription: MARKETING_DEFAULTS.jobDescription,
+    tone: DEFAULT_TONE,
+    rules: [...MARKETING_DEFAULTS.rules],
+    guardrails: [...MARKETING_DEFAULTS.guardrails],
+    model: DEFAULT_CHAT_MODEL,
+    // Warmer than the follow-up desk: a greeting that comes out the same way
+    // every year is the thing to avoid.
+    temperature: 0.7,
+    maxSteps: 1,
+    historyLimit: 0,
     knowledgeEnabled: false,
     knowledgeTopK: 0,
     builtinTools: [],

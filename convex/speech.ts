@@ -84,7 +84,9 @@ export const greet = action({
         ? "I answer first on every channel and pass each conversation to whoever should handle it."
         : agent.kind === "follow_up"
           ? "I keep an eye on conversations that have gone quiet and nudge them along."
-          : "I take the conversations the front desk sends my way.",
+          : agent.kind === "marketing"
+            ? "I send your birthday wishes and festival greetings on schedule."
+            : "I take the conversations the front desk sends my way.",
     ]
       .join(" ")
       .slice(0, MAX_GREETING_CHARS);

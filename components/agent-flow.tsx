@@ -187,9 +187,12 @@ function buildGraph(
   const router = agents.find((agent) => agent.kind === "router");
   const followUp = agents.find((agent) => agent.kind === "follow_up");
   // An agent with no kind predates kinds and is a specialist, which is why
-  // this excludes the two desks rather than testing for "specialist".
+  // this excludes the desks rather than testing for "specialist".
   const specialists = agents.filter(
-    (agent) => agent.kind !== "router" && agent.kind !== "follow_up"
+    (agent) =>
+      agent.kind !== "router" &&
+      agent.kind !== "follow_up" &&
+      agent.kind !== "marketing"
   );
 
   const centre = (count: number, index: number) =>

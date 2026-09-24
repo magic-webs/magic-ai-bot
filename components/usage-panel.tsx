@@ -63,6 +63,7 @@ const SOURCE_LABELS: Record<string, string> = {
   draft_tool: "Drafting tools",
   draft_catalogue: "Drafting catalogues",
   review: "Lead reviews",
+  draft_marketing: "Drafting marketing",
 };
 
 const CHANNEL_LABELS: Record<string, string> = {

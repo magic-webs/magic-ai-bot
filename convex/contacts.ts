@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireContact, requireWorkspace } from "./lib/auth";
+import { normaliseBirthday } from "./lib/marketing";
 
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
@@ -129,12 +130,21 @@ export const update = mutation({
     email: v.optional(v.string()),
     company: v.optional(v.string()),
     remark: v.optional(v.string()),
+    /** Any readable date; stored as "MM-DD". Empty clears it. */
+    birthday: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireContact(ctx, args.contactId);
-    const { contactId, ...rest } = args;
+    const { contactId, birthday, ...rest } = args;
 
     const patch: Record<string, unknown> = {};
+    if (birthday !== undefined) {
+      const normalised = normaliseBirthday(birthday);
+      if (birthday.trim() && !normalised) {
+        throw new Error("That birthday is not a real day of the year.");
+      }
+      patch.birthday = normalised ?? undefined;
+    }
     for (const [key, value] of Object.entries(rest)) {
       if (value === undefined) continue;
       // A cleared field is stored as absent, not as an empty string, so the

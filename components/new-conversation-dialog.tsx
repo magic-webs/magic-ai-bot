@@ -67,7 +67,10 @@ export function NewConversationDialog({
   // Drafts never receive traffic, and the follow-up desk is not somebody you
   // hand a live thread to.
   const roster = (agents ?? []).filter(
-    (agent) => agent.status !== "draft" && agent.kind !== "follow_up"
+    (agent) =>
+      agent.status !== "draft" &&
+      agent.kind !== "follow_up" &&
+      agent.kind !== "marketing"
   );
   const chosenAgent = agentId || roster[0]?._id || "";
 

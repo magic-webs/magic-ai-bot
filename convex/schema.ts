@@ -184,7 +184,11 @@ export default defineSchema({
         // The follow-up desk. Reads a conversation that has gone quiet, files
         // it at a lead stage and, when it is worth it, writes the nudge. Never
         // takes a live turn and never appears in a routing roster.
-        v.literal("follow_up")
+        v.literal("follow_up"),
+        // The marketing desk. Drafts the birthday and festival templates and
+        // is who the scheduled sends are recorded as. Like the follow-up desk,
+        // never takes a live turn and never appears in a routing roster.
+        v.literal("marketing")
       )
     ),
     // Model-facing "hand this conversation to me when…". This is the whole
@@ -453,12 +457,19 @@ export default defineSchema({
      * so the reason sits next to the contact rather than only in the thread.
      */
     remark: v.optional(v.string()),
+    /**
+     * Day and month only, as "MM-DD". No year: the birthday wish needs to
+     * know the day, not the age, and asking a customer for the year is the
+     * part they decline. Zero-padded so the index sorts it as a calendar.
+     */
+    birthday: v.optional(v.string()),
     attributes: v.array(kvPair),
     lastSeenAt: v.number(),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_external", ["workspaceId", "externalId"]),
+    .index("by_workspace_external", ["workspaceId", "externalId"])
+    .index("by_workspace_and_birthday", ["workspaceId", "birthday"]),
 
   conversations: defineTable({
     workspaceId: v.id("workspaces"),
@@ -1076,7 +1087,9 @@ export default defineSchema({
       // An agent answering the operator about their own workspace, from the
       // agent screen. Its own source so operator questions do not inflate the
       // per-conversation chat cost the dashboard reports.
-      v.literal("assistant")
+      v.literal("assistant"),
+      // The marketing desk drafting a template.
+      v.literal("draft_marketing")
     ),
     channelType: v.optional(
       v.union(v.literal("whatsapp"), v.literal("web"))
@@ -1173,5 +1186,104 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_token", ["token"])
+    .index("by_workspace", ["workspaceId"]),
+
+  // -------------------------------------------------------------------------
+  // Marketing — birthday wishes and festival campaigns, sent on a schedule.
+  //
+  // Everything here goes out as a WhatsApp *template*. A birthday or a Diwali
+  // greeting reaches people who have not written in the last 24 hours, and
+  // outside that window Meta accepts nothing but an approved template. So a
+  // template row carries the name it was approved under in Meta, and the
+  // body is the same text with {{name}}-style variables in place of Meta's
+  // {{1}}, {{2}} — filled per contact, in the order they appear.
+  // -------------------------------------------------------------------------
+  marketingTemplates: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    occasion: v.union(
+      v.literal("birthday"),
+      v.literal("festival"),
+      v.literal("offer"),
+      v.literal("general")
+    ),
+    /** The message, with {{name}}, {{business}} and {{event}} variables. */
+    body: v.string(),
+    /** The name it was approved under in Meta. Absent means it cannot send. */
+    metaTemplateName: v.optional(v.string()),
+    /** Meta's language code for the approved template — "en", "hi", "en_US". */
+    languageCode: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * One entry on the calendar: a festival or an event of the workspace's own,
+   * sent to every WhatsApp contact at a set hour in the workspace's timezone.
+   *
+   * `sendAt` is that hour resolved to an instant when the row is saved, so the
+   * sweep can find what is due with one index range rather than working out
+   * every workspace's local time on every run.
+   */
+  marketingEvents: defineTable({
+    workspaceId: v.id("workspaces"),
+    title: v.string(),
+    /** Local calendar date, "YYYY-MM-DD". */
+    date: v.string(),
+    /** Local hour to send at, 0–23. */
+    sendHour: v.number(),
+    sendAt: v.number(),
+    templateId: v.optional(v.id("marketingTemplates")),
+    /** Which preset festival this came from, so it is not suggested twice. */
+    presetKey: v.optional(v.string()),
+    note: v.optional(v.string()),
+    status: v.union(
+      // No template yet, so nothing to send.
+      v.literal("draft"),
+      v.literal("scheduled"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed")
+    ),
+    sentCount: v.number(),
+    failedCount: v.number(),
+    lastError: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    finishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace_and_date", ["workspaceId", "date"])
+    .index("by_status_and_sendAt", ["status", "sendAt"]),
+
+  /** One per workspace: the standing birthday wish. */
+  marketingSettings: defineTable({
+    workspaceId: v.id("workspaces"),
+    birthdayEnabled: v.boolean(),
+    birthdayTemplateId: v.optional(v.id("marketingTemplates")),
+    /** Local hour to send birthday wishes at, 0–23. */
+    birthdayHour: v.number(),
+    /** The local date the wishes last went out, so a day is sent once. */
+    lastBirthdayRun: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_birthdayEnabled", ["birthdayEnabled"]),
+
+  /**
+   * One row per message sent to one contact, which is what stops a retried
+   * batch or a second sweep wishing somebody happy birthday twice. `key` is
+   * the occasion — "event:<id>" or "birthday:<year>" — checked before a send.
+   */
+  marketingSends: defineTable({
+    workspaceId: v.id("workspaces"),
+    contactId: v.id("contacts"),
+    eventId: v.optional(v.id("marketingEvents")),
+    key: v.string(),
+    status: v.union(v.literal("sent"), v.literal("failed")),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_contact_and_key", ["contactId", "key"])
     .index("by_workspace", ["workspaceId"]),
 });

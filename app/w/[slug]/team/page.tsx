@@ -795,7 +795,9 @@ export default function TeamPage() {
                   ? "Front desk"
                   : agent.kind === "follow_up"
                     ? "Follow-up desk"
-                    : "AI agent"
+                    : agent.kind === "marketing"
+                      ? "Marketing desk"
+                      : "AI agent"
               }
               name={agent.botName}
               description={agent.role}

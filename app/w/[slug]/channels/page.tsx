@@ -244,7 +244,7 @@ type AgentOption = {
   _id: string;
   botName: string;
   name: string;
-  kind?: "router" | "specialist" | "follow_up";
+  kind?: "router" | "specialist" | "follow_up" | "marketing";
 };
 
 function defaultChannelAgentId(

@@ -182,6 +182,19 @@ export type Outbound =
       languageCode: string;
       bodyVariables?: string[];
       cards: CarouselCard[];
+    }
+  | {
+      kind: "template";
+      /**
+       * An approved text template, the only thing Meta delivers outside the
+       * 24-hour window — which is where every birthday and festival greeting
+       * lands. Variables are positional, {{1}} onwards, as approved.
+       */
+      templateName: string;
+      languageCode: string;
+      bodyVariables?: string[];
+      /** What the customer reads, for the transcript. Never sent. */
+      preview?: string;
     };
 
 // ---------------------------------------------------------------------------
@@ -546,6 +559,29 @@ function payloadFor(message: Outbound): Json {
 
     case "carousel":
       return carouselJson(message);
+
+    case "template":
+      return {
+        type: "template",
+        template: {
+          name: message.templateName,
+          language: { policy: "deterministic", code: message.languageCode },
+          components: message.bodyVariables?.length
+            ? [
+                {
+                  type: "body",
+                  // Meta rejects a parameter holding a newline, a tab or a run
+                  // of spaces, and rejects an empty one — either way the whole
+                  // send fails, so both are answered here.
+                  parameters: message.bodyVariables.map((text) => ({
+                    type: "text",
+                    text: text.replace(/\s+/g, " ").trim() || "-",
+                  })),
+                },
+              ]
+            : [],
+        },
+      };
   }
 }
 
@@ -605,6 +641,8 @@ export function historyText(message: Outbound): string {
       return message.body;
     case "carousel":
       return "(sent a carousel)";
+    case "template":
+      return message.preview?.trim() || "(sent a template message)";
   }
 }
 
@@ -657,5 +695,7 @@ export function summarise(message: Outbound): string {
       return `${message.body} [catalogue]`;
     case "carousel":
       return `[carousel: ${message.cards.length} cards]`;
+    case "template":
+      return message.preview?.trim() || `[template: ${message.templateName}]`;
   }
 }

@@ -11,6 +11,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
 import { historyText, type Outbound } from "./lib/whatsappSend";
+import { normaliseBirthday } from "./lib/marketing";
 import {
   HANDBACK_AFTER_MINUTES,
   WHATSAPP_FREE_FORM_WINDOW_HOURS,
@@ -910,6 +911,18 @@ export const saveContactDetail = internalMutation({
       company: "company",
       company_name: "company",
     };
+
+    // A birthday the customer mentions is what the marketing desk wishes on,
+    // so it goes to the indexed field rather than into free-form attributes.
+    // One the parser cannot read falls through and is kept as an attribute,
+    // so what they said is not lost.
+    if (["birthday", "date_of_birth", "dob", "birth_date"].includes(field)) {
+      const birthday = normaliseBirthday(value);
+      if (birthday) {
+        await ctx.db.patch(args.contactId, { birthday });
+        return { success: true, stored: "birthday" };
+      }
+    }
 
     if (known[field]) {
       await ctx.db.patch(args.contactId, { [known[field]]: value });

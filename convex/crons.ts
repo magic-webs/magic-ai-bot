@@ -31,6 +31,25 @@ crons.interval(
   {}
 );
 
+/* Calendar entries are set to the hour, so five minutes is the most a festival
+   greeting goes out late — and a sweep with nothing due reads one index range. */
+crons.interval(
+  "send due marketing events",
+  { minutes: 5 },
+  internal.marketing.claimDueEvents,
+  {}
+);
+
+/* Hourly, against each workspace's own clock: a workspace in Kolkata and one
+   in London both wish at nine their time. `lastBirthdayRun` makes it once a
+   day however many times this fires after the hour. */
+crons.interval(
+  "send birthday wishes",
+  { hours: 1 },
+  internal.marketing.claimBirthdays,
+  {}
+);
+
 // Was written when sessions were added and never scheduled, so expired rows
 // have been accumulating. Nightly is often enough for a thirty-day token.
 crons.daily(

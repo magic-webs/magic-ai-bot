@@ -859,7 +859,10 @@ export default function AgentsPage() {
   // and is one, which is why this tests for the two exclusions rather than for
   // the word "specialist".
   const specialists = (agents ?? []).filter(
-    (agent) => agent.kind !== "router" && agent.kind !== "follow_up"
+    (agent) =>
+      agent.kind !== "router" &&
+      agent.kind !== "follow_up" &&
+      agent.kind !== "marketing"
   );
   const routable = specialists.filter(
     (agent) => agent.status === "active" && agent.acceptsHandoff !== false

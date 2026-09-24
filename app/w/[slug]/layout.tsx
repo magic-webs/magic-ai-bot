@@ -54,6 +54,7 @@ import {
   FunnelIcon,
   InboxIcon,
   LibraryIcon,
+  Megaphone01Icon,
   Package01Icon,
   ReceiptIcon,
   Robot01Icon,
@@ -79,7 +80,7 @@ type NavItem = {
   exact?: boolean;
 };
 
-// Seven rows where there were sixteen. Sections that hold more than one page
+// Eight rows where there were sixteen. Sections that hold more than one page
 // are collapsed behind their own name and open themselves when you are inside
 // one, so the sidebar shows where you are rather than everything there is.
 const NAV: Array<{
@@ -138,6 +139,10 @@ const NAV: Array<{
       { href: "/orders", label: "Orders", icon: ReceiptIcon },
     ],
   },
+  // After Leads: the customers a workspace has collected are who it markets
+  // to, and the page is a calendar of what goes out to them — birthdays and
+  // festivals — rather than anything set up before a conversation.
+  { label: "Marketing", icon: Megaphone01Icon, href: "/marketing" },
   // Between the work and the settings: connecting Sheets or a calendar is
   // something you do once you have agents to give it to, and it is not a
   // setting — it changes what the agents can do.

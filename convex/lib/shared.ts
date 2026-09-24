@@ -102,9 +102,9 @@ export const BUILTIN_TOOLS: Array<{
   {
     key: "save_contact_detail",
     label: "Save contact detail",
-    summary: "Remember a fact about the contact (name, email, company…).",
+    summary: "Remember a fact about the contact (name, email, birthday…).",
     description:
-      "Save a detail you learned about the customer, such as their name, email address, company or a stated preference, so it is remembered in future conversations.",
+      "Save a detail you learned about the customer, such as their name, email address, company, birthday or a stated preference, so it is remembered in future conversations.",
   },
   {
     key: "escalate_to_human",
