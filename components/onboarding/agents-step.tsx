@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { AgentAvatar } from "@/components/agent-avatar";
+import { AgentTemplatePicker } from "@/components/agent-templates";
 import { StringListEditor } from "@/components/editors";
 import { FormRow, NothingYet } from "@/components/onboarding/shell";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { toast } from "@/components/ui/toast";
 import { stepHref } from "@/lib/onboarding";
 import {
   ArrowRightIcon,
+  CardsIcon,
   PlusIcon,
   SlidersIcon,
   WarningIcon,
@@ -386,7 +388,8 @@ export function AgentsStep() {
     workspaceId: workspace._id,
   });
 
-  const [adding, setAdding] = useState(false);
+  // Two ways in: a pre-drafted role, created whole, or the form below.
+  const [adding, setAdding] = useState<"template" | "form" | null>(null);
   const [editingId, setEditingId] = useState<Id<"agents"> | null>(null);
 
   if (agents === undefined) {
@@ -475,7 +478,8 @@ export function AgentsStep() {
           {specialists.length === 0 && !adding ? (
             <NothingYet>
               No agents yet. Most workspaces start with one that handles
-              enquiries and quotes.
+              enquiries and quotes — the Sales assistant or Lead qualifier
+              template is a quick way in.
             </NothingYet>
           ) : null}
 
@@ -494,11 +498,22 @@ export function AgentsStep() {
             />
           ))}
 
-          {adding ? (
+          {adding === "template" ? (
+            <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4">
+              <AgentTemplatePicker onCreated={() => setAdding(null)} />
+              <Button
+                variant="ghost"
+                className="self-start"
+                onClick={() => setAdding(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : adding === "form" ? (
             <AgentForm
               initial={EMPTY}
               submitLabel="Create agent"
-              onCancel={() => setAdding(false)}
+              onCancel={() => setAdding(null)}
               onSubmit={async (draft) => {
                 await createAgent({
                   workspaceId: workspace._id,
@@ -518,17 +533,18 @@ export function AgentsStep() {
                   description: "It starts as a draft — take it live when it reads right.",
                   type: "success",
                 });
-                setAdding(false);
+                setAdding(null);
               }}
             />
           ) : (
-            <Button
-              variant="outline"
-              className="self-start"
-              onClick={() => setAdding(true)}
-            >
-              <PlusIcon /> Add an agent
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setAdding("template")}>
+                <CardsIcon /> Start from a template
+              </Button>
+              <Button variant="ghost" onClick={() => setAdding("form")}>
+                <PlusIcon /> Write your own
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import {
   query,
   mutation,
@@ -26,6 +26,11 @@ import {
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import { enabledToolNames } from "./lib/records";
 import { MARKETING_DEFAULTS } from "./lib/marketing";
+import {
+  AGENT_TEMPLATES,
+  fillTemplate,
+  findTemplate,
+} from "./lib/agentTemplates";
 import {
   getPrincipal,
   requireAgent,
@@ -481,79 +486,149 @@ export const get = query({
   },
 });
 
+const createArgs = {
+  workspaceId: v.id("workspaces"),
+  name: v.string(),
+  botName: v.optional(v.string()),
+  gender: v.optional(genderValidator),
+  role: v.optional(v.string()),
+  objective: v.optional(v.string()),
+  jobDescription: v.optional(v.string()),
+  greeting: v.optional(v.string()),
+  tone: v.optional(toneConfig),
+  rules: v.optional(v.array(v.string())),
+  guardrails: v.optional(v.array(v.string())),
+  escalationPolicy: v.optional(v.string()),
+  model: v.optional(v.string()),
+  builtinTools: v.optional(v.array(v.string())),
+  recordBooks: v.optional(v.array(v.id("recordBooks"))),
+  routingDescription: v.optional(v.string()),
+};
+
+/**
+ * The insert behind `create` and `createFromTemplate`, so a template-made
+ * agent gets exactly the defaults and the desks a hand-made one does. The
+ * caller has already checked access and read the workspace.
+ */
+async function insertSpecialist(
+  ctx: MutationCtx,
+  workspace: Doc<"workspaces">,
+  args: ObjectType<typeof createArgs>
+): Promise<Id<"agents">> {
+  // A company creating an agent gets the default model, whatever it asked
+  // for; only an administrator picks. See mayChooseModel.
+  const model = (await mayChooseModel(ctx))
+    ? (args.model ?? DEFAULT_CHAT_MODEL)
+    : DEFAULT_CHAT_MODEL;
+
+  const now = Date.now();
+  const agentId = await ctx.db.insert("agents", {
+    workspaceId: args.workspaceId,
+    kind: "specialist",
+    acceptsHandoff: true,
+    routingDescription: args.routingDescription?.trim() || undefined,
+    name: args.name.trim(),
+    botName: args.botName?.trim() || args.name.trim(),
+    gender: args.gender,
+    role: args.role?.trim() || "AI assistant",
+    objective:
+      args.objective?.trim() ||
+      `Understand what the customer needs, answer accurately from ${workspace.name}'s knowledge base, and capture a complete enquiry for the team.`,
+    jobDescription:
+      args.jobDescription?.trim() ||
+      "Greet the customer, find out what they need, ask for the details required one question at a time, confirm everything back, then record the enquiry.",
+    greeting: args.greeting,
+    tone: args.tone ?? DEFAULT_TONE,
+    rules: args.rules ?? [],
+    guardrails: args.guardrails ?? [],
+    escalationPolicy:
+      args.escalationPolicy ??
+      "Hand over to a human if the customer asks for one, raises a complaint, or asks something you cannot answer after one attempt.",
+    model,
+    temperature: 0.4,
+    maxSteps: 6,
+    historyLimit: 16,
+    knowledgeEnabled: true,
+    knowledgeTopK: 6,
+    builtinTools: args.builtinTools ?? [...DEFAULT_BUILTIN_TOOLS],
+    recordBooks: args.recordBooks ?? [],
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Every agent sits behind the default bot, so creating one provisions the
+  // front desk if this workspace does not have it yet — and the follow-up
+  // desk, which the lead pipeline needs before any lead exists.
+  await ensureRouter(ctx, args.workspaceId);
+  await ensureFollowUpDesk(ctx, args.workspaceId);
+
+  return agentId;
+}
+
 export const create = mutation({
+  args: createArgs,
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const workspace = await ctx.db.get("workspaces", args.workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+    return await insertSpecialist(ctx, workspace, args);
+  },
+});
+
+/**
+ * The pre-drafted specialists, for the new-agent pickers on web and mobile.
+ * Static, and not personalised: `{company}` and `{name}` stay as written
+ * until `createFromTemplate` fills them in.
+ */
+export const templates = query({
+  args: {},
+  handler: async () => AGENT_TEMPLATES,
+});
+
+/**
+ * Create a specialist from one of AGENT_TEMPLATES, with the company's name
+ * written into it. Starts as a draft, like any other new agent.
+ *
+ * `botName` renames it; `gender` picks its face. A rename without a gender
+ * leaves the face to the client's own pick off the new name, rather than
+ * keeping a template face that may not match it.
+ */
+export const createFromTemplate = mutation({
   args: {
     workspaceId: v.id("workspaces"),
-    name: v.string(),
+    template: v.string(),
     botName: v.optional(v.string()),
     gender: v.optional(genderValidator),
-    role: v.optional(v.string()),
-    objective: v.optional(v.string()),
-    jobDescription: v.optional(v.string()),
-    greeting: v.optional(v.string()),
-    tone: v.optional(toneConfig),
-    rules: v.optional(v.array(v.string())),
-    guardrails: v.optional(v.array(v.string())),
-    escalationPolicy: v.optional(v.string()),
-    model: v.optional(v.string()),
-    builtinTools: v.optional(v.array(v.string())),
-    recordBooks: v.optional(v.array(v.id("recordBooks"))),
-    routingDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (!workspace) throw new Error("Workspace not found");
+    const template = findTemplate(args.template);
+    if (!template) throw new Error(`There is no agent template "${args.template}".`);
 
-    // A company creating an agent gets the default model, whatever it asked
-    // for; only an administrator picks. See mayChooseModel.
-    const model = (await mayChooseModel(ctx))
-      ? (args.model ?? DEFAULT_CHAT_MODEL)
-      : DEFAULT_CHAT_MODEL;
-
-    const now = Date.now();
-    const agentId = await ctx.db.insert("agents", {
-      workspaceId: args.workspaceId,
-      kind: "specialist",
-      acceptsHandoff: true,
-      routingDescription: args.routingDescription?.trim() || undefined,
-      name: args.name.trim(),
-      botName: args.botName?.trim() || args.name.trim(),
-      gender: args.gender,
-      role: args.role?.trim() || "AI assistant",
-      objective:
-        args.objective?.trim() ||
-        `Understand what the customer needs, answer accurately from ${workspace.name}'s knowledge base, and capture a complete enquiry for the team.`,
-      jobDescription:
-        args.jobDescription?.trim() ||
-        "Greet the customer, find out what they need, ask for the details required one question at a time, confirm everything back, then record the enquiry.",
-      greeting: args.greeting,
-      tone: args.tone ?? DEFAULT_TONE,
-      rules: args.rules ?? [],
-      guardrails: args.guardrails ?? [],
-      escalationPolicy:
-        args.escalationPolicy ??
-        "Hand over to a human if the customer asks for one, raises a complaint, or asks something you cannot answer after one attempt.",
-      model,
-      temperature: 0.4,
-      maxSteps: 6,
-      historyLimit: 16,
-      knowledgeEnabled: true,
-      knowledgeTopK: 6,
-      builtinTools: args.builtinTools ?? [...DEFAULT_BUILTIN_TOOLS],
-      recordBooks: args.recordBooks ?? [],
-      status: "draft",
-      createdAt: now,
-      updatedAt: now,
+    const renamed = !!args.botName?.trim() && args.botName.trim() !== template.botName;
+    const filled = fillTemplate(template, {
+      company: workspace.name,
+      botName: args.botName,
     });
-
-    // Every agent sits behind the default bot, so creating one provisions the
-    // front desk if this workspace does not have it yet — and the follow-up
-    // desk, which the lead pipeline needs before any lead exists.
-    await ensureRouter(ctx, args.workspaceId);
-    await ensureFollowUpDesk(ctx, args.workspaceId);
-
-    return agentId;
+    return await insertSpecialist(ctx, workspace, {
+      workspaceId: args.workspaceId,
+      name: filled.name,
+      botName: filled.botName,
+      gender: args.gender ?? (renamed ? undefined : filled.gender),
+      role: filled.role,
+      objective: filled.objective,
+      jobDescription: filled.jobDescription,
+      greeting: filled.greeting,
+      tone: filled.tone,
+      rules: filled.rules,
+      guardrails: filled.guardrails,
+      escalationPolicy: filled.escalationPolicy,
+      builtinTools: filled.builtinTools,
+      routingDescription: filled.routingDescription,
+    });
   },
 });
 

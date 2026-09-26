@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/components/workspace-provider";
 import { useHourBucket } from "@/components/use-now";
 import { AgentAvatar } from "@/components/agent-avatar";
+import { AgentTemplatePicker } from "@/components/agent-templates";
 import { SelectField } from "@/components/select-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +57,7 @@ import { CardGridSkeleton } from "@/components/skeletons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   ArrowsSplitIcon,
+  CardsIcon,
   ChatsIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -293,24 +295,36 @@ function NewAgentDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button size="lg"><PlusIcon /> New agent</Button>} />
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New agent</DialogTitle>
           <DialogDescription>
-            Describe the job and let the model draft the whole configuration, or
-            start from a blank agent.
+            Start from a ready-made role, describe the job and let the model
+            draft the whole configuration, or start from a blank agent.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="draft">
+        <Tabs defaultValue="template">
           <TabsList className="w-full">
+            <TabsTrigger value="template">
+              <CardsIcon /> Template
+            </TabsTrigger>
             <TabsTrigger value="draft">
-              <SparkleIcon /> Draft from a brief
+              <SparkleIcon /> From a brief
             </TabsTrigger>
             <TabsTrigger value="manual">
-              <SlidersIcon /> Blank agent
+              <SlidersIcon /> Blank
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="template" className="pt-3">
+            <AgentTemplatePicker
+              onCreated={(agentId) => {
+                setOpen(false);
+                router.push(`${base}/agents/${agentId}`);
+              }}
+            />
+          </TabsContent>
 
           <TabsContent value="draft" className="flex flex-col gap-3 pt-3">
             <div className="flex flex-col gap-1.5">
@@ -1018,7 +1032,8 @@ export default function AgentsPage() {
             </EmptyMedia>
             <EmptyTitle>No agents yet</EmptyTitle>
             <EmptyDescription>
-              Describe the job in a sentence and the model will draft the
+              Start from a ready-made role — sales, support, bookings and more —
+              or describe the job in a sentence and the model will draft the
               persona, tone, rules and guardrails for you to review.
             </EmptyDescription>
           </EmptyHeader>
