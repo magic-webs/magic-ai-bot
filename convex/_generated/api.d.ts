@@ -26,6 +26,7 @@ import type * as ingest from "../ingest.js";
 import type * as integrations from "../integrations.js";
 import type * as knowledge from "../knowledge.js";
 import type * as leads from "../leads.js";
+import type * as lib_agentTemplates from "../lib/agentTemplates.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_gateway from "../lib/gateway.js";
 import type * as lib_google from "../lib/google.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   integrations: typeof integrations;
   knowledge: typeof knowledge;
   leads: typeof leads;
+  "lib/agentTemplates": typeof lib_agentTemplates;
   "lib/auth": typeof lib_auth;
   "lib/gateway": typeof lib_gateway;
   "lib/google": typeof lib_google;
