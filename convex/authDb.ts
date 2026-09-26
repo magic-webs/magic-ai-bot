@@ -5,13 +5,20 @@
 import { v } from "convex/values";
 import {
   query,
+  mutation,
   internalQuery,
   internalMutation,
+  type MutationCtx,
 } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { getPrincipal, requireAdmin, requireWorkspace } from "./lib/auth";
-import { maskSecret } from "./lib/shared";
+import { maskSecret, slugify } from "./lib/shared";
 
-const roleValidator = v.union(v.literal("admin"), v.literal("workspace"));
+const roleValidator = v.union(
+  v.literal("admin"),
+  v.literal("workspace"),
+  v.literal("member")
+);
 
 // ---------------------------------------------------------------------------
 // Public reads
@@ -44,6 +51,16 @@ export const me = query({
     }
 
     const workspace = await ctx.db.get("workspaces", principal.workspaceId);
+
+    if (principal.role === "member") {
+      return {
+        role: "member" as const,
+        label: principal.label,
+        email: undefined,
+        workspaceSlug: workspace?.slug ?? null,
+      };
+    }
+
     return {
       role: "workspace" as const,
       label: workspace?.name ?? "Workspace",
@@ -516,10 +533,19 @@ export const createSession = internalMutation({
     role: roleValidator,
     adminId: v.optional(v.id("admins")),
     workspaceId: v.optional(v.id("workspaces")),
+    memberId: v.optional(v.id("teamMembers")),
     expiresAt: v.number(),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+
+    if (args.role === "member" && args.memberId) {
+      const login = await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_member", (q) => q.eq("memberId", args.memberId!))
+        .unique();
+      if (login) await ctx.db.patch(login._id, { lastLoginAt: now });
+    }
 
     if (args.role === "admin" && args.adminId) {
       await ctx.db.patch(args.adminId, { lastLoginAt: now });
@@ -541,6 +567,7 @@ export const createSession = internalMutation({
       role: args.role,
       adminId: args.adminId,
       workspaceId: args.workspaceId,
+      memberId: args.memberId,
       createdAt: now,
       expiresAt: args.expiresAt,
       lastUsedAt: now,
@@ -611,3 +638,189 @@ export const replaceOwnCredential = internalMutation({
     });
   },
 });
+
+// ---------------------------------------------------------------------------
+// Human agents' own logins, for the escalations desk.
+//
+// Issued and revoked by the company from the Team page, not by an
+// administrator: these are the company's own people, and a login here opens
+// nothing but that company's escalated threads. The password is generated in
+// convex/auth.ts, shown once, and only hashed here.
+// ---------------------------------------------------------------------------
+
+/** Who on the roster can sign in, for the Team page. Never the hash. */
+export const memberLogins = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const logins = await ctx.db
+      .query("memberCredentials")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    return logins.map((login) => ({
+      memberId: login.memberId,
+      username: login.username,
+      status: login.status,
+      issuedAt: login.issuedAt,
+      lastLoginAt: login.lastLoginAt ?? null,
+    }));
+  },
+});
+
+/**
+ * The member a login is about to be issued for, once the caller has been
+ * checked against its workspace. For the action in convex/auth.ts, which has
+ * no ctx.db of its own.
+ */
+export const memberForLogin = internalQuery({
+  args: { memberId: v.id("teamMembers") },
+  handler: async (ctx, args) => {
+    const member = await ctx.db.get("teamMembers", args.memberId);
+    if (!member) throw new Error("Human agent not found");
+    await requireWorkspace(ctx, member.workspaceId);
+    const workspace = await ctx.db.get("workspaces", member.workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+    return { member, workspace };
+  },
+});
+
+export const memberCredentialByUsername = internalQuery({
+  args: { username: v.string() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("memberCredentials")
+      .withIndex("by_username", (q) => q.eq("username", args.username))
+      .unique(),
+});
+
+export const memberCredentialForMember = internalQuery({
+  args: { memberId: v.id("teamMembers") },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("memberCredentials")
+      .withIndex("by_member", (q) => q.eq("memberId", args.memberId))
+      .unique(),
+});
+
+/**
+ * Everything sign-in has to see before it lets a human agent through: the
+ * member is still on the roster and active, and the company itself still has
+ * access. `getPrincipal` checks the same things on every request afterwards.
+ */
+export const memberSignInState = internalQuery({
+  args: { memberId: v.id("teamMembers") },
+  handler: async (ctx, args) => {
+    const member = await ctx.db.get("teamMembers", args.memberId);
+    if (!member) return null;
+    const workspace = await ctx.db.get("workspaces", member.workspaceId);
+    if (!workspace) return null;
+    const companyLogin = await ctx.db
+      .query("workspaceCredentials")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+      .unique();
+    return {
+      member,
+      workspace,
+      companyActive: companyLogin?.status === "active",
+    };
+  },
+});
+
+async function dropMemberSessions(
+  ctx: MutationCtx,
+  memberId: Id<"teamMembers">
+): Promise<number> {
+  const sessions = await ctx.db
+    .query("authSessions")
+    .withIndex("by_member", (q) => q.eq("memberId", memberId))
+    .collect();
+  for (const session of sessions) await ctx.db.delete(session._id);
+  return sessions.length;
+}
+
+/**
+ * Issue a login, or reset one. The username is kept across resets — it is
+ * what the person has saved — and only picked the first time, from the
+ * workspace ID and their first name, numbered if that is taken.
+ */
+export const upsertMemberCredential = internalMutation({
+  args: {
+    memberId: v.id("teamMembers"),
+    passwordHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const member = await ctx.db.get("teamMembers", args.memberId);
+    if (!member) throw new Error("Human agent not found");
+    await requireWorkspace(ctx, member.workspaceId);
+    const workspace = await ctx.db.get("workspaces", member.workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("memberCredentials")
+      .withIndex("by_member", (q) => q.eq("memberId", args.memberId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        passwordHash: args.passwordHash,
+        status: "active",
+        updatedAt: now,
+      });
+      // A reset must end whatever the old password signed in.
+      await dropMemberSessions(ctx, args.memberId);
+      return { username: existing.username };
+    }
+
+    const handle = slugify(member.name.split(/\s+/)[0] ?? "") || "agent";
+    const base = `${workspace.slug}.${handle}`;
+    let username = base;
+    for (let n = 2; ; n++) {
+      const taken = await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_username", (q) => q.eq("username", username))
+        .unique();
+      if (!taken) break;
+      username = `${base}${n}`;
+    }
+
+    await ctx.db.insert("memberCredentials", {
+      workspaceId: member.workspaceId,
+      memberId: args.memberId,
+      username,
+      passwordHash: args.passwordHash,
+      status: "active",
+      issuedAt: now,
+      updatedAt: now,
+    });
+    return { username };
+  },
+});
+
+/**
+ * Take a human agent's login away. Deleted rather than marked revoked, so
+ * issuing again starts clean — and signed out on the spot.
+ */
+export const revokeMemberLogin = mutation({
+  args: { memberId: v.id("teamMembers") },
+  handler: async (ctx, args) => {
+    const member = await ctx.db.get("teamMembers", args.memberId);
+    if (!member) return { removed: false };
+    await requireWorkspace(ctx, member.workspaceId);
+    return { removed: await removeMemberLogin(ctx, args.memberId) };
+  },
+});
+
+/** Also called when a person is taken off the roster altogether. */
+export async function removeMemberLogin(
+  ctx: MutationCtx,
+  memberId: Id<"teamMembers">
+): Promise<boolean> {
+  const login = await ctx.db
+    .query("memberCredentials")
+    .withIndex("by_member", (q) => q.eq("memberId", memberId))
+    .unique();
+  if (login) await ctx.db.delete(login._id);
+  await dropMemberSessions(ctx, memberId);
+  return Boolean(login);
+}

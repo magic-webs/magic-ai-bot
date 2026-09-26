@@ -294,6 +294,11 @@ async function issueSession(
   principal:
     | { role: "admin"; adminId: Id<"admins"> }
     | { role: "workspace"; workspaceId: Id<"workspaces"> }
+    | {
+        role: "member";
+        memberId: Id<"teamMembers">;
+        workspaceId: Id<"workspaces">;
+      }
 ): Promise<{ sessionToken: string; expiresAt: number }> {
   const sessionToken = randomToken(32);
   const expiresAt = Date.now() + SESSION_TTL_MS;
@@ -303,7 +308,8 @@ async function issueSession(
     role: principal.role,
     adminId: principal.role === "admin" ? principal.adminId : undefined,
     workspaceId:
-      principal.role === "workspace" ? principal.workspaceId : undefined,
+      principal.role === "admin" ? undefined : principal.workspaceId,
+    memberId: principal.role === "member" ? principal.memberId : undefined,
     expiresAt,
   });
 
@@ -311,12 +317,14 @@ async function issueSession(
 }
 
 /**
- * One sign-in for both kinds of principal.
+ * One sign-in for every kind of principal.
  *
  * The username is matched against administrator emails first, then workspace
- * IDs. An email always contains "@" and a workspace ID never does, so the two
- * namespaces cannot collide. The caller is told which area to open rather than
- * being asked to choose a role up front.
+ * IDs, then human agents' usernames. An email always contains "@", a workspace
+ * ID never contains "@" or ".", and a human agent's username is
+ * `<workspace-id>.<name>` — so the three namespaces cannot collide. The caller
+ * is told which area to open rather than being asked to choose a role up
+ * front.
  */
 export const login = action({
   args: { username: v.string(), password: v.string() },
@@ -326,7 +334,7 @@ export const login = action({
   ): Promise<{
     sessionToken: string;
     expiresAt: number;
-    role: "admin" | "workspace";
+    role: "admin" | "workspace" | "member";
     label: string;
     workspaceSlug: string | null;
     mustChangePassword: boolean;
@@ -351,9 +359,17 @@ export const login = action({
         })
       : null;
 
+    const memberLogin: Doc<"memberCredentials"> | null =
+      admin || workspace
+        ? null
+        : await ctx.runQuery(internal.authDb.memberCredentialByUsername, {
+            username: identifier,
+          });
+
     const stored =
       admin?.passwordHash ??
-      (credential?.status === "active" ? credential.passwordHash : undefined);
+      (credential?.status === "active" ? credential.passwordHash : undefined) ??
+      (memberLogin?.status === "active" ? memberLogin.passwordHash : undefined);
 
     // Always verify something, so a wrong username and a wrong password are
     // indistinguishable from the outside.
@@ -370,6 +386,32 @@ export const login = action({
         role: "admin",
         label: admin.name?.trim() || admin.email,
         workspaceSlug: null,
+        mustChangePassword: false,
+      };
+    }
+
+    if (memberLogin) {
+      // Checked after the password, like the archived workspace below, so a
+      // stranger learns nothing about which people exist.
+      const state = await ctx.runQuery(internal.authDb.memberSignInState, {
+        memberId: memberLogin.memberId,
+      });
+      if (!state || state.member.status === "inactive" || !state.companyActive) {
+        throw new Error(generic);
+      }
+      if (state.workspace.status === "archived") {
+        throw new Error("This workspace has been archived.");
+      }
+      const session = await issueSession(ctx, {
+        role: "member",
+        memberId: state.member._id,
+        workspaceId: state.workspace._id,
+      });
+      return {
+        ...session,
+        role: "member",
+        label: state.member.name,
+        workspaceSlug: state.workspace.slug,
         mustChangePassword: false,
       };
     }
@@ -417,7 +459,7 @@ export const mintAccessToken = action({
   ): Promise<{
     token: string;
     expiresAt: number;
-    role: "admin" | "workspace";
+    role: "admin" | "workspace" | "member";
     workspaceSlug: string | null;
   } | null> => {
     const session: Doc<"authSessions"> | null = await ctx.runQuery(
@@ -432,6 +474,21 @@ export const mintAccessToken = action({
     if (session.role === "admin") {
       if (!session.adminId) return null;
       subject = `admin|${session.adminId}`;
+    } else if (session.role === "member") {
+      if (!session.memberId) return null;
+      const login: Doc<"memberCredentials"> | null = await ctx.runQuery(
+        internal.authDb.memberCredentialForMember,
+        { memberId: session.memberId }
+      );
+      if (login?.status !== "active") return null;
+      const state = await ctx.runQuery(internal.authDb.memberSignInState, {
+        memberId: session.memberId,
+      });
+      if (!state || state.member.status === "inactive" || !state.companyActive) {
+        return null;
+      }
+      workspaceSlug = state.workspace.slug;
+      subject = `member|${session.memberId}`;
     } else {
       if (!session.workspaceId) return null;
       const credential: Doc<"workspaceCredentials"> | null =
@@ -741,6 +798,43 @@ export const changeWorkspacePassword = action({
       passwordHash: await hashPassword(args.newPassword),
     });
     return { success: true };
+  },
+});
+
+/**
+ * Give a human agent a login of their own, or reset theirs.
+ *
+ * The company does this from its Team page — they are its people. The
+ * password is shown once and only its hash is kept; a reset signs out
+ * whatever the old one had open.
+ */
+export const issueMemberLogin = action({
+  args: { memberId: v.id("teamMembers") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ username: string; password: string }> => {
+    // The guard, and the check that there is somebody to issue it to.
+    const found = await ctx.runQuery(internal.authDb.memberForLogin, {
+      memberId: args.memberId,
+    });
+    if (found.member.status === "inactive") {
+      throw new Error(
+        `${found.member.name} is inactive. Set them to active or away first.`
+      );
+    }
+
+    const password = generatePassword();
+    const { username } = await ctx.runMutation(
+      internal.authDb.upsertMemberCredential,
+      {
+        memberId: args.memberId,
+        passwordHash: await hashPassword(password),
+      }
+    );
+
+    // Returned once. Only the hash is kept.
+    return { username, password };
   },
 });
 

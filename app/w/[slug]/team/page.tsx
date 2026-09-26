@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -29,9 +29,13 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,16 +63,21 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
   ArrowRightIcon,
+  ArrowsClockwiseIcon,
   ChatTeardropTextIcon,
+  CopyIcon,
   DotsThreeIcon,
+  KeyIcon,
   PlusIcon,
+  ProhibitIcon,
   RobotIcon,
   UploadSimpleIcon,
   UsersThreeIcon,
+  WarningIcon,
 } from "@phosphor-icons/react";
 
 /**
- * The team — the agents and the people, on one page.
+ * The team — the AI agents and the human agents, on one page.
  *
  * Two tabs over one idea: a workspace is answered by a roster, and some of
  * that roster is software. The cards are the same shape on both so the
@@ -87,6 +96,15 @@ type LastMessage = { text: string; at: number } | null;
 type Member = Doc<"teamMembers"> & {
   photo: string | null;
   lastMessage: LastMessage;
+};
+
+/** A human agent's own sign-in to the escalations desk, as the page sees it. */
+type DeskLogin = {
+  memberId: Id<"teamMembers">;
+  username: string;
+  status: "active" | "revoked";
+  issuedAt: number;
+  lastLoginAt: number | null;
 };
 
 const STATUSES = [
@@ -405,7 +423,7 @@ function MemberDialog({
   member,
   trigger,
 }: {
-  /** Absent for a new teammate. */
+  /** Absent for a new human agent. */
   member?: Member;
   trigger: React.ReactElement;
 }) {
@@ -479,7 +497,7 @@ function MemberDialog({
       }
 
       toast.add({
-        title: member ? "Teammate updated" : `${name.trim()} added`,
+        title: member ? "Human agent updated" : `${name.trim()} added`,
         type: "success",
       });
       setOpen(false);
@@ -500,10 +518,13 @@ function MemberDialog({
       <DialogTrigger render={trigger} />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{member ? "Edit teammate" : "Add a teammate"}</DialogTitle>
+          <DialogTitle>
+            {member ? "Edit human agent" : "Add a human agent"}
+          </DialogTitle>
           <DialogDescription>
             Who they are and what they do. Used on the roster, and to sign a
-            reply you send by hand from the inbox.
+            reply you send by hand from the inbox. Give them a desk login from
+            their card to let them answer escalations themselves.
           </DialogDescription>
         </DialogHeader>
 
@@ -601,7 +622,8 @@ function MemberDialog({
               aria-label="Status"
             />
             <p className="text-xs text-muted-foreground">
-              Inactive takes them off the list you can send a reply as.
+              Inactive takes them off the list you can send a reply as, and
+              stops their desk login working.
             </p>
           </div>
         </div>
@@ -612,7 +634,7 @@ function MemberDialog({
           </Button>
           <Button onClick={() => void save()} disabled={!name.trim() || busy}>
             {busy ? <Spinner /> : null}
-            {member ? "Save" : "Add teammate"}
+            {member ? "Save" : "Add human agent"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -620,9 +642,137 @@ function MemberDialog({
   );
 }
 
-function MemberMenu({ member }: { member: Member }) {
+async function copy(value: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.add({ title: `${what} copied`, type: "success" });
+  } catch {
+    toast.add({
+      title: "Copy failed",
+      description: "Select the text and copy it manually.",
+      type: "error",
+    });
+  }
+}
+
+/**
+ * The shown-once handoff of a desk login. Mirrors the workspace password
+ * dialog in components/workspace-access.tsx: the password exists only in
+ * memory here, and a lost one is reset rather than recovered.
+ */
+function IssuedLoginDialog({
+  issued,
+  onClose,
+}: {
+  issued: { name: string; username: string; password: string } | null;
+  onClose: () => void;
+}) {
+  const signInUrl =
+    typeof window === "undefined" ? "/login" : `${window.location.origin}/login`;
+
+  return (
+    <Dialog open={Boolean(issued)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Desk login for {issued?.name}</DialogTitle>
+          <DialogDescription>
+            Copy these now — the password is stored hashed and cannot be shown
+            again. Reset it from their card if it is lost.
+          </DialogDescription>
+        </DialogHeader>
+
+        {issued ? (
+          <div className="flex flex-col gap-3">
+            {(
+              [
+                ["Username", issued.username, "font-mono"],
+                ["Password", issued.password, "font-mono text-base tracking-wide"],
+              ] as const
+            ).map(([label, value, className]) => (
+              <div key={label} className="flex flex-col gap-1">
+                <Label className="text-xs tracking-wide text-muted-foreground uppercase">
+                  {label}
+                </Label>
+                <div className="flex gap-1">
+                  <Input readOnly value={value} className={className} />
+                  <Button
+                    size="icon-lg"
+                    variant="outline"
+                    aria-label={`Copy ${label.toLowerCase()}`}
+                    onClick={() => void copy(value, label)}
+                  >
+                    <CopyIcon />
+                  </Button>
+                </div>
+              </div>
+            ))}
+
+            <Button
+              variant="outline"
+              onClick={() =>
+                void copy(
+                  `Sign in at ${signInUrl}\nUsername: ${issued.username}\nPassword: ${issued.password}`,
+                  "Sign-in details"
+                )
+              }
+            >
+              <CopyIcon /> Copy all sign-in details
+            </Button>
+
+            <Alert>
+              <WarningIcon />
+              <AlertTitle>It opens the escalations desk, and only that</AlertTitle>
+              <AlertDescription>
+                {issued.name} will see the conversations your agents escalate to
+                a person, and can reply to them and resolve them — signed with
+                their own name. Nothing else in the dashboard.
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
+
+        <DialogFooter>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MemberMenu({
+  member,
+  login,
+}: {
+  member: Member;
+  login: DeskLogin | undefined;
+}) {
   const remove = useMutation(api.team.remove);
+  const issueLogin = useAction(api.auth.issueMemberLogin);
+  const revokeLogin = useMutation(api.authDb.revokeMemberLogin);
   const [confirming, setConfirming] = useState(false);
+  // Held out here rather than in the menu, which unmounts the moment an item
+  // is picked — taking any dialog it opened down with it.
+  const [confirmingLogin, setConfirmingLogin] = useState<
+    "reset" | "revoke" | null
+  >(null);
+  const [issued, setIssued] = useState<{
+    name: string;
+    username: string;
+    password: string;
+  } | null>(null);
+
+  const issue = async () => {
+    try {
+      const result = await issueLogin({ memberId: member._id });
+      setIssued({ name: member.name, ...result });
+    } catch (error) {
+      toast.add({
+        title: "Could not issue a login",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
 
   return (
     <>
@@ -642,11 +792,47 @@ function MemberMenu({ member }: { member: Member }) {
             </Button>
           }
         />
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="w-56">
           <MemberDialog
             member={member}
             trigger={<DropdownMenuItem closeOnClick={false}>Edit</DropdownMenuItem>}
           />
+          <DropdownMenuSeparator />
+          {/* The label has to sit inside a group: DropdownMenuLabel is Base
+              UI's Menu.GroupLabel and reads MenuGroupContext. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="flex flex-col gap-0.5">
+              <span>Escalations desk</span>
+              <span className="truncate font-mono text-[11px] font-normal">
+                {login ? login.username : "No login yet"}
+              </span>
+              {login ? (
+                <span className="text-[11px] font-normal">
+                  {login.lastLoginAt
+                    ? `Signed in ${relative(login.lastLoginAt)}`
+                    : "Not signed in yet"}
+                </span>
+              ) : null}
+            </DropdownMenuLabel>
+            {login ? (
+              <>
+                <DropdownMenuItem onClick={() => setConfirmingLogin("reset")}>
+                  <ArrowsClockwiseIcon /> Reset password
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setConfirmingLogin("revoke")}
+                >
+                  <ProhibitIcon /> Revoke login
+                </DropdownMenuItem>
+              </>
+            ) : (
+              <DropdownMenuItem onClick={() => void issue()}>
+                <KeyIcon /> Generate login
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
             onClick={() => setConfirming(true)}
@@ -656,14 +842,56 @@ function MemberMenu({ member }: { member: Member }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <IssuedLoginDialog issued={issued} onClose={() => setIssued(null)} />
+
+      <AlertDialog
+        open={confirmingLogin !== null}
+        onOpenChange={(open) => !open && setConfirmingLogin(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmingLogin === "reset"
+                ? `Reset ${member.name}'s password?`
+                : `Revoke ${member.name}'s login?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmingLogin === "reset"
+                ? "The current password stops working and they are signed out everywhere. The new one is shown once; the username stays the same."
+                : "They are signed out of the escalations desk straight away and cannot sign in again until you generate a new login."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                const action = confirmingLogin;
+                setConfirmingLogin(null);
+                if (action === "reset") {
+                  await issue();
+                } else if (action === "revoke") {
+                  await revokeLogin({ memberId: member._id });
+                  toast.add({
+                    title: `${member.name}'s login revoked`,
+                    type: "success",
+                  });
+                }
+              }}
+            >
+              {confirmingLogin === "reset" ? "Reset password" : "Revoke login"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {member.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They come off the roster and off the list you can reply as. The
-              replies they already sent stay in their threads exactly as the
-              customer saw them.
+              They come off the roster and off the list you can reply as, and
+              their desk login stops working. The replies they already sent
+              stay in their threads exactly as the customer saw them.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -700,6 +928,12 @@ export default function TeamPage() {
   const members = useQuery(api.team.listByWorkspace, {
     workspaceId: workspace._id,
   });
+  const logins = useQuery(api.authDb.memberLogins, {
+    workspaceId: workspace._id,
+  });
+  const loginByMember = new Map(
+    (logins ?? []).map((login) => [login.memberId, login])
+  );
 
   const statsById = new Map(
     (roster?.byAgent ?? []).map((row) => [row.agentId, row])
@@ -718,8 +952,8 @@ export default function TeamPage() {
             Team
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Everyone who answers for {workspace.name} — the agents that reply on
-            their own, and the people who step in.
+            Everyone who answers for {workspace.name} — the AI agents that
+            reply on their own, and the human agents who step in.
           </p>
         </div>
 
@@ -733,13 +967,12 @@ export default function TeamPage() {
               <RobotIcon /> {bots.length} AI
             </Badge>
             <Badge variant="secondary">
-              <UsersThreeIcon /> {people.length}{" "}
-              {people.length === 1 ? "person" : "people"}
+              <UsersThreeIcon /> {people.length} human
             </Badge>
             <MemberDialog
               trigger={
                 <Button size="sm" variant="outline">
-                  <PlusIcon /> Add a teammate
+                  <PlusIcon /> Add a human agent
                 </Button>
               }
             />
@@ -759,9 +992,9 @@ export default function TeamPage() {
             </EmptyMedia>
             <EmptyTitle>Nobody here yet</EmptyTitle>
             <EmptyDescription>
-              Build an agent — describe the job and the model drafts the persona
-              for you — and add the people who pick a thread up when it hands
-              one over.
+              Build an agent — start from a template or describe the job and the
+              model drafts the persona for you — and add the human agents who
+              pick a thread up when it hands one over.
             </EmptyDescription>
           </EmptyHeader>
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -775,7 +1008,7 @@ export default function TeamPage() {
             <MemberDialog
               trigger={
                 <Button size="lg" variant="outline">
-                  <PlusIcon /> Add a teammate
+                  <PlusIcon /> Add a human agent
                 </Button>
               }
             />
@@ -826,7 +1059,7 @@ export default function TeamPage() {
             <PosterCard
               key={member._id}
               index={bots.length + index}
-              eyebrow="Teammate"
+              eyebrow="Human agent"
               name={member.name}
               description={member.role || member.note || member.email || "Team"}
               art={
@@ -840,7 +1073,12 @@ export default function TeamPage() {
               lastMessage={member.lastMessage}
               status={member.status}
               statusLabel={member.status}
-              menu={<MemberMenu member={member} />}
+              menu={
+                <MemberMenu
+                  member={member}
+                  login={loginByMember.get(member._id)}
+                />
+              }
             />
           ))}
 
@@ -853,7 +1091,7 @@ export default function TeamPage() {
                 className="flex h-[26rem] w-72 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[28px] border border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               >
                 <PlusIcon className="size-6" />
-                <span className="text-sm font-medium">Add a teammate</span>
+                <span className="text-sm font-medium">Add a human agent</span>
               </button>
             }
           />

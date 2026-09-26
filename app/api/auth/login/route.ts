@@ -3,10 +3,12 @@ import { cookies } from "next/headers";
 import { api } from "@/convex/_generated/api";
 import { convexServerClient, errorMessage } from "@/lib/convex-server";
 import {
+  DESK_PATH,
   ROLE_COOKIE,
   SESSION_COOKIE,
   WORKSPACE_COOKIE,
   sessionCookieOptions,
+  type SessionRole,
 } from "@/lib/session";
 
 type Body = {
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   try {
     let sessionToken: string;
-    let role: "admin" | "workspace";
+    let role: SessionRole;
     let workspaceSlug: string | null;
 
     if (body.mode === "setup") {
@@ -61,7 +63,11 @@ export async function POST(request: NextRequest) {
     }
 
     const redirectTo =
-      role === "workspace" && workspaceSlug ? `/w/${workspaceSlug}` : "/admin";
+      role === "member"
+        ? DESK_PATH
+        : role === "workspace" && workspaceSlug
+          ? `/w/${workspaceSlug}`
+          : "/admin";
 
     const jar = await cookies();
     jar.set({

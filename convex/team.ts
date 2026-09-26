@@ -1,14 +1,17 @@
-// The people behind the workspace.
+// The people behind the workspace — the human agents.
 //
-// Deliberately not accounts. A workspace has one credential and everyone who
-// uses it shares it; these rows say who those people are, so the roster can
+// Mostly not accounts. A workspace has one credential and everyone on the
+// dashboard shares it; these rows say who those people are, so the roster can
 // show a team rather than a list of bots and so a reply sent by hand can be
 // attributed to whoever sent it.
 //
-// Which means nothing here is a security boundary. `teamMemberId` on a message
-// is a label, not a claim — anybody holding the workspace password can send as
-// anybody on the list. Worth knowing before this is ever used to decide who
-// may do what.
+// So from the dashboard, `teamMemberId` on a message is a label, not a claim —
+// anybody holding the workspace password can send as anybody on the list.
+//
+// The exception is a human agent given a login of their own (`memberCredentials`,
+// issued from the Team page). That signs in to the escalations desk only, and
+// there the sender is the login: `sendManualReply` ignores whatever id the
+// composer passed.
 
 import { v } from "convex/values";
 import {
@@ -19,6 +22,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireSignedIn, requireWorkspace } from "./lib/auth";
+import { removeMemberLogin } from "./authDb";
 
 /**
  * How far back the roster looks for the last reply a teammate sent by hand.
@@ -142,7 +146,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const name = args.name.trim();
-    if (!name) throw new Error("A teammate needs a name");
+    if (!name) throw new Error("A human agent needs a name");
 
     const now = Date.now();
     return await ctx.db.insert("teamMembers", {
@@ -177,7 +181,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const { memberId, ...rest } = args;
     const member = await ctx.db.get("teamMembers", memberId);
-    if (!member) throw new Error("Teammate not found");
+    if (!member) throw new Error("Human agent not found");
     await requireWorkspace(ctx, member.workspaceId);
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
@@ -211,6 +215,10 @@ export const remove = mutation({
     if (member.photoStorageId) {
       await ctx.storage.delete(member.photoStorageId).catch(() => undefined);
     }
+
+    // Off the roster is off the desk: their login goes, and so does every
+    // session it had open.
+    await removeMemberLogin(ctx, args.memberId);
 
     // The messages they sent are left alone, pointing at an id that no longer
     // resolves. Deleting a colleague must not rewrite the transcript of what

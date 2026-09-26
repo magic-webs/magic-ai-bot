@@ -15,7 +15,11 @@ export const WORKSPACE_COOKIE = "mab_ws";
 
 export const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
 
-export type SessionRole = "admin" | "workspace";
+/** `member` is a human agent, whose whole area is the escalations desk. */
+export type SessionRole = "admin" | "workspace" | "member";
+
+/** Where each role lands after signing in. */
+export const DESK_PATH = "/desk";
 
 export type SessionInfo = {
   role: SessionRole;

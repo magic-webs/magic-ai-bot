@@ -19,6 +19,7 @@ import type * as channels from "../channels.js";
 import type * as contacts from "../contacts.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
+import type * as desk from "../desk.js";
 import type * as engine from "../engine.js";
 import type * as followUp from "../followUp.js";
 import type * as http from "../http.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
   conversations: typeof conversations;
   crons: typeof crons;
+  desk: typeof desk;
   engine: typeof engine;
   followUp: typeof followUp;
   http: typeof http;

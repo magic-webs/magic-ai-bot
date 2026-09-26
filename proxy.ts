@@ -1,12 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { ROLE_COOKIE, SESSION_COOKIE, WORKSPACE_COOKIE } from "@/lib/session";
+import {
+  DESK_PATH,
+  ROLE_COOKIE,
+  SESSION_COOKIE,
+  WORKSPACE_COOKIE,
+} from "@/lib/session";
 
 const LOGIN_PATH = "/login";
 
 /** The area a session belongs to. Mirrors the redirect the login route returns. */
 function homeFor(role: string | undefined, ownSlug: string | undefined) {
+  if (role === "member") return DESK_PATH;
   return role === "workspace" && ownSlug ? `/w/${ownSlug}` : "/admin";
 }
+
+const isDesk = (pathname: string) =>
+  pathname === DESK_PATH || pathname.startsWith(`${DESK_PATH}/`);
 
 // Route-level gate, named `proxy` per the Next 16 convention that replaced
 // `middleware`.
@@ -46,6 +55,20 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(login);
   }
 
+  // A human agent has the desk and nothing else. The Convex guards refuse
+  // their login everywhere outside it; this only keeps them from landing on
+  // a page that would say so.
+  if (role === "member") {
+    return isDesk(pathname)
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL(DESK_PATH, request.url));
+  }
+
+  // …and the desk is only a human agent's.
+  if (isDesk(pathname)) {
+    return NextResponse.redirect(new URL(homeFor(role, ownSlug), request.url));
+  }
+
   if (role === "workspace" && ownSlug) {
     // A company has no platform area.
     if (pathname === "/admin" || pathname.startsWith("/admin/")) {
@@ -63,5 +86,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/login", "/admin/:path*", "/w/:path*"],
+  matcher: ["/login", "/admin/:path*", "/w/:path*", "/desk/:path*"],
 };

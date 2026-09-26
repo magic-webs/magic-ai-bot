@@ -91,9 +91,11 @@ export const orderStatus = v.union(
 
 export default defineSchema({
   // -------------------------------------------------------------------------
-  // Identity. Two kinds of principal:
+  // Identity. Three kinds of principal:
   //   admin     — platform operator, sees every workspace
   //   workspace — the company, sees only its own workspace
+  //   member    — one human agent, sees only that workspace's escalated
+  //               threads (the escalations desk)
   //
   // Passwords are PBKDF2-SHA256 (see convex/auth.ts). Sessions are opaque
   // tokens held in an httpOnly cookie and exchanged for short-lived JWTs that
@@ -124,16 +126,25 @@ export default defineSchema({
   authSessions: defineTable({
     // sha256 of the opaque session token — a database leak grants no sessions.
     tokenHash: v.string(),
-    role: v.union(v.literal("admin"), v.literal("workspace")),
+    role: v.union(
+      v.literal("admin"),
+      v.literal("workspace"),
+      // A human agent: one person on a workspace's roster, signed in with a
+      // login of their own. Carries `workspaceId` too, so revoking the
+      // company's access sweeps these sessions with its own.
+      v.literal("member")
+    ),
     adminId: v.optional(v.id("admins")),
     workspaceId: v.optional(v.id("workspaces")),
+    memberId: v.optional(v.id("teamMembers")),
     createdAt: v.number(),
     expiresAt: v.number(),
     lastUsedAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_workspace", ["workspaceId"])
-    .index("by_admin", ["adminId"]),
+    .index("by_admin", ["adminId"])
+    .index("by_member", ["memberId"]),
 
   // -------------------------------------------------------------------------
   // Workspace — the tenant. One company / project. Everything else hangs off it.
@@ -762,6 +773,37 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  // -------------------------------------------------------------------------
+  // A human agent's own login, for the escalations desk.
+  //
+  // Its own table rather than fields on `teamMembers`, because
+  // `team.listByWorkspace` hands whole member rows to the browser and a
+  // password hash would ride along with them — the same reason the workspace
+  // login lives in `workspaceCredentials` and not on `workspaces`.
+  //
+  // Much narrower than the workspace login: it opens the escalated threads of
+  // one workspace and the reply box on them, and nothing else. See
+  // `threadAccess` in convex/lib/auth.ts.
+  // -------------------------------------------------------------------------
+  memberCredentials: defineTable({
+    workspaceId: v.id("workspaces"),
+    memberId: v.id("teamMembers"),
+    /**
+     * `<workspace-slug>.<name>`. The dot keeps it apart from both other
+     * namespaces the sign-in form accepts: an administrator's email always
+     * has an "@", and a workspace ID never has a dot.
+     */
+    username: v.string(),
+    passwordHash: v.string(),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    issuedAt: v.number(),
+    updatedAt: v.number(),
+    lastLoginAt: v.optional(v.number()),
+  })
+    .index("by_member", ["memberId"])
+    .index("by_username", ["username"])
+    .index("by_workspace", ["workspaceId"]),
 
   // -------------------------------------------------------------------------
   // Integrations — one row per connected Google integration.

@@ -165,6 +165,8 @@ function ProductInsert({ onPick }: { onPick: (line: string) => void }) {
  */
 export function ManualReply({
   conversationId,
+  workspaceId,
+  replyingAs,
   windowClosed,
   neverWritten,
   contactLabel,
@@ -172,6 +174,12 @@ export function ManualReply({
   agentName,
 }: {
   conversationId: Id<"conversations">;
+  workspaceId: Id<"workspaces">;
+  /**
+   * A human agent on the escalations desk, who sends as themselves: no roster
+   * to pick from, and no catalogue — both are the dashboard's, not the desk's.
+   */
+  replyingAs?: { name: string; role: string };
   /**
    * WhatsApp's 24-hour free-form window has passed, worked out server-side in
    * `conversations.getWithContact`. Always false on the web widget, which has
@@ -186,13 +194,14 @@ export function ManualReply({
   agentName: string;
 }) {
   const send = useAction(api.conversations.sendManualReply);
-  const workspace = useWorkspace();
   // Who is on the team, so a reply can be signed. Absent or empty and the
   // composer looks exactly as it did — nobody is made to fill in a roster
-  // before they can answer a customer.
-  const team = useQuery(api.team.activeForReply, {
-    workspaceId: workspace._id,
-  });
+  // before they can answer a customer. Not asked on the desk, which could not
+  // read it anyway.
+  const team = useQuery(
+    api.team.activeForReply,
+    replyingAs ? "skip" : { workspaceId }
+  );
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -313,12 +322,16 @@ export function ManualReply({
                 </div>
               </PopoverContent>
             </Popover>
-            <ProductInsert
-              onPick={(line) =>
-                // Padded, so it does not weld itself onto the word in front.
-                insert(text && !/\s$/.test(text.slice(0, 40)) ? ` ${line}` : line)
-              }
-            />
+            {replyingAs ? null : (
+              <ProductInsert
+                onPick={(line) =>
+                  // Padded, so it does not weld itself onto the word in front.
+                  insert(
+                    text && !/\s$/.test(text.slice(0, 40)) ? ` ${line}` : line
+                  )
+                }
+              />
+            )}
           </div>
 
           <Textarea
@@ -363,7 +376,13 @@ export function ManualReply({
             filled in a roster replies exactly as it did before, and one that
             has gets the reply signed without an extra step — the first name is
             already selected. */}
-        {roster.length > 0 ? (
+        {replyingAs ? (
+          <span>
+            Replying as{" "}
+            <span className="font-medium text-foreground">{replyingAs.name}</span>
+            {replyingAs.role ? ` · ${replyingAs.role}` : null}
+          </span>
+        ) : roster.length > 0 ? (
           <span className="flex items-center gap-1.5">
             Replying as
             <SelectField

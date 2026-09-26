@@ -18,10 +18,12 @@ import {
   WHATSAPP_TEXT_LIMIT,
 } from "./lib/shared";
 import {
+  AuthError,
   requireAgent,
   requireContact,
   requireConversation,
   requireWorkspace,
+  threadAccess,
 } from "./lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -71,34 +73,48 @@ export const listByWorkspace = query({
             .order("desc")
             .take(limit);
 
-    const agents = await ctx.db
-      .query("agents")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-    const agentNames = new Map(agents.map((a) => [a._id, a.botName]));
-
-    const out = [];
-    for (const row of rows) {
-      const contact = await ctx.db.get("contacts", row.contactId);
-      const holderId = row.activeAgentId ?? row.agentId;
-      out.push({
-        ...row,
-        agentName: agentNames.get(row.agentId) ?? "—",
-        // Who answered last. Differs from agentName once the front desk has
-        // routed the conversation on.
-        activeAgentName: agentNames.get(holderId) ?? "—",
-        handedOff: holderId !== row.agentId,
-        contactLabel:
-          contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown",
-        contactExternalId: contact?.externalId,
-        // The customer spoke last, so the thread is waiting on somebody. This
-        // is what the inbox calls unread.
-        awaitingReply: await spokeLast(ctx, row),
-      });
-    }
-    return out;
+    return await inboxRows(ctx, args.workspaceId, rows);
   },
 });
+
+/**
+ * Threads as the inbox lists them: the row, plus who it arrived at, who holds
+ * it now, who it is with, and whether they are waiting. Shared with the
+ * escalations desk in convex/desk.ts, so the two lists cannot drift apart.
+ * The caller has already checked access to the workspace.
+ */
+export async function inboxRows(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  rows: Doc<"conversations">[]
+) {
+  const agents = await ctx.db
+    .query("agents")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  const agentNames = new Map(agents.map((a) => [a._id, a.botName]));
+
+  const out = [];
+  for (const row of rows) {
+    const contact = await ctx.db.get("contacts", row.contactId);
+    const holderId = row.activeAgentId ?? row.agentId;
+    out.push({
+      ...row,
+      agentName: agentNames.get(row.agentId) ?? "—",
+      // Who answered last. Differs from agentName once the front desk has
+      // routed the conversation on.
+      activeAgentName: agentNames.get(holderId) ?? "—",
+      handedOff: holderId !== row.agentId,
+      contactLabel:
+        contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown",
+      contactExternalId: contact?.externalId,
+      // The customer spoke last, so the thread is waiting on somebody. This
+      // is what the inbox calls unread.
+      awaitingReply: await spokeLast(ctx, row),
+    });
+  }
+  return out;
+}
 
 /**
  * Whether the customer has the last word on a thread.
@@ -192,7 +208,8 @@ export const listMessages = query({
   },
   handler: async (ctx, args) => {
     if (!args.conversationId) return [];
-    await requireConversation(ctx, args.conversationId);
+    // The desk reads transcripts too — see threadAccess.
+    if (!(await threadAccess(ctx, args.conversationId))) return [];
     return await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
@@ -232,9 +249,11 @@ export const findWebConversation = query({
 export const getWithContact = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    await requireConversation(ctx, args.conversationId);
-    const conversation = await ctx.db.get("conversations", args.conversationId);
-    if (!conversation) return null;
+    // Null for a thread that has left a human agent's desk, as for one that
+    // has been deleted: both mean there is nothing here to read any more.
+    const access = await threadAccess(ctx, args.conversationId);
+    if (!access) return null;
+    const { conversation } = access;
     const contact = await ctx.db.get("contacts", conversation.contactId);
     const agent = await ctx.db.get("agents", conversation.agentId);
 
@@ -310,11 +329,18 @@ export const setStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    await requireConversation(ctx, args.conversationId);
+    // A human agent resolving their escalation is the commonest caller, and
+    // the last one they can make on it: once it is open or closed it has left
+    // the desk.
+    if (!(await threadAccess(ctx, args.conversationId))) {
+      throw new AuthError(OFF_THE_DESK);
+    }
     await ctx.db.patch(args.conversationId, { status: args.status });
     return { success: true };
   },
 });
+
+const OFF_THE_DESK = "This conversation is no longer available here.";
 
 export const remove = mutation({
   args: { conversationId: v.id("conversations") },
@@ -352,9 +378,9 @@ export const remove = mutation({
 export const manualSendContext = internalQuery({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    await requireConversation(ctx, args.conversationId);
-    const conversation = await ctx.db.get("conversations", args.conversationId);
-    if (!conversation) return null;
+    const access = await threadAccess(ctx, args.conversationId);
+    if (!access) return null;
+    const { conversation, principal } = access;
     const contact = await ctx.db.get("contacts", conversation.contactId);
 
     return {
@@ -366,6 +392,9 @@ export const manualSendContext = internalQuery({
       // rest of that agent's replies rather than looking like it came from the
       // entry point.
       agentId: conversation.activeAgentId ?? conversation.agentId,
+      // A human agent signs as themselves, whatever the composer sent: on the
+      // desk the sender is the login, not a pick from a list.
+      memberId: principal.role === "member" ? principal.memberId : null,
     };
   },
 });
@@ -436,7 +465,9 @@ export const setHumanHandling = mutation({
     handling: v.boolean(),
   },
   handler: async (ctx, args) => {
-    await requireConversation(ctx, args.conversationId);
+    if (!(await threadAccess(ctx, args.conversationId))) {
+      throw new AuthError(OFF_THE_DESK);
+    }
     await ctx.db.patch(args.conversationId, {
       humanHandling: args.handling,
       // Cleared rather than left behind: the sweep finds held threads through
@@ -522,7 +553,8 @@ export const sendManualReply = action({
     text: v.string(),
     /**
      * Which colleague is sending it. A label on the message, not a
-     * permission — see the note at the top of convex/team.ts.
+     * permission — see the note at the top of convex/team.ts. Ignored for a
+     * human agent signed in on the desk, who always sends as themselves.
      */
     teamMemberId: v.optional(v.id("teamMembers")),
   },
@@ -533,7 +565,9 @@ export const sendManualReply = action({
     const context = await ctx.runQuery(internal.conversations.manualSendContext, {
       conversationId: args.conversationId,
     });
-    if (!context) return { ok: false, error: "This conversation no longer exists." };
+    if (!context) {
+      return { ok: false, error: "This conversation is no longer available." };
+    }
 
     if (context.channelType === "whatsapp") {
       if (!context.channelId || !context.externalId) {
@@ -567,7 +601,7 @@ export const sendManualReply = action({
       conversationId: args.conversationId,
       agentId: context.agentId,
       text: body,
-      teamMemberId: args.teamMemberId,
+      teamMemberId: context.memberId ?? args.teamMemberId,
     });
 
     return { ok: true };
