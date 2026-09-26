@@ -1746,10 +1746,12 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       turn.askedThisTurn && turn.askedBy === agent._id && !generationError;
     if (askedItself) replyText = "";
 
-    if (!replyText && !askedItself) {
-      replyText = generationError
-        ? "Sorry — something went wrong on my side. Could you send that again?"
-        : "Thanks for your message. Could you tell me a little more about what you need?";
+    // Only a failure gets a stand-in. A model that chose to say nothing sends
+    // nothing: a canned "tell me more" reads as not having listened, and the
+    // channel logs the empty turn as "the agent produced no reply" instead.
+    if (!replyText && generationError) {
+      replyText =
+        "Sorry — something went wrong on my side. Could you send that again?";
     }
 
     await ctx.runMutation(internal.conversations.finishTurn, {
