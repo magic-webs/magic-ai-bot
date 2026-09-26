@@ -38,11 +38,11 @@ export function AdminSwitcher() {
   const { isMobile } = useSidebar();
   const workspaces = useQuery(api.workspaces.list, {});
 
-  // Same neutral tile as the workspace sidebar: the mark is a green outline on
-  // transparency, so a filled brand tile would swallow it.
+  // Same neutral tile as the workspace sidebar: the mark is teal and grey on
+  // transparency, so a filled brand tile would muddy it.
   const tile = (
     <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-card ring-1 ring-sidebar-border">
-      <Logo className="h-4 w-auto" />
+      <Logo className="h-3.5 w-auto" />
     </div>
   );
 

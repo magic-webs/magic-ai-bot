@@ -28,7 +28,7 @@ export default function LegalLayout({
       <header className="border-b">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-4 px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
-            <Logo className="size-6" />
+            <Logo className="h-5" />
             <span className="font-heading text-sm font-semibold">
               Magic Agent
             </span>

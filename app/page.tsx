@@ -129,7 +129,7 @@ export default function LandingPage() {
         <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
           <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
             <Link href="/" className="flex items-center gap-2">
-              <Logo className="h-7" />
+              <Logo className="h-6" />
               <span className="font-heading text-base font-semibold tracking-tight">
                 Magic Agent
               </span>

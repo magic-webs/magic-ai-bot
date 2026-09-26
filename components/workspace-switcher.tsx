@@ -66,13 +66,14 @@ export function WorkspaceSwitcher({
     segments[0] === "w" && segments[2] ? `/${segments[2]}` : "";
 
   // A neutral tile, not the brand one the shadcn reference uses: the mark is
-  // a green outline on transparency and `bg-sidebar-primary` is that same
-  // green, so the reference's filled tile would have swallowed it — the point
-  // components/logo.tsx makes about the tiles it replaced. Sized by height,
-  // as that component asks, so the artwork keeps its ratio.
+  // teal and grey on transparency and `bg-sidebar-primary` is a close green,
+  // so the reference's filled tile would have muddied it — the point
+  // components/logo.tsx makes about filled tiles. Sized by height, as that
+  // component asks, so the artwork keeps its ratio; h-3.5 is 25px across,
+  // which leaves the wide mark some air inside the 32px tile.
   const tile = (
     <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-card ring-1 ring-sidebar-border">
-      <Logo className="h-4 w-auto" />
+      <Logo className="h-3.5 w-auto" />
     </div>
   );
   const subtitle = workspace.industry ?? workspace.locale;
