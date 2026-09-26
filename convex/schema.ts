@@ -551,6 +551,10 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_agent", ["agentId"])
     .index("by_contact_agent", ["contactId", "agentId"])
+    // One status at a time, newest first — the inbox's Escalations tab. Its
+    // own range rather than a filter over the latest threads, so an escalation
+    // older than the newest few hundred conversations still shows up.
+    .index("by_workspace_status", ["workspaceId", "status"])
     // The sweep reads the oldest activity first, workspace by workspace.
     .index("by_workspace_lastMessageAt", ["workspaceId", "lastMessageAt"])
     .index("by_workspace_stage", ["workspaceId", "leadStageId"])

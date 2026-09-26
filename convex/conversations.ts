@@ -32,23 +32,44 @@ export const listByWorkspace = query({
   args: {
     workspaceId: v.id("workspaces"),
     agentId: v.optional(v.id("agents")),
+    /**
+     * Only threads at this status, read through their own index — the
+     * inbox's Escalations tab. The agent filter is applied after the read on
+     * this path: one status is a short list, and a second index for every
+     * pairing of agent and status would be one more to keep for little gain.
+     */
+    status: v.optional(
+      v.union(v.literal("open"), v.literal("escalated"), v.literal("closed"))
+    ),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    const rows = args.agentId
-      ? await ctx.db
-          .query("conversations")
-          .withIndex("by_agent", (q) => q.eq("agentId", args.agentId!))
-          .order("desc")
-          .take(args.limit ?? 60)
-      : await ctx.db
-          .query("conversations")
-          .withIndex("by_workspace", (q) =>
-            q.eq("workspaceId", args.workspaceId)
-          )
-          .order("desc")
-          .take(args.limit ?? 60);
+    const limit = args.limit ?? 60;
+    const status = args.status;
+    const rows = status
+      ? (
+          await ctx.db
+            .query("conversations")
+            .withIndex("by_workspace_status", (q) =>
+              q.eq("workspaceId", args.workspaceId).eq("status", status)
+            )
+            .order("desc")
+            .take(limit)
+        ).filter((row) => !args.agentId || row.agentId === args.agentId)
+      : args.agentId
+        ? await ctx.db
+            .query("conversations")
+            .withIndex("by_agent", (q) => q.eq("agentId", args.agentId!))
+            .order("desc")
+            .take(limit)
+        : await ctx.db
+            .query("conversations")
+            .withIndex("by_workspace", (q) =>
+              q.eq("workspaceId", args.workspaceId)
+            )
+            .order("desc")
+            .take(limit);
 
     const agents = await ctx.db
       .query("agents")

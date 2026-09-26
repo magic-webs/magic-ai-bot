@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -72,6 +73,7 @@ import {
   DeviceMobileIcon,
   CheckIcon,
   ArrowsSplitIcon,
+  SirenIcon,
 } from "@phosphor-icons/react";
 
 type Status = "open" | "escalated" | "closed";
@@ -95,6 +97,20 @@ const BUCKETS = [
   { value: "unread", label: "Unread" },
   { value: "closed", label: "Closed" },
 ] as const;
+
+/**
+ * The two views of the inbox. Same list, same transcript, same composer —
+ * Escalations is only the threads an agent has handed to a person, which are
+ * the ones somebody on the team owes an answer. They stay in Conversations
+ * too, badged, so the everything view still means everything.
+ */
+type View = "conversations" | "escalations";
+
+// Every row on the Escalations tab is escalated, so the status buckets have
+// nothing to split; only "has the customer written since" still does.
+const ESCALATION_BUCKETS = BUCKETS.filter(
+  (bucket) => bucket.value === "all" || bucket.value === "unread"
+);
 
 // Auto-generated web session ids are noise in a list; show something readable.
 function displayContact(row: {
@@ -577,7 +593,13 @@ export default function ConversationsPage() {
   // ?c=<id> opens straight onto one thread — the Contacts table links here.
   // Read once, as the initial selection: after that the list owns the choice, so
   // clicking another thread is not fighting the URL.
-  const requested = useSearchParams().get("c");
+  const params = useSearchParams();
+  const requested = params.get("c");
+  // ?view=escalations lands on the Escalations tab — what a notification about
+  // an escalation should open. Read once, like ?c.
+  const [view, setView] = useState<View>(
+    params.get("view") === "escalations" ? "escalations" : "conversations"
+  );
 
   const [agentFilter, setAgentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -588,11 +610,30 @@ export default function ConversationsPage() {
     requested ? (requested as Id<"conversations">) : null
   );
 
-  const conversations = useQuery(api.conversations.listByWorkspace, {
+  const agentId =
+    agentFilter === "all" ? undefined : (agentFilter as Id<"agents">);
+  const everything = useQuery(api.conversations.listByWorkspace, {
     workspaceId: workspace._id,
-    agentId: agentFilter === "all" ? undefined : (agentFilter as Id<"agents">),
+    agentId,
     limit: 200,
   });
+  // Its own query rather than a filter over the list above: that one is the
+  // newest two hundred threads, and an escalation older than those is still
+  // waiting on somebody. Subscribed on both tabs, for the count on the tab.
+  const escalations = useQuery(api.conversations.listByWorkspace, {
+    workspaceId: workspace._id,
+    agentId,
+    status: "escalated",
+    limit: 200,
+  });
+  const conversations = view === "escalations" ? escalations : everything;
+  const buckets = view === "escalations" ? ESCALATION_BUCKETS : BUCKETS;
+
+  const switchView = (next: View) => {
+    setView(next);
+    // A status bucket picked on one tab means nothing on the other.
+    setStatusFilter("all");
+  };
 
   const term = search.trim().toLowerCase();
   // Everything but the bucket, so the counts on the buckets are counts of what
@@ -653,10 +694,12 @@ export default function ConversationsPage() {
       <header className="flex shrink-0 flex-wrap items-end justify-between gap-3 border-b px-4 py-4 sm:px-6">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
-            Conversations
+            {view === "escalations" ? "Escalations" : "Conversations"}
           </h1>
           <p className="mt-1 hidden max-w-2xl text-sm text-muted-foreground sm:block">
-            Threads across WhatsApp and the web playground.
+            {view === "escalations"
+              ? "Threads an agent has handed to your team. Set one back to open, or close it, once it is dealt with."
+              : "Threads across WhatsApp and the web playground."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -676,22 +719,27 @@ export default function ConversationsPage() {
               })),
             ]}
           />
-          <Label htmlFor="conv-status" className="hidden text-sm sm:inline">
-            Status
-          </Label>
-          {/* The same state the buckets above the list write to, so the two
-              controls can never disagree about what is on screen. */}
-          <SelectField
-            id="conv-status"
-            aria-label="Filter by status"
-            value={statusFilter}
-            onValueChange={setStatusFilter}
-            options={[
-              { value: "all", label: "All statuses" },
-              { value: "unread", label: "unread" },
-              ...STATUS_OPTIONS,
-            ]}
-          />
+          {/* Not on the Escalations tab, where every row has the same one. */}
+          {view === "conversations" ? (
+            <>
+              <Label htmlFor="conv-status" className="hidden text-sm sm:inline">
+                Status
+              </Label>
+              {/* The same state the buckets above the list write to, so the
+                  two controls can never disagree about what is on screen. */}
+              <SelectField
+                id="conv-status"
+                aria-label="Filter by status"
+                value={statusFilter}
+                onValueChange={setStatusFilter}
+                options={[
+                  { value: "all", label: "All statuses" },
+                  { value: "unread", label: "unread" },
+                  ...STATUS_OPTIONS,
+                ]}
+              />
+            </>
+          ) : null}
           <NewConversationDialog onStarted={setSelected} />
         </div>
       </header>
@@ -710,12 +758,34 @@ export default function ConversationsPage() {
             chosen ? "hidden lg:flex" : "flex"
           )}
         >
+          {/* Above the buckets: it picks the list, they narrow it. No panels —
+              both tabs render the one list below. */}
+          <Tabs
+            value={view}
+            onValueChange={(next) => switchView(next as View)}
+            className="shrink-0 px-3 pt-3"
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="conversations">
+                <ChatsIcon /> Conversations
+              </TabsTrigger>
+              <TabsTrigger value="escalations">
+                <SirenIcon /> Escalations
+                {escalations?.length ? (
+                  <span className="rounded-md bg-destructive/10 px-1 py-px text-[11px] text-destructive tabular-nums">
+                    {escalations.length}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
           <div
             role="tablist"
             aria-label="Filter conversations"
-            className="flex shrink-0 gap-1 overflow-x-auto px-3 pt-3 pb-2"
+            className="flex shrink-0 gap-1 overflow-x-auto px-3 pt-2 pb-2"
           >
-            {BUCKETS.map((bucket) => {
+            {buckets.map((bucket) => {
               const isActive = statusFilter === bucket.value;
               return (
                 <button
@@ -838,17 +908,21 @@ export default function ConversationsPage() {
                 <Empty className="border border-dashed">
                   <EmptyHeader>
                     <EmptyMedia variant="icon">
-                      <ChatsIcon />
+                      {view === "escalations" ? <SirenIcon /> : <ChatsIcon />}
                     </EmptyMedia>
                     <EmptyTitle>
-                      {conversations.length === 0
-                        ? "No conversations"
-                        : "Nothing matches"}
+                      {conversations.length > 0
+                        ? "Nothing matches"
+                        : view === "escalations"
+                          ? "No escalations"
+                          : "No conversations"}
                     </EmptyTitle>
                     <EmptyDescription>
-                      {conversations.length === 0
-                        ? "Test an agent in the web playground or send a WhatsApp message to a connected number."
-                        : "Try a different search term or filter."}
+                      {conversations.length > 0
+                        ? "Try a different search term or filter."
+                        : view === "escalations"
+                          ? "When an agent hands a conversation to your team, it waits here until somebody sets it back to open or closes it."
+                          : "Test an agent in the web playground or send a WhatsApp message to a connected number."}
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
@@ -887,7 +961,8 @@ export default function ConversationsPage() {
                           >
                             {displayContact(row)}
                           </span>
-                          {row.status !== "open" ? (
+                          {row.status !== "open" &&
+                          view === "conversations" ? (
                             <Badge
                               variant={statusVariant(row.status)}
                               className="shrink-0"
