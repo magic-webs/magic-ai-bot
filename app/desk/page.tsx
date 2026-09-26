@@ -232,6 +232,9 @@ export default function DeskPage() {
               workspaceId={me.workspace._id}
               agents={me.agents}
               replyingAs={{ name: me.member.name, role: me.member.role }}
+              // No app sidebar here, so the details fit beside the thread
+              // sooner than they do in the inbox.
+              detailsInlineFrom="(min-width: 1180px)"
               onDeleted={() => setSelected(null)}
               onBack={() => setSelected(null)}
             />

@@ -339,7 +339,8 @@ export const DEFAULT_LEAD_STAGES: LeadStageSeed[] = [
 export const DORMANT_AFTER_MINUTES = 60;
 
 /**
- * How long a thread stays held by a person after they last touched it.
+ * How long a thread stays held by a person after they last touched it, unless
+ * they choose otherwise in the reply box.
  *
  * Taking over is one click and handing back is another, and the second one is
  * the one people forget. An hour is long enough that nobody loses a thread
@@ -348,6 +349,30 @@ export const DORMANT_AFTER_MINUTES = 60;
  * customers again before the next one starts.
  */
 export const HANDBACK_AFTER_MINUTES = 60;
+
+/** The lengths the reply box offers, shortest first. */
+export const PAUSE_CHOICES_MINUTES = [15, 30, 60, 120, 240, 480, 1440] as const;
+
+/**
+ * A pause length the server will accept: whole minutes, five at the least and
+ * a day at the most. Anything longer is a thread nobody is answering, which is
+ * the failure the hold expiring exists to prevent.
+ */
+export function clampPause(minutes: number | undefined): number {
+  if (minutes === undefined || !Number.isFinite(minutes)) {
+    return HANDBACK_AFTER_MINUTES;
+  }
+  return Math.min(1440, Math.max(5, Math.round(minutes)));
+}
+
+/** "15 minutes", "1 hour", "1 h 30 min", "24 hours". */
+export function pauseLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (rest) return `${hours} h ${rest} min`;
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
 
 /**
  * Nudges per conversation, ever. Two is the whole budget: the first catches

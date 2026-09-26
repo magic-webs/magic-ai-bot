@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { WorkspaceProvider } from "@/components/workspace-provider";
@@ -20,6 +20,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -59,6 +60,7 @@ import {
   ReceiptIcon,
   Robot01Icon,
   Settings01Icon,
+  SirenIcon,
   ToolboxIcon,
   UserGroupIcon,
   UserMultipleIcon,
@@ -88,6 +90,12 @@ const NAV: Array<{
   icon: IconSvgElement;
   /** A section's own page, or the destination when it has no children. */
   href?: string;
+  /**
+   * A view of `href` rather than a page of its own, picked by `?view=`.
+   * Inbox and Escalations are one page with two tabs, so without this both
+   * rows would light up on either.
+   */
+  view?: string;
   items?: NavItem[];
 }> = [
   { label: "Dashboard", icon: DashboardSpeed02Icon, href: "" },
@@ -126,6 +134,14 @@ const NAV: Array<{
   // A leaf now that channels are set up under Build: a section that opens onto
   // one child is a row with an extra click in front of it.
   { label: "Inbox", icon: InboxIcon, href: "/conversations" },
+  // The inbox's Escalations tab, a row of its own because it is the part of
+  // the inbox somebody owes an answer — and it carries the count.
+  {
+    label: "Escalations",
+    icon: SirenIcon,
+    href: "/conversations",
+    view: "escalations",
+  },
   {
     // In the order the work happens: a lead becomes a contact, then an order —
     // and then whatever else the conversation produced. Each record book the
@@ -247,6 +263,7 @@ export default function WorkspaceLayout({
 }: LayoutProps<"/w/[slug]">) {
   const { slug } = use(params);
   const pathname = usePathname();
+  const currentView = useSearchParams().get("view");
   const session = useSession();
   // A company may only ever load its own workspace; skip the query rather than
   // firing one the server will refuse.
@@ -264,6 +281,12 @@ export default function WorkspaceLayout({
   // that the Record books page reads, since the sidebar renders everywhere.
   const books = useQuery(
     api.records.listBookLinks,
+    workspace ? { workspaceId: workspace._id } : "skip"
+  );
+  // For the badge on the Escalations row. A capped count off an index, since
+  // the sidebar is on every page.
+  const escalated = useQuery(
+    api.conversations.escalatedCount,
     workspace ? { workspaceId: workspace._id } : "skip"
   );
 
@@ -369,16 +392,41 @@ export default function WorkspaceLayout({
                     // one item.
                     if (!section.items) {
                       const href = `${base}${section.href ?? ""}`;
-                      const isActive =
+                      const onPage =
                         section.href === ""
                           ? pathname === base
                           : pathname.startsWith(href);
+                      // On a page with views, only the row for the view
+                      // showing: Inbox when there is no ?view=, Escalations
+                      // when it says so.
+                      const sharesPage = nav.some(
+                        (other) => other !== section && other.href === section.href
+                      );
+                      const isActive =
+                        onPage &&
+                        (!sharesPage ||
+                          (section.view ?? null) ===
+                            (currentView === "escalations" ? currentView : null));
+                      const badge =
+                        section.view === "escalations" && escalated
+                          ? escalated > 99
+                            ? "99+"
+                            : String(escalated)
+                          : null;
                       return (
                         <SidebarMenuItem key={section.label}>
                           <SidebarMenuButton
                             isActive={isActive}
                             tooltip={section.label}
-                            render={<Link href={href} />}
+                            render={
+                              <Link
+                                href={
+                                  section.view
+                                    ? `${href}?view=${section.view}`
+                                    : href
+                                }
+                              />
+                            }
                           >
                             <HugeiconsIcon
                               icon={section.icon}
@@ -386,6 +434,11 @@ export default function WorkspaceLayout({
                             />
                             <span>{section.label}</span>
                           </SidebarMenuButton>
+                          {badge ? (
+                            <SidebarMenuBadge className="bg-destructive/10 text-destructive peer-data-active/menu-button:text-destructive">
+                              {badge}
+                            </SidebarMenuBadge>
+                          ) : null}
                         </SidebarMenuItem>
                       );
                     }

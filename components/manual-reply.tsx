@@ -6,6 +6,12 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { SelectField } from "@/components/select-field";
+import { Countdown, replyWindow, useNow } from "@/components/handback-timer";
+import {
+  HANDBACK_AFTER_MINUTES,
+  PAUSE_CHOICES_MINUTES,
+  pauseLabel,
+} from "@/convex/lib/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,8 +27,41 @@ import {
   PauseIcon,
   LightningIcon,
   SmileyIcon,
+  TimerIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+
+/**
+ * The pause the last reply used, remembered per browser — a convenience for
+ * whoever sits at this screen, not a workspace setting, so a thread two people
+ * are working does not flip between their preferences. Every read and write
+ * is guarded: storage can be blocked, and the default is a fine answer.
+ */
+const PAUSE_KEY = "magic-agent.reply-pause-minutes";
+
+function storedPause(): number {
+  try {
+    const value = Number(window.localStorage.getItem(PAUSE_KEY));
+    return (PAUSE_CHOICES_MINUTES as readonly number[]).includes(value)
+      ? value
+      : HANDBACK_AFTER_MINUTES;
+  } catch {
+    return HANDBACK_AFTER_MINUTES;
+  }
+}
+
+function storePause(minutes: number) {
+  try {
+    window.localStorage.setItem(PAUSE_KEY, String(minutes));
+  } catch {
+    // Remembered for this page only, then.
+  }
+}
+
+const PAUSE_OPTIONS = PAUSE_CHOICES_MINUTES.map((minutes) => ({
+  value: String(minutes),
+  label: pauseLabel(minutes),
+}));
 
 /**
  * The emoji a sales desk actually reaches for, in the order it reaches for
@@ -167,6 +206,8 @@ export function ManualReply({
   conversationId,
   workspaceId,
   replyingAs,
+  channelType,
+  lastInboundAt,
   windowClosed,
   neverWritten,
   contactLabel,
@@ -175,6 +216,9 @@ export function ManualReply({
 }: {
   conversationId: Id<"conversations">;
   workspaceId: Id<"workspaces">;
+  channelType: "whatsapp" | "web";
+  /** When the customer last wrote, which starts WhatsApp's 24-hour window. */
+  lastInboundAt: number | null;
   /**
    * A human agent on the escalations desk, who sends as themselves: no roster
    * to pick from, and no catalogue — both are the dashboard's, not the desk's.
@@ -206,6 +250,16 @@ export function ManualReply({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sender, setSender] = useState<string>("");
+  // Read once, at mount. This only renders once the session has loaded in the
+  // browser, so there is no server render for the stored value to disagree
+  // with.
+  const [pauseMinutes, setPauseMinutes] = useState(storedPause);
+
+  const now = useNow();
+  const window24 = channelType === "whatsapp" ? replyWindow(lastInboundAt, now) : null;
+  // The server's answer is as of the query's last run; the clock here is
+  // current. Either one saying closed is closed.
+  const closed = windowClosed || (window24 !== null && !window24.open);
 
   const roster = team ?? [];
   // Default to the first person on the list rather than to nobody, so the
@@ -242,6 +296,7 @@ export function ManualReply({
         teamMemberId: sendingAs
           ? (sendingAs as Id<"teamMembers">)
           : undefined,
+        pauseMinutes,
       });
       if (result.ok) {
         // Cleared only on success, so a rejected message is still there to
@@ -273,7 +328,7 @@ export function ManualReply({
           hover for whoever has not met the rule before. The input stays live
           either way, because WhatsApp is the authority on its own window and
           our timestamp is not. */}
-      {windowClosed ? (
+      {closed ? (
         <p
           className="mx-auto mb-1.5 flex w-full max-w-3xl items-center gap-1.5 text-xs text-muted-foreground"
           title={
@@ -284,6 +339,23 @@ export function ManualReply({
         >
           <WarningIcon className="size-3.5 shrink-0" />
           {neverWritten ? "No inbound message yet" : "Reply window closed"}
+        </p>
+      ) : window24 ? (
+        // Open, and counting. Amber for the last hour, which is when somebody
+        // meaning to answer later needs to answer now.
+        <p
+          className={
+            window24.left < 60 * 60_000
+              ? "mx-auto mb-1.5 flex w-full max-w-3xl items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+              : "mx-auto mb-1.5 flex w-full max-w-3xl items-center gap-1.5 text-xs text-muted-foreground"
+          }
+          title={`WhatsApp delivers a free-form reply until ${new Date(window24.endsAt).toLocaleString()} — 24 hours after ${contactLabel}'s last message. After that only an approved template gets through.`}
+        >
+          <TimerIcon className="size-3.5 shrink-0" />
+          <span>
+            Reply window open ·{" "}
+            <Countdown to={window24.endsAt} /> left
+          </span>
         </p>
       ) : null}
 
@@ -365,31 +437,31 @@ export function ManualReply({
         </Button>
       </div>
 
-      <div className="mx-auto mt-1.5 flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          Press <kbd className="font-sans font-medium">Enter</kbd> to send ·{" "}
-          <kbd className="font-sans font-medium">Shift + Enter</kbd> for a new
-          line
-        </span>
-
+      {/* One row: who the reply is from on the left, how long it pauses the
+          agent on the right. Wraps only on a phone, where the two cannot fit
+          side by side. No keyboard hint — Enter sends, as in every chat app,
+          and the line it took pushed the pause onto a row of its own. */}
+      <div className="mx-auto mt-1.5 flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-1 text-xs whitespace-nowrap text-muted-foreground sm:flex-nowrap">
         {/* Only once there is a team to choose from. A workspace that has not
             filled in a roster replies exactly as it did before, and one that
             has gets the reply signed without an extra step — the first name is
             already selected. */}
+        {/* This side gives way when the column is narrow — the name clips
+            inside its picker — so the pause beside it stays whole. */}
         {replyingAs ? (
-          <span>
+          <span className="min-w-0 truncate">
             Replying as{" "}
             <span className="font-medium text-foreground">{replyingAs.name}</span>
             {replyingAs.role ? ` · ${replyingAs.role}` : null}
           </span>
         ) : roster.length > 0 ? (
-          <span className="flex items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5">
             Replying as
             <SelectField
               value={sendingAs}
               onValueChange={setSender}
               aria-label="Replying as"
-              className="h-7 w-48 text-xs"
+              className="h-7 w-48 min-w-24 shrink text-xs"
               options={roster.map((member) => ({
                 value: member._id,
                 label: `${member.name} · ${member.role}`,
@@ -398,19 +470,29 @@ export function ManualReply({
           </span>
         ) : null}
 
-        {/* Only before the first reply. Sending is what takes the thread over,
-            so it has to be said beforehand — but once it is said, the header
-            carries a "You have this thread" badge and a Resume button, so
-            repeating it here would be the third place saying the same thing. */}
-        {!humanHandling ? (
-          <span
-            className="ml-auto flex items-center gap-1.5"
-            title={`${agentName} stops answering ${contactLabel} once you reply, until you resume it from the thread header.`}
-          >
-            <PauseIcon className="size-3.5 shrink-0" />
-            Replying pauses {agentName}
-          </span>
-        ) : null}
+        {/* Sending is what takes the thread over, so it has to be said
+            beforehand — and how long for, which is the reader's to choose.
+            Once the thread is held the header carries the countdown; this
+            stays because every reply restarts it with whatever is picked. */}
+        <span
+          className="ml-auto flex shrink-0 items-center gap-1.5"
+          title={`${agentName} stops answering ${contactLabel} for this long after each reply you send. Resume it early from the thread menu.`}
+        >
+          <PauseIcon className="size-3.5 shrink-0" />
+          {humanHandling ? "Each reply pauses" : "Replying pauses"} {agentName}{" "}
+          for
+          <SelectField
+            value={String(pauseMinutes)}
+            onValueChange={(next) => {
+              const minutes = Number(next);
+              setPauseMinutes(minutes);
+              storePause(minutes);
+            }}
+            aria-label="How long a reply pauses the agent"
+            className="h-7 w-28 text-xs"
+            options={PAUSE_OPTIONS}
+          />
+        </span>
       </div>
     </div>
   );

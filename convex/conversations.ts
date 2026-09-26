@@ -5,6 +5,7 @@ import {
   action,
   internalMutation,
   internalQuery,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -16,6 +17,8 @@ import {
   HANDBACK_AFTER_MINUTES,
   WHATSAPP_FREE_FORM_WINDOW_HOURS,
   WHATSAPP_TEXT_LIMIT,
+  clampPause,
+  pauseLabel,
 } from "./lib/shared";
 import {
   AuthError,
@@ -74,6 +77,25 @@ export const listByWorkspace = query({
             .take(limit);
 
     return await inboxRows(ctx, args.workspaceId, rows);
+  },
+});
+
+/**
+ * How many threads are escalated, for the badge on the sidebar's Escalations
+ * row. Counted off the status index and capped: the sidebar is on every page,
+ * and past ninety-nine the badge says "99+" whatever the real number is.
+ */
+export const escalatedCount = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const rows = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace_status", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("status", "escalated")
+      )
+      .take(100);
+    return rows.length;
   },
 });
 
@@ -407,6 +429,8 @@ export const recordManualReply = internalMutation({
     agentId: v.optional(v.id("agents")),
     text: v.string(),
     teamMemberId: v.optional(v.id("teamMembers")),
+    /** How long this reply keeps the agent quiet. An hour when absent. */
+    pauseMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -449,9 +473,10 @@ export const recordManualReply = internalMutation({
         // answer the customer's next message over the top of a colleague who
         // is mid-conversation with them.
         humanHandling: true,
-        // Restarts the hold's hour. Someone working a thread keeps it; the
+        // Restarts the hold's clock. Someone working a thread keeps it; the
         // sweep only reclaims one nobody has touched.
         humanHandlingAt: now,
+        humanHandlingUntil: now + clampPause(args.pauseMinutes) * 60_000,
       });
     }
     return { success: true };
@@ -463,17 +488,23 @@ export const setHumanHandling = mutation({
   args: {
     conversationId: v.id("conversations"),
     handling: v.boolean(),
+    /** Taking over only: how long for. An hour when absent. */
+    pauseMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     if (!(await threadAccess(ctx, args.conversationId))) {
       throw new AuthError(OFF_THE_DESK);
     }
+    const now = Date.now();
     await ctx.db.patch(args.conversationId, {
       humanHandling: args.handling,
       // Cleared rather than left behind: the sweep finds held threads through
-      // this field's index, and a stale timestamp on a released thread would
-      // keep it in the range forever.
-      humanHandlingAt: args.handling ? Date.now() : undefined,
+      // these fields' indexes, and a stale timestamp on a released thread
+      // would keep it in the range forever.
+      humanHandlingAt: args.handling ? now : undefined,
+      humanHandlingUntil: args.handling
+        ? now + clampPause(args.pauseMinutes) * 60_000
+        : undefined,
     });
     return { success: true };
   },
@@ -494,49 +525,101 @@ export const releaseDormantTakeovers = internalMutation({
        can wind it forward without that ending up in a stored row; anything
        written keeps the real wall clock, or a swept thread gets a note dated
        an hour into the future. */
-    const cutoff = (args.now ?? Date.now()) - HANDBACK_AFTER_MINUTES * 60_000;
+    const at = args.now ?? Date.now();
     const now = Date.now();
+    const limit = args.limit ?? 100;
+    let released = 0;
 
-    /* Oldest hold first, and capped — a sweep is a background job and must not
-       become a full table read. The range starts above zero so the index skips
-       every conversation that was never held, which is nearly all of them. */
-    const held = await ctx.db
+    /* Holds that carry their own end, soonest first, and capped — a sweep is
+       a background job and must not become a full table read. The range
+       starts above zero so the index skips every conversation that was never
+       held, which is nearly all of them. */
+    const due = await ctx.db
+      .query("conversations")
+      .withIndex("by_humanHandlingUntil", (q) =>
+        q.gt("humanHandlingUntil", 0).lte("humanHandlingUntil", at)
+      )
+      .order("asc")
+      .take(limit);
+    for (const conversation of due) {
+      if (!conversation.humanHandling) {
+        // Released some other way without the end being cleared. Take it out
+        // of the range, or it is read on every sweep from now on.
+        await ctx.db.patch(conversation._id, { humanHandlingUntil: undefined });
+        continue;
+      }
+      await releaseHold(ctx, conversation, now);
+      released += 1;
+    }
+
+    /* Holds taken before a hold carried its end: the fixed hour, counted from
+       the last reply. Oldest first, so the loop stops at the first one still
+       inside its hour. */
+    const cutoff = at - HANDBACK_AFTER_MINUTES * 60_000;
+    const legacy = await ctx.db
       .query("conversations")
       .withIndex("by_humanHandlingAt", (q) => q.gt("humanHandlingAt", 0))
       .order("asc")
-      .take(args.limit ?? 100);
-
-    let released = 0;
-    for (const conversation of held) {
-      if (!conversation.humanHandling) continue;
-      // No stamp means a hold taken before this field existed. Released
-      // rather than kept forever: it is by definition older than an hour.
+      .take(limit);
+    for (const conversation of legacy) {
+      if (!conversation.humanHandling || conversation.humanHandlingUntil) continue;
       if ((conversation.humanHandlingAt ?? 0) > cutoff) break;
-
-      await ctx.db.patch(conversation._id, {
-        humanHandling: false,
-        humanHandlingAt: undefined,
-      });
-
-      /* Written into the thread rather than done silently. Whoever opens it
-         next needs to know why the agent started answering again, and the
-         alternative — a colleague discovering it from the customer — is how
-         people stop trusting the takeover at all. "note" is internal, so the
-         customer never sees this. */
-      await ctx.db.insert("messages", {
-        workspaceId: conversation.workspaceId,
-        conversationId: conversation._id,
-        role: "system",
-        kind: "note",
-        text: `Handed back to the agent automatically — nobody replied by hand for ${HANDBACK_AFTER_MINUTES} minutes. Take it over again to stop the agent answering.`,
-        createdAt: now,
-      });
+      await releaseHold(ctx, conversation, now);
       released += 1;
     }
 
     return { released };
   },
 });
+
+/**
+ * Whether a held thread's pause is over. A hold with no stamp at all predates
+ * both fields and is by definition older than any pause, so it is over too.
+ */
+function holdIsOver(conversation: Doc<"conversations">, now: number): boolean {
+  const end =
+    conversation.humanHandlingUntil ??
+    (conversation.humanHandlingAt
+      ? conversation.humanHandlingAt + HANDBACK_AFTER_MINUTES * 60_000
+      : 0);
+  return end <= now;
+}
+
+/**
+ * Give a held thread back to the agent, and say so in the thread.
+ *
+ * Written into the thread rather than done silently. Whoever opens it next
+ * needs to know why the agent started answering again, and the alternative —
+ * a colleague discovering it from the customer — is how people stop trusting
+ * the takeover at all. "note" is internal, so the customer never sees this.
+ */
+async function releaseHold(
+  ctx: MutationCtx,
+  conversation: Doc<"conversations">,
+  now: number
+) {
+  const minutes =
+    conversation.humanHandlingUntil && conversation.humanHandlingAt
+      ? Math.round(
+          (conversation.humanHandlingUntil - conversation.humanHandlingAt) /
+            60_000
+        )
+      : HANDBACK_AFTER_MINUTES;
+
+  await ctx.db.patch(conversation._id, {
+    humanHandling: false,
+    humanHandlingAt: undefined,
+    humanHandlingUntil: undefined,
+  });
+  await ctx.db.insert("messages", {
+    workspaceId: conversation.workspaceId,
+    conversationId: conversation._id,
+    role: "system",
+    kind: "note",
+    text: `Handed back to the agent automatically — nobody replied by hand for ${pauseLabel(minutes)}. Take it over again to stop the agent answering.`,
+    createdAt: now,
+  });
+}
 
 /**
  * Sends a message a person typed, and records it.
@@ -557,6 +640,8 @@ export const sendManualReply = action({
      * human agent signed in on the desk, who always sends as themselves.
      */
     teamMemberId: v.optional(v.id("teamMembers")),
+    /** How long the reply keeps the agent quiet. An hour when absent. */
+    pauseMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const body = args.text.trim().slice(0, WHATSAPP_TEXT_LIMIT);
@@ -602,6 +687,7 @@ export const sendManualReply = action({
       agentId: context.agentId,
       text: body,
       teamMemberId: context.memberId ?? args.teamMemberId,
+      pauseMinutes: args.pauseMinutes,
     });
 
     return { ok: true };
@@ -699,6 +785,16 @@ export const startTurn = internalMutation({
       conversation = (await ctx.db.get("conversations", conversationId))!;
     }
 
+    // A pause that has run out ends here, on the customer's next message,
+    // rather than whenever the sweep next comes round — which is every fifteen
+    // minutes, and a customer on a fifteen-minute pause should not wait up to
+    // twice that for an answer.
+    let humanHandling = conversation.humanHandling ?? false;
+    if (humanHandling && holdIsOver(conversation, now)) {
+      await releaseHold(ctx, conversation, now);
+      humanHandling = false;
+    }
+
     // History must be read before the new message is inserted.
     const priorMessages = await ctx.db
       .query("messages")
@@ -751,7 +847,7 @@ export const startTurn = internalMutation({
       activeAgentId: conversation.activeAgentId ?? conversation.agentId,
       // Set when a colleague has taken the thread over. The inbound message
       // above is still recorded; the engine reads this and does not answer.
-      humanHandling: conversation.humanHandling ?? false,
+      humanHandling,
       contact: {
         name: contact.name,
         phone: contact.phone,

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -74,6 +75,8 @@ import {
   ArrowsDownUpIcon,
   GearIcon,
   BookOpenIcon,
+  RowsIcon,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 
 /** Clipboard write plus the toast, in one place — six things copy on this page. */
@@ -811,6 +814,590 @@ function FilterChip({
   );
 }
 
+// ---------------------------------------------------------------------------
+// One channel, two ways to draw it
+// ---------------------------------------------------------------------------
+
+type ChannelRow = FunctionReturnType<typeof api.channels.listByWorkspace>[number];
+
+/** The addresses a channel is reached at, worked out once per render. */
+type ChannelLinks = {
+  isWeb: boolean;
+  live: boolean;
+  webhookUrl: string;
+  widgetUrl: string;
+  embedCode: string;
+  waLink: string | null;
+};
+
+function channelLinks(
+  channel: ChannelRow,
+  appOrigin: string,
+  convexSite: string
+): ChannelLinks {
+  // Only the digits are dialable. This stripped /D/g before, which matches a
+  // literal capital D — so "+91 75999 09021" came through unchanged, wa.me got
+  // the spaces and the plus, and the QR pointed at a broken link.
+  const waDigits = (channel.whatsapp?.displayPhoneNumber ?? "").replace(
+    /[^0-9]/g,
+    ""
+  );
+  return {
+    isWeb: channel.type === "web",
+    live: channel.status === "active",
+    webhookUrl: `${convexSite}/whatsapp/${channel.channelKey}`,
+    widgetUrl: `${appOrigin}/widget/${channel.channelKey}`,
+    // A script, not a bare iframe: the launcher button has to live in the host
+    // page, because an iframe cannot resize itself there.
+    embedCode: `<script src="${appOrigin}/widget/${channel.channelKey}/embed.js" async></script>`,
+    waLink: waDigits ? `https://wa.me/${waDigits}` : null,
+  };
+}
+
+/** The on/off switch and the overflow menu — the same on both cards. */
+function ChannelControls({
+  channel,
+  links,
+  compact = false,
+}: {
+  channel: ChannelRow;
+  links: ChannelLinks;
+  /** The small card has no room for the switch's label. */
+  compact?: boolean;
+}) {
+  const updateChannel = useMutation(api.channels.update);
+  const rotateKeys = useMutation(api.channels.rotateKeys);
+  const removeChannel = useMutation(api.channels.remove);
+  const { isWeb, live } = links;
+
+  return (
+    <>
+      <div className="flex items-center gap-2 pl-1">
+        <Switch
+          id={`live-${channel._id}`}
+          checked={live}
+          onCheckedChange={async (checked) => {
+            await updateChannel({
+              channelId: channel._id,
+              status: checked ? "active" : "paused",
+            });
+            toast.add({
+              title: checked
+                ? "Channel is live"
+                : "Channel paused",
+              type: "success",
+            });
+          }}
+        />
+        <Label
+          htmlFor={`live-${channel._id}`}
+          className={compact ? "sr-only" : "hidden text-sm xl:block"}
+        >
+          Accept inbound messages
+        </Label>
+      </div>
+
+      <ChannelMenu
+        isWeb={isWeb}
+        onRotate={async () => {
+          await rotateKeys({ channelId: channel._id });
+          toast.add({
+            title: isWeb
+              ? "New embed code generated"
+              : "New callback URL generated",
+            description: isWeb
+              ? "Replace the script tag on your website or the widget will stop loading."
+              : "Update the configuration in Meta or inbound messages will stop.",
+            type: "warning",
+          });
+        }}
+        onDelete={async () => {
+          await removeChannel({ channelId: channel._id });
+          toast.add({ title: "Channel deleted", type: "success" });
+        }}
+        edit={
+          isWeb ? (
+            <WebChannelDialog
+              channelId={channel._id}
+              initial={{
+                name: channel.name,
+                agentId: channel.agentId,
+              }}
+              trigger={
+                <DropdownMenuItem closeOnClick={false}>
+                  Edit
+                </DropdownMenuItem>
+              }
+            />
+          ) : (
+            <ChannelDialog
+              channelId={channel._id}
+              initial={{
+                name: channel.name,
+                agentId: channel.agentId,
+                apiBaseUrl:
+                  channel.whatsapp?.apiBaseUrl ??
+                  "https://graph.facebook.com",
+                apiVersion:
+                  channel.whatsapp?.apiVersion ?? "v23.0",
+                phoneNumberId:
+                  channel.whatsapp?.phoneNumberId ?? "",
+                wabaId: channel.whatsapp?.wabaId ?? "",
+                businessId: channel.whatsapp?.businessId ?? "",
+                displayPhoneNumber:
+                  channel.whatsapp?.displayPhoneNumber ?? "",
+                accessToken: "",
+              }}
+              trigger={
+                <DropdownMenuItem closeOnClick={false}>
+                  Edit
+                </DropdownMenuItem>
+              }
+            />
+          )
+        }
+      />
+    </>
+  );
+}
+
+/**
+ * How to reach the channel and wire it up: the embed code or callback URL,
+ * the QR code, the setup guide and the WhatsApp identifiers. The body of the
+ * full card, and what the small card opens.
+ */
+function ChannelSetup({
+  channel,
+  links,
+}: {
+  channel: ChannelRow;
+  links: ChannelLinks;
+}) {
+  const { isWeb, webhookUrl, widgetUrl, embedCode, waLink } = links;
+
+  return (
+    <>
+      {channel.lastError ? (
+        <Alert variant="destructive">
+          <WarningIcon />
+          <AlertTitle>Last delivery problem</AlertTitle>
+          <AlertDescription className="font-mono text-xs">
+            {channel.lastError}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        {isWeb ? (
+          <Tabs defaultValue="embed" className="min-w-0">
+            <TabsList>
+              <TabsTrigger value="embed">Embed code</TabsTrigger>
+              <TabsTrigger value="link">Direct link</TabsTrigger>
+              <TabsTrigger value="qr">QR code</TabsTrigger>
+            </TabsList>
+            <TabsContent value="embed">
+              <CopyField
+                value={embedCode}
+                label="Embed code"
+                hint="Paste it once, anywhere before the closing </body> tag."
+              />
+            </TabsContent>
+            <TabsContent value="link">
+              <CopyField
+                value={widgetUrl}
+                label="Direct link"
+                hint="The chat on its own page — handy for testing, or for a link in an email."
+              />
+            </TabsContent>
+            <TabsContent value="qr">
+              <ChannelQr
+                url={widgetUrl}
+                caption="Point a phone camera at this to open the widget on the handset — the quickest way to see what a visitor sees, on the screen size they will see it on."
+              />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <Tabs defaultValue="callback" className="min-w-0">
+            <TabsList>
+              <TabsTrigger value="callback">Callback URL</TabsTrigger>
+              <TabsTrigger value="qr">QR code</TabsTrigger>
+            </TabsList>
+            <TabsContent value="callback">
+              <CopyField
+                value={webhookUrl}
+                label="Callback URL"
+                hint={"Set this in your Meta App → WhatsApp → Configuration → Webhooks."}
+              />
+            </TabsContent>
+            <TabsContent value="qr">
+              <ChannelQr
+                url={waLink}
+                caption="Point a phone camera at this to open a WhatsApp chat with this number, already addressed. Send anything and the front desk answers."
+                unavailable="This channel has no display phone number saved, and that is the only field a wa.me link can be built from — Meta's phone number ID is an internal handle, not a dialable number. Add it under Edit."
+              />
+            </TabsContent>
+          </Tabs>
+        )}
+
+        {/* The short version on the card, the whole thing one click
+            away. This guidance used to be eight lines of prose per
+            card, which is how a page with two channels became a
+            page you scroll. */}
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/30 p-4">
+          {isWeb ? (
+            <>
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <InfoIcon className="size-4 text-muted-foreground" />
+                What your visitors see
+              </p>
+              <p className="text-xs text-muted-foreground">
+                A round chat button in the bottom-right corner.
+                Clicking it slides the chat open; on a phone it fills
+                the screen. Colour, side, icon and teaser are all set
+                on the script tag.
+              </p>
+              <GuideDialog
+                title="Customising the widget"
+                description="Add any of these to the script tag. All optional."
+                trigger={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-1 self-start bg-background"
+                  >
+                    <GearIcon /> View customisation options
+                  </Button>
+                }
+              >
+                <OptionRow attribute={'data-color="#25D366"'}>
+                  Recolours the launcher and the chat header
+                  together. Any CSS colour.
+                </OptionRow>
+                <OptionRow attribute={'data-position="left"'}>
+                  Moves the launcher to the bottom-left. Defaults to
+                  the right.
+                </OptionRow>
+                <OptionRow attribute={'data-icon="chat"'}>
+                  Swaps the WhatsApp glyph for a neutral speech
+                  bubble — use it when the widget is not WhatsApp.
+                </OptionRow>
+                <OptionRow attribute={'data-teaser="Need a hand?"'}>
+                  A one-line bubble beside the launcher before anyone
+                  clicks it.
+                </OptionRow>
+                <OptionRow attribute={'data-auto-open="5000"'}>
+                  Opens the chat itself after this many
+                  milliseconds. Leave it off unless you mean it.
+                </OptionRow>
+              </GuideDialog>
+            </>
+          ) : (
+            <>
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <InfoIcon className="size-4 text-muted-foreground" />
+                Wiring this up in Meta
+              </p>
+              <p className="text-xs text-muted-foreground">
+                After setting the callback URL, subscribe to the{" "}
+                <span className="font-mono">messages</span> field.
+                Meta will verify the URL — make sure it is publicly
+                reachable.
+              </p>
+              <GuideDialog
+                title="Connecting this number in Meta"
+                description="In your app on developers.facebook.com."
+                trigger={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-1 self-start bg-background"
+                  >
+                    <BookOpenIcon /> View setup guide
+                  </Button>
+                }
+              >
+                <ol className="flex list-decimal flex-col gap-2 pl-4 text-xs text-muted-foreground">
+                  <li>
+                    Open your app, then{" "}
+                    <strong className="text-foreground">
+                      WhatsApp {"→"} Configuration
+                    </strong>
+                    .
+                  </li>
+                  <li>
+                    Paste the callback URL from this card into{" "}
+                    <strong className="text-foreground">
+                      Callback URL
+                    </strong>
+                    .
+                  </li>
+                  <li>
+                    Meta insists on a verify token. Type anything you
+                    like — it is not checked.
+                  </li>
+                  <li>
+                    Press{" "}
+                    <strong className="text-foreground">
+                      Verify and save
+                    </strong>
+                    . Meta calls the URL immediately, so it has to be
+                    publicly reachable — use a tunnel while developing
+                    locally.
+                  </li>
+                  <li>
+                    Under{" "}
+                    <strong className="text-foreground">
+                      Webhook fields
+                    </strong>
+                    , subscribe to{" "}
+                    <span className="font-mono">messages</span>.
+                    Nothing arrives without this step.
+                  </li>
+                </ol>
+              </GuideDialog>
+            </>
+          )}
+        </div>
+      </div>
+
+      {!isWeb ? (
+        <>
+          <Separator />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetaField
+              label="Phone number ID"
+              value={channel.whatsapp?.phoneNumberId}
+            />
+            <MetaField
+              label="WABA ID"
+              value={channel.whatsapp?.wabaId}
+            />
+            <MetaField
+              label="Business ID"
+              value={channel.whatsapp?.businessId}
+            />
+            {/* No copy button and no reveal here. The token is
+                masked in Convex and the browser only ever receives
+                the last four characters, so an eye would promise to
+                show something that was never sent and a copy would
+                paste dots into Meta. Enough to tell which token is
+                in use; replace it under Edit. */}
+            <MetaField
+              label="Access token"
+              value={
+                channel.hasAccessToken
+                  ? channel.whatsapp?.accessToken
+                  : "not set"
+              }
+              copyable={false}
+            />
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** The full card: everything about the channel, on the page. */
+function ChannelCard({
+  channel,
+  links,
+}: {
+  channel: ChannelRow;
+  links: ChannelLinks;
+}) {
+  const { isWeb, live } = links;
+  return (
+    <Card>
+      {/* One row, always: who this is, where it points, how much has come
+          through it, and whether it is on. Everything that used to push those
+          below the fold is now either in a tab or behind the overflow menu. */}
+      <CardHeader className="gap-0">
+        <div className="flex flex-wrap items-start gap-4">
+          <span
+            className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${
+              live ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {isWeb ? (
+              <GlobeIcon className="size-5" />
+            ) : (
+              <WhatsappLogoIcon className="size-5" />
+            )}
+          </span>
+
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              {channel.name}
+              <Badge
+                variant={
+                  channel.status === "active"
+                    ? "default"
+                    : channel.status === "error"
+                      ? "destructive"
+                      : "secondary"
+                }
+              >
+                {channel.status}
+              </Badge>
+              <Badge variant="outline">
+                {"→"} {channel.agentName}
+              </Badge>
+              {channel.whatsapp?.displayPhoneNumber ? (
+                <Badge variant="secondary" className="font-mono">
+                  {channel.whatsapp.displayPhoneNumber}
+                </Badge>
+              ) : null}
+            </CardTitle>
+            <CardDescription>
+              {channel.lastInboundAt
+                ? `Last inbound message ${new Date(channel.lastInboundAt).toLocaleString()}`
+                : "No inbound messages received yet."}
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <StatTile
+              icon={<ChatCircleIcon className="size-4" />}
+              value={channel.messageCount}
+              label="Messages"
+            />
+            <StatTile
+              icon={<UsersIcon className="size-4" />}
+              value={channel.contactCount}
+              label={isWeb ? "Visitors" : "Customers"}
+            />
+            <ChannelControls channel={channel} links={links} />
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        <ChannelSetup channel={channel} links={links} />
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The small card, for the grid: who it is, where it points, how busy, and
+ * whether it is on. The setup — embed code, callback URL, QR — opens from it,
+ * since it is read once when wiring the channel up and rarely after.
+ */
+function ChannelTile({
+  channel,
+  links,
+}: {
+  channel: ChannelRow;
+  links: ChannelLinks;
+}) {
+  const { isWeb, live } = links;
+  return (
+    <Card size="sm" className="flex flex-col">
+      <CardHeader className="flex items-start gap-3">
+        <span
+          className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
+            live ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {isWeb ? (
+            <GlobeIcon className="size-5" />
+          ) : (
+            <WhatsappLogoIcon className="size-5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <CardTitle className="truncate" title={channel.name}>
+            {channel.name}
+          </CardTitle>
+          <CardDescription className="truncate">
+            {channel.whatsapp?.displayPhoneNumber ? (
+              <span className="font-mono">
+                {channel.whatsapp.displayPhoneNumber}
+              </span>
+            ) : isWeb ? (
+              "Website widget"
+            ) : (
+              "WhatsApp"
+            )}
+          </CardDescription>
+        </div>
+        <Badge
+          variant={
+            channel.status === "active"
+              ? "default"
+              : channel.status === "error"
+                ? "destructive"
+                : "secondary"
+          }
+          className="shrink-0"
+        >
+          {channel.status}
+        </Badge>
+      </CardHeader>
+
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <p className="truncate text-xs text-muted-foreground">
+          {"→"} {channel.agentName}
+        </p>
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <ChatCircleIcon className="size-4" />
+            <span className="font-semibold text-foreground tabular-nums">
+              {channel.messageCount}
+            </span>{" "}
+            messages
+          </span>
+          <span className="flex items-center gap-1.5">
+            <UsersIcon className="size-4" />
+            <span className="font-semibold text-foreground tabular-nums">
+              {channel.contactCount}
+            </span>{" "}
+            {isWeb ? "visitors" : "customers"}
+          </span>
+        </div>
+        {channel.lastError ? (
+          <p
+            className="flex items-center gap-1.5 truncate text-xs text-destructive"
+            title={channel.lastError}
+          >
+            <WarningIcon className="size-3.5 shrink-0" />
+            {channel.lastError}
+          </p>
+        ) : null}
+
+        <div className="mt-auto flex items-center gap-2 border-t pt-3">
+          <Dialog>
+            <DialogTrigger
+              render={
+                <Button size="sm" variant="outline">
+                  <GearIcon /> {isWeb ? "Embed & QR" : "Setup & QR"}
+                </Button>
+              }
+            />
+            <DialogContent className="sm:max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>{channel.name}</DialogTitle>
+                <DialogDescription>
+                  {isWeb
+                    ? "Put the widget on your website, or open it on its own."
+                    : "Connect this number in Meta, or share it as a QR code."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-4">
+                <ChannelSetup channel={channel} links={links} />
+              </div>
+            </DialogContent>
+          </Dialog>
+          <div className="ml-auto flex items-center gap-1">
+            <ChannelControls channel={channel} links={links} compact />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ChannelsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
@@ -820,10 +1407,6 @@ export default function ChannelsPage() {
   const agents = useQuery(api.agents.listByWorkspace, {
     workspaceId: workspace._id,
   });
-  const updateChannel = useMutation(api.channels.update);
-  const rotateKeys = useMutation(api.channels.rotateKeys);
-  const removeChannel = useMutation(api.channels.remove);
-
   // Read on the client only: this component pre-renders on the server, where
   // there is no window to ask.
   const appOrigin =
@@ -840,6 +1423,10 @@ export default function ChannelsPage() {
 
   const [filter, setFilter] = useState<ChannelFilter>("all");
   const [sort, setSort] = useState<ChannelSort>("updated");
+  // Small cards by default: a page of channels is scanned for which one is
+  // off or failing, and the full card's embed codes and QR codes are read
+  // once, when a channel is wired up.
+  const [view, setView] = useState<"grid" | "cards">("grid");
 
   const all = channels ?? [];
   const counts: Record<ChannelFilter, number> = {
@@ -913,31 +1500,58 @@ export default function ChannelsPage() {
             ))}
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="outline" size="sm">
-                  <ArrowsDownUpIcon />
-                  {SORTS.find((option) => option.value === sort)?.label}
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={sort}
-                onValueChange={(next) => setSort(next as ChannelSort)}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 rounded-lg border p-0.5">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Grid view"
+                title="Grid"
+                aria-pressed={view === "grid"}
+                className={view === "grid" ? "bg-primary/10 text-primary" : undefined}
+                onClick={() => setView("grid")}
               >
-                {SORTS.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.value}
-                    value={option.value}
-                  >
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <SquaresFourIcon />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Card view"
+                title="Cards"
+                aria-pressed={view === "cards"}
+                className={view === "cards" ? "bg-primary/10 text-primary" : undefined}
+                onClick={() => setView("cards")}
+              >
+                <RowsIcon />
+              </Button>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="outline" size="sm">
+                    <ArrowsDownUpIcon />
+                    {SORTS.find((option) => option.value === sort)?.label}
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup
+                  value={sort}
+                  onValueChange={(next) => setSort(next as ChannelSort)}
+                >
+                  {SORTS.map((option) => (
+                    <DropdownMenuRadioItem
+                      key={option.value}
+                      value={option.value}
+                    >
+                      {option.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       ) : (
         <Separator />
@@ -999,397 +1613,25 @@ export default function ChannelsPage() {
             </p>
           ) : null}
 
-          {visible.map((channel) => {
-            const webhookUrl = `${convexSite}/whatsapp/${channel.channelKey}`;
-            const isWeb = channel.type === "web";
-            const widgetUrl = `${appOrigin}/widget/${channel.channelKey}`;
-            // A script, not a bare iframe: the launcher button has to live in
-            // the host page, because an iframe cannot resize itself there.
-            const embedCode = `<script src="${appOrigin}/widget/${channel.channelKey}/embed.js" async></script>`;
-
-            // Only the digits are dialable. This stripped /D/g before, which
-            // matches a literal capital D — so "+91 75999 09021" came through
-            // unchanged, wa.me got the spaces and the plus, and the QR pointed
-            // at a broken link.
-            const waDigits = (
-              channel.whatsapp?.displayPhoneNumber ?? ""
-            ).replace(/[^0-9]/g, "");
-            const waLink = waDigits ? `https://wa.me/${waDigits}` : null;
-            const live = channel.status === "active";
-
-            return (
-              <Card key={channel._id}>
-                {/* One row, always: who this is, where it points, how much has
-                    come through it, and whether it is on. Everything that used
-                    to push those below the fold is now either in a tab or
-                    behind the overflow menu. */}
-                <CardHeader className="gap-0">
-                  <div className="flex flex-wrap items-start gap-4">
-                    <span
-                      className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${
-                        live
-                          ? "bg-primary/10 text-primary"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {isWeb ? (
-                        <GlobeIcon className="size-5" />
-                      ) : (
-                        <WhatsappLogoIcon className="size-5" />
-                      )}
-                    </span>
-
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <CardTitle className="flex flex-wrap items-center gap-2">
-                        {channel.name}
-                        <Badge
-                          variant={
-                            channel.status === "active"
-                              ? "default"
-                              : channel.status === "error"
-                                ? "destructive"
-                                : "secondary"
-                          }
-                        >
-                          {channel.status}
-                        </Badge>
-                        <Badge variant="outline">{"→"} {channel.agentName}</Badge>
-                        {channel.whatsapp?.displayPhoneNumber ? (
-                          <Badge variant="secondary" className="font-mono">
-                            {channel.whatsapp.displayPhoneNumber}
-                          </Badge>
-                        ) : null}
-                      </CardTitle>
-                      <CardDescription>
-                        {channel.lastInboundAt
-                          ? `Last inbound message ${new Date(channel.lastInboundAt).toLocaleString()}`
-                          : "No inbound messages received yet."}
-                      </CardDescription>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <StatTile
-                        icon={<ChatCircleIcon className="size-4" />}
-                        value={channel.messageCount}
-                        label="Messages"
-                      />
-                      <StatTile
-                        icon={<UsersIcon className="size-4" />}
-                        value={channel.contactCount}
-                        label={isWeb ? "Visitors" : "Customers"}
-                      />
-
-                      <div className="flex items-center gap-2 pl-1">
-                        <Switch
-                          id={`live-${channel._id}`}
-                          checked={live}
-                          onCheckedChange={async (checked) => {
-                            await updateChannel({
-                              channelId: channel._id,
-                              status: checked ? "active" : "paused",
-                            });
-                            toast.add({
-                              title: checked
-                                ? "Channel is live"
-                                : "Channel paused",
-                              type: "success",
-                            });
-                          }}
-                        />
-                        <Label
-                          htmlFor={`live-${channel._id}`}
-                          className="hidden text-sm xl:block"
-                        >
-                          Accept inbound messages
-                        </Label>
-                      </div>
-
-                      <ChannelMenu
-                        isWeb={isWeb}
-                        onRotate={async () => {
-                          await rotateKeys({ channelId: channel._id });
-                          toast.add({
-                            title: isWeb
-                              ? "New embed code generated"
-                              : "New callback URL generated",
-                            description: isWeb
-                              ? "Replace the script tag on your website or the widget will stop loading."
-                              : "Update the configuration in Meta or inbound messages will stop.",
-                            type: "warning",
-                          });
-                        }}
-                        onDelete={async () => {
-                          await removeChannel({ channelId: channel._id });
-                          toast.add({ title: "Channel deleted", type: "success" });
-                        }}
-                        edit={
-                          isWeb ? (
-                            <WebChannelDialog
-                              channelId={channel._id}
-                              initial={{
-                                name: channel.name,
-                                agentId: channel.agentId,
-                              }}
-                              trigger={
-                                <DropdownMenuItem closeOnClick={false}>
-                                  Edit
-                                </DropdownMenuItem>
-                              }
-                            />
-                          ) : (
-                            <ChannelDialog
-                              channelId={channel._id}
-                              initial={{
-                                name: channel.name,
-                                agentId: channel.agentId,
-                                apiBaseUrl:
-                                  channel.whatsapp?.apiBaseUrl ??
-                                  "https://graph.facebook.com",
-                                apiVersion:
-                                  channel.whatsapp?.apiVersion ?? "v23.0",
-                                phoneNumberId:
-                                  channel.whatsapp?.phoneNumberId ?? "",
-                                wabaId: channel.whatsapp?.wabaId ?? "",
-                                businessId: channel.whatsapp?.businessId ?? "",
-                                displayPhoneNumber:
-                                  channel.whatsapp?.displayPhoneNumber ?? "",
-                                accessToken: "",
-                              }}
-                              trigger={
-                                <DropdownMenuItem closeOnClick={false}>
-                                  Edit
-                                </DropdownMenuItem>
-                              }
-                            />
-                          )
-                        }
-                      />
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="flex flex-col gap-4">
-                  {channel.lastError ? (
-                    <Alert variant="destructive">
-                      <WarningIcon />
-                      <AlertTitle>Last delivery problem</AlertTitle>
-                      <AlertDescription className="font-mono text-xs">
-                        {channel.lastError}
-                      </AlertDescription>
-                    </Alert>
-                  ) : null}
-
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-                    {isWeb ? (
-                      <Tabs defaultValue="embed" className="min-w-0">
-                        <TabsList>
-                          <TabsTrigger value="embed">Embed code</TabsTrigger>
-                          <TabsTrigger value="link">Direct link</TabsTrigger>
-                          <TabsTrigger value="qr">QR code</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="embed">
-                          <CopyField
-                            value={embedCode}
-                            label="Embed code"
-                            hint="Paste it once, anywhere before the closing </body> tag."
-                          />
-                        </TabsContent>
-                        <TabsContent value="link">
-                          <CopyField
-                            value={widgetUrl}
-                            label="Direct link"
-                            hint="The chat on its own page — handy for testing, or for a link in an email."
-                          />
-                        </TabsContent>
-                        <TabsContent value="qr">
-                          <ChannelQr
-                            url={widgetUrl}
-                            caption="Point a phone camera at this to open the widget on the handset — the quickest way to see what a visitor sees, on the screen size they will see it on."
-                          />
-                        </TabsContent>
-                      </Tabs>
-                    ) : (
-                      <Tabs defaultValue="callback" className="min-w-0">
-                        <TabsList>
-                          <TabsTrigger value="callback">Callback URL</TabsTrigger>
-                          <TabsTrigger value="qr">QR code</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="callback">
-                          <CopyField
-                            value={webhookUrl}
-                            label="Callback URL"
-                            hint={"Set this in your Meta App → WhatsApp → Configuration → Webhooks."}
-                          />
-                        </TabsContent>
-                        <TabsContent value="qr">
-                          <ChannelQr
-                            url={waLink}
-                            caption="Point a phone camera at this to open a WhatsApp chat with this number, already addressed. Send anything and the front desk answers."
-                            unavailable="This channel has no display phone number saved, and that is the only field a wa.me link can be built from — Meta's phone number ID is an internal handle, not a dialable number. Add it under Edit."
-                          />
-                        </TabsContent>
-                      </Tabs>
-                    )}
-
-                    {/* The short version on the card, the whole thing one click
-                        away. This guidance used to be eight lines of prose per
-                        card, which is how a page with two channels became a
-                        page you scroll. */}
-                    <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/30 p-4">
-                      {isWeb ? (
-                        <>
-                          <p className="flex items-center gap-1.5 text-sm font-medium">
-                            <InfoIcon className="size-4 text-muted-foreground" />
-                            What your visitors see
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            A round chat button in the bottom-right corner.
-                            Clicking it slides the chat open; on a phone it fills
-                            the screen. Colour, side, icon and teaser are all set
-                            on the script tag.
-                          </p>
-                          <GuideDialog
-                            title="Customising the widget"
-                            description="Add any of these to the script tag. All optional."
-                            trigger={
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="mt-1 self-start bg-background"
-                              >
-                                <GearIcon /> View customisation options
-                              </Button>
-                            }
-                          >
-                            <OptionRow attribute={'data-color="#25D366"'}>
-                              Recolours the launcher and the chat header
-                              together. Any CSS colour.
-                            </OptionRow>
-                            <OptionRow attribute={'data-position="left"'}>
-                              Moves the launcher to the bottom-left. Defaults to
-                              the right.
-                            </OptionRow>
-                            <OptionRow attribute={'data-icon="chat"'}>
-                              Swaps the WhatsApp glyph for a neutral speech
-                              bubble — use it when the widget is not WhatsApp.
-                            </OptionRow>
-                            <OptionRow attribute={'data-teaser="Need a hand?"'}>
-                              A one-line bubble beside the launcher before anyone
-                              clicks it.
-                            </OptionRow>
-                            <OptionRow attribute={'data-auto-open="5000"'}>
-                              Opens the chat itself after this many
-                              milliseconds. Leave it off unless you mean it.
-                            </OptionRow>
-                          </GuideDialog>
-                        </>
-                      ) : (
-                        <>
-                          <p className="flex items-center gap-1.5 text-sm font-medium">
-                            <InfoIcon className="size-4 text-muted-foreground" />
-                            Wiring this up in Meta
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            After setting the callback URL, subscribe to the{" "}
-                            <span className="font-mono">messages</span> field.
-                            Meta will verify the URL — make sure it is publicly
-                            reachable.
-                          </p>
-                          <GuideDialog
-                            title="Connecting this number in Meta"
-                            description="In your app on developers.facebook.com."
-                            trigger={
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="mt-1 self-start bg-background"
-                              >
-                                <BookOpenIcon /> View setup guide
-                              </Button>
-                            }
-                          >
-                            <ol className="flex list-decimal flex-col gap-2 pl-4 text-xs text-muted-foreground">
-                              <li>
-                                Open your app, then{" "}
-                                <strong className="text-foreground">
-                                  WhatsApp {"→"} Configuration
-                                </strong>
-                                .
-                              </li>
-                              <li>
-                                Paste the callback URL from this card into{" "}
-                                <strong className="text-foreground">
-                                  Callback URL
-                                </strong>
-                                .
-                              </li>
-                              <li>
-                                Meta insists on a verify token. Type anything you
-                                like — it is not checked.
-                              </li>
-                              <li>
-                                Press{" "}
-                                <strong className="text-foreground">
-                                  Verify and save
-                                </strong>
-                                . Meta calls the URL immediately, so it has to be
-                                publicly reachable — use a tunnel while developing
-                                locally.
-                              </li>
-                              <li>
-                                Under{" "}
-                                <strong className="text-foreground">
-                                  Webhook fields
-                                </strong>
-                                , subscribe to{" "}
-                                <span className="font-mono">messages</span>.
-                                Nothing arrives without this step.
-                              </li>
-                            </ol>
-                          </GuideDialog>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {!isWeb ? (
-                    <>
-                      <Separator />
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <MetaField
-                          label="Phone number ID"
-                          value={channel.whatsapp?.phoneNumberId}
-                        />
-                        <MetaField
-                          label="WABA ID"
-                          value={channel.whatsapp?.wabaId}
-                        />
-                        <MetaField
-                          label="Business ID"
-                          value={channel.whatsapp?.businessId}
-                        />
-                        {/* No copy button and no reveal here. The token is
-                            masked in Convex and the browser only ever receives
-                            the last four characters, so an eye would promise to
-                            show something that was never sent and a copy would
-                            paste dots into Meta. Enough to tell which token is
-                            in use; replace it under Edit. */}
-                        <MetaField
-                          label="Access token"
-                          value={
-                            channel.hasAccessToken
-                              ? channel.whatsapp?.accessToken
-                              : "not set"
-                          }
-                          copyable={false}
-                        />
-                      </div>
-                    </>
-                  ) : null}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {view === "grid" ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {visible.map((channel) => (
+                <ChannelTile
+                  key={channel._id}
+                  channel={channel}
+                  links={channelLinks(channel, appOrigin, convexSite)}
+                />
+              ))}
+            </div>
+          ) : (
+            visible.map((channel) => (
+              <ChannelCard
+                key={channel._id}
+                channel={channel}
+                links={channelLinks(channel, appOrigin, convexSite)}
+              />
+            ))
+          )}
         </div>
       )}
     </div>

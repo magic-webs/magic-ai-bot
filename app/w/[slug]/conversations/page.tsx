@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -80,14 +80,16 @@ export default function ConversationsPage() {
   // clicking another thread is not fighting the URL.
   const params = useSearchParams();
   const requested = params.get("c");
-  // ?view=escalations lands on the Escalations tab — what a notification about
-  // an escalation should open. Read once, like ?c.
-  const [view, setView] = useState<View>(
-    params.get("view") === "escalations" ? "escalations" : "conversations"
-  );
+  // ?view=escalations is the Escalations tab. Read from the URL on every
+  // render rather than once, because the sidebar's Escalations row links here
+  // — and clicking it while already on the inbox has to switch the tab.
+  const view: View =
+    params.get("view") === "escalations" ? "escalations" : "conversations";
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [agentFilter, setAgentFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [pickedStatus, setStatusFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
   const [handlingFilter, setHandlingFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -113,11 +115,15 @@ export default function ConversationsPage() {
   });
   const conversations = view === "escalations" ? escalations : everything;
   const buckets = view === "escalations" ? ESCALATION_BUCKETS : BUCKETS;
+  // A status bucket picked on one tab means nothing on the other, and the tab
+  // can change from the sidebar without going through switchView — so an
+  // Open or Closed picked on Conversations reads as All on Escalations.
+  const statusFilter =
+    view === "conversations" || pickedStatus === "unread" ? pickedStatus : "all";
 
   const switchView = (next: View) => {
-    setView(next);
-    // A status bucket picked on one tab means nothing on the other.
     setStatusFilter("all");
+    router.replace(next === "escalations" ? `${pathname}?view=escalations` : pathname);
   };
 
   const term = search.trim().toLowerCase();

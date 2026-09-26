@@ -515,6 +515,16 @@ export default defineSchema({
      * thread out of the sweep's index range.
      */
     humanHandlingAt: v.optional(v.number()),
+    /**
+     * When the hold ends and the agent answers again. Set on every manual
+     * reply to that reply's time plus the pause the person replying chose —
+     * an hour unless they picked otherwise — so two threads can be paused for
+     * different lengths. Absent on holds taken before the pause was
+     * adjustable; those end an hour after `humanHandlingAt`.
+     *
+     * Cleared together with `humanHandling`, like `humanHandlingAt`.
+     */
+    humanHandlingUntil: v.optional(v.number()),
     channelId: v.optional(v.id("channels")),
     channelType: v.union(v.literal("whatsapp"), v.literal("web")),
     status: v.union(
@@ -572,7 +582,9 @@ export default defineSchema({
     // Held threads, oldest hold first. Across workspaces on purpose: the
     // handback sweep is one job for the whole deployment, and a range from
     // zero skips every row that is not held, which is nearly all of them.
-    .index("by_humanHandlingAt", ["humanHandlingAt"]),
+    .index("by_humanHandlingAt", ["humanHandlingAt"])
+    // Holds by when they end, soonest first — what the handback sweep reads.
+    .index("by_humanHandlingUntil", ["humanHandlingUntil"]),
 
   messages: defineTable({
     workspaceId: v.id("workspaces"),
