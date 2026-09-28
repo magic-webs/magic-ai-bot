@@ -56,6 +56,7 @@ import {
   InboxIcon,
   LibraryIcon,
   Megaphone01Icon,
+  Notification03Icon,
   Package01Icon,
   ReceiptIcon,
   Robot01Icon,
@@ -160,6 +161,10 @@ const NAV: Array<{
   // to, and the page is a calendar of what goes out to them — birthdays and
   // festivals — rather than anything set up before a conversation.
   { label: "Marketing", icon: Megaphone01Icon, href: "/marketing" },
+  // Beside Marketing: both send WhatsApp templates to customers, but these go
+  // out when something happens — a record filed, an order, a webhook — rather
+  // than on a date, and email goes the same way.
+  { label: "Notifications", icon: Notification03Icon, href: "/notifications" },
   // Between the work and the settings: connecting Sheets or a calendar is
   // something you do once you have agents to give it to, and it is not a
   // setting — it changes what the agents can do.
