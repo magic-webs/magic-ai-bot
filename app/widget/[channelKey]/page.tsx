@@ -297,10 +297,13 @@ function PoweredBy({ className }: { className?: string }) {
 
 function WidgetShell({
   title,
+  logoSrc,
   embedded,
   children,
 }: {
   title: string;
+  /** The company's logo, drawn in place of the robot when it has one. */
+  logoSrc: string | null;
   embedded: boolean;
   children: React.ReactNode;
 }) {
@@ -308,9 +311,24 @@ function WidgetShell({
     <div className="flex h-svh w-full flex-col bg-background">
       <header className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-primary px-4 py-3 text-primary-foreground">
         <div className="relative shrink-0">
-          <div className="flex size-10 items-center justify-center rounded-full bg-primary-foreground/20 ring-1 ring-primary-foreground/25">
-            <HugeiconsIcon icon={Robot01Icon} size={20} strokeWidth={2} />
-          </div>
+          {logoSrc ? (
+            // White, not the translucent tint the robot sits on: a logo is
+            // drawn for a light ground, and over the site's primary colour a
+            // dark wordmark would disappear. Contained so a wide one fits.
+            <div className="flex size-10 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-primary-foreground/25">
+              {/* eslint-disable-next-line @next/next/no-img-element -- any host */}
+              <img
+                src={logoSrc}
+                alt=""
+                className="size-full object-contain p-1"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          ) : (
+            <div className="flex size-10 items-center justify-center rounded-full bg-primary-foreground/20 ring-1 ring-primary-foreground/25">
+              <HugeiconsIcon icon={Robot01Icon} size={20} strokeWidth={2} />
+            </div>
+          )}
           {/* Says someone is there before a word has been typed. The ring is
               --primary, so it reads as a hole punched in the header whatever
               colour the site chose. */}
@@ -394,7 +412,7 @@ export default function WidgetPage({
 
   if (!session.registered) {
     return theme(
-      <WidgetShell title={title} embedded={embedded}>
+      <WidgetShell title={title} logoSrc={widget.logoSrc} embedded={embedded}>
         <RegisterForm
           channelKey={channelKey}
           sessionId={sessionId}
@@ -405,7 +423,7 @@ export default function WidgetPage({
   }
 
   return theme(
-    <WidgetShell title={title} embedded={embedded}>
+    <WidgetShell title={title} logoSrc={widget.logoSrc} embedded={embedded}>
       <WidgetChat
         channelKey={channelKey}
         sessionId={sessionId}

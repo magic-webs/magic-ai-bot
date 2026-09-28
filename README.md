@@ -299,6 +299,34 @@ Credentials are stored per channel, so one workspace can run several numbers.
 Access tokens are masked (`••••••••1234`) in every public query; the full value
 is only readable by internal functions.
 
+### Billing
+
+Every WhatsApp message the platform sends is charged to its workspace at a
+per-message rate for its **conversation type** — Meta's four categories:
+
+| Category | What is billed as it |
+| --- | --- |
+| Service | Free-form replies inside the 24-hour window: agent replies and rich messages, manual replies from the inbox, follow-up nudges |
+| Utility | Templates approved as utility |
+| Marketing | Templates approved as marketing — festival and birthday greetings. Templates saved before categories existed count as marketing |
+| Authentication | Templates approved as authentication |
+
+Rates are set by an administrator on **/admin/billing**: one platform default,
+plus an optional rate card per account in that account's own currency. Each
+sent message writes one `billingEvents` row with its amount fixed at send time
+(`convex/lib/billing.ts`, `charge`), so repricing an account changes the next
+message, never the ledger. Amounts are integer millionths of the currency, for
+the reason usage rows are nano-USD.
+
+A message is charged only after WhatsApp accepted it. Web chat messages are not
+billed. With no rate card anywhere a message is still recorded — at zero,
+marked unrated — so the count is right and the gap is visible.
+
+Each workspace reads its own consumption at **/w/&lt;slug&gt;/billing**: spend by
+category, per day, and a per-message ledger. This is separate from
+`usageEvents` and the **Tokens & cost** page, which are what the platform pays
+the model provider.
+
 ### Outbound webhooks
 
 `order_created` and `escalation` are POSTed to the workspace's endpoint as JSON,

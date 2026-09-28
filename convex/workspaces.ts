@@ -12,6 +12,12 @@ import {
   requireAdmin,
   requireWorkspace,
 } from "./lib/auth";
+import { logoSrcFor } from "./lib/branding";
+import {
+  isValidCurrency,
+  isValidLocale,
+  isValidTimezone,
+} from "./lib/regional";
 
 const workspaceFields = {
   name: v.string(),
@@ -31,6 +37,36 @@ const workspaceFields = {
   facts: v.optional(v.array(kvPair)),
 };
 
+/**
+ * Tidies and checks the three regional fields, leaving absent ones absent.
+ *
+ * Checked here rather than trusted to the pickers because the MCP connector
+ * writes these too, and a bad value fails quietly far from where it was
+ * typed: an unknown timezone sends every scheduled greeting at UTC, and an
+ * unknown currency code throws the first time a price is formatted.
+ */
+function regional(args: {
+  locale?: string;
+  timezone?: string;
+  currency?: string;
+}): { locale?: string; timezone?: string; currency?: string } {
+  const locale = args.locale?.trim();
+  const timezone = args.timezone?.trim();
+  const currency = args.currency?.trim().toUpperCase();
+  if (locale !== undefined && !isValidLocale(locale)) {
+    throw new Error(`"${locale}" is not a locale — try one like en-GB or sw-TZ.`);
+  }
+  if (timezone !== undefined && !isValidTimezone(timezone)) {
+    throw new Error(
+      `"${timezone}" is not a timezone — try one like Africa/Dar_es_Salaam.`
+    );
+  }
+  if (currency !== undefined && !isValidCurrency(currency)) {
+    throw new Error(`"${currency}" is not a currency code — try one like TZS.`);
+  }
+  return { locale, timezone, currency };
+}
+
 async function uniqueSlug(ctx: MutationCtx, desired: string): Promise<string> {
   const base = slugify(desired) || `workspace-${randomKey(6)}`;
   let candidate = base;
@@ -49,7 +85,13 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    return await ctx.db.query("workspaces").order("desc").collect();
+    const workspaces = await ctx.db.query("workspaces").order("desc").collect();
+    return await Promise.all(
+      workspaces.map(async (workspace) => ({
+        ...workspace,
+        logoSrc: await logoSrcFor(ctx, workspace),
+      }))
+    );
   },
 });
 
@@ -64,7 +106,9 @@ export const getBySlug = query({
     // Resolve first, then check — a company must not be able to probe for
     // other workspaces by slug.
     await requireWorkspace(ctx, workspace._id);
-    return workspace;
+    // The logo resolved alongside, so every page under the workspace can draw
+    // it from context without a query of its own.
+    return { ...workspace, logoSrc: await logoSrcFor(ctx, workspace) };
   },
 });
 
@@ -117,6 +161,7 @@ export const create = mutation({
   args: workspaceFields,
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
+    const checked = regional(args);
     const now = Date.now();
     const slug = await uniqueSlug(ctx, args.name);
     const workspaceId = await ctx.db.insert("workspaces", {
@@ -130,9 +175,9 @@ export const create = mutation({
       supportEmail: args.supportEmail,
       supportPhone: args.supportPhone,
       address: args.address,
-      locale: args.locale ?? "en-GB",
-      timezone: args.timezone ?? "Europe/London",
-      currency: args.currency ?? "GBP",
+      locale: checked.locale || "en-GB",
+      timezone: checked.timezone || "Europe/London",
+      currency: checked.currency || "GBP",
       theme: args.theme,
       webhookUrl: args.webhookUrl,
       webhookSecret: randomKey(32),
@@ -157,8 +202,25 @@ export const update = mutation({
     const existing = await ctx.db.get("workspaces", workspaceId);
     if (!existing) throw new Error("Workspace not found");
 
+    // Only what changed is checked. The company page sends every field on
+    // every save, and a workspace set up with a hand-typed "en_GB" must still
+    // be able to save its tagline — the picker shows the old value, and the
+    // check applies the moment someone picks a new one.
+    const changed = (key: "locale" | "timezone" | "currency") =>
+      rest[key] !== undefined && rest[key] !== existing[key]
+        ? rest[key]
+        : undefined;
+    const checked = regional({
+      locale: changed("locale"),
+      timezone: changed("timezone"),
+      currency: changed("currency"),
+    });
+
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {
+      if (value !== undefined && !(key in checked)) patch[key] = value;
+    }
+    for (const [key, value] of Object.entries(checked)) {
       if (value !== undefined) patch[key] = value;
     }
     // An omitted field means "leave it alone", so there is no way to clear one
@@ -171,6 +233,74 @@ export const update = mutation({
       patch.ownerName = rest.ownerName.trim() || undefined;
     }
     await ctx.db.patch(workspaceId, patch);
+    return { success: true };
+  },
+});
+
+export const generateLogoUploadUrl = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Set the company logo — an uploaded file, or a link to one hosted elsewhere.
+ *
+ * Exactly one of the two. The previous upload is deleted when it is replaced
+ * or the logo moves to a link, so re-uploading a logo does not leave the old
+ * file in storage forever.
+ */
+export const setLogo = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    storageId: v.optional(v.id("_storage")),
+    url: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const workspace = await ctx.db.get("workspaces", args.workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+
+    const url = args.url?.trim() || undefined;
+    if (!args.storageId && !url) throw new Error("Upload a logo or paste a link.");
+    if (!args.storageId && url && !/^https:\/\//i.test(url)) {
+      // The web chat embeds on customers' https sites, where an http image is
+      // blocked as mixed content — so a link that would not show is refused.
+      throw new Error("The logo link has to start with https://.");
+    }
+
+    if (
+      workspace.logoStorageId &&
+      workspace.logoStorageId !== args.storageId
+    ) {
+      await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
+    }
+    await ctx.db.patch("workspaces", args.workspaceId, {
+      logoStorageId: args.storageId,
+      logoUrl: args.storageId ? undefined : url,
+      updatedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+/** Back to the Magic Agent mark. */
+export const clearLogo = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const workspace = await ctx.db.get("workspaces", args.workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+    if (workspace.logoStorageId) {
+      await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
+    }
+    await ctx.db.patch("workspaces", args.workspaceId, {
+      logoStorageId: undefined,
+      logoUrl: undefined,
+      updatedAt: Date.now(),
+    });
     return { success: true };
   },
 });
@@ -267,6 +397,21 @@ export const remove = mutation({
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .collect();
       for (const row of rows) await ctx.db.delete(row._id);
+    }
+
+    // The account's own rate card goes; its billing ledger stays. What a
+    // company was charged is a record the platform still has to answer for
+    // after the company is gone — the admin billing page reports it as a
+    // deleted workspace, the way the usage page does for model spend.
+    const rateCard = await ctx.db
+      .query("billingRates")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .first();
+    if (rateCard) await ctx.db.delete(rateCard._id);
+
+    const workspace = await ctx.db.get("workspaces", args.workspaceId);
+    if (workspace?.logoStorageId) {
+      await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
     }
 
     await ctx.db.delete(args.workspaceId);

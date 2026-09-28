@@ -5,9 +5,11 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { buildMessage, type Outbound } from "./lib/whatsappSend";
+import type { Id } from "./_generated/dataModel";
+import { buildMessage, summarise, type Outbound } from "./lib/whatsappSend";
+import { categoryOf, type BillingSource } from "./lib/billing";
 import { transcribe as transcribeAudio } from "ai";
 import { aiGateway, TRANSCRIPTION_MODEL } from "./lib/gateway";
 
@@ -43,6 +45,47 @@ async function send(
   if (response.ok) return { ok: true };
   const text = await response.text().catch(() => "");
   return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };
+}
+
+/**
+ * Charge messages that were just delivered to the workspace's billing ledger.
+ *
+ * Never throws. The customer already has the message, so a billing write that
+ * fails must not turn a delivered reply into a reported failure — the caller
+ * would retry, or record it as undelivered, and both are worse than a missing
+ * ledger row, which is logged here to be found.
+ */
+async function bill(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    channelId: Id<"channels">;
+    conversationId?: Id<"conversations">;
+    to: string;
+    source: BillingSource;
+    messages: Outbound[];
+  }
+): Promise<void> {
+  const messages = args.messages.flatMap((message) => {
+    const category = categoryOf(message);
+    return category ? [{ category, preview: summarise(message) }] : [];
+  });
+  if (messages.length === 0) return;
+  try {
+    await ctx.runMutation(internal.billing.recordSent, {
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      conversationId: args.conversationId,
+      to: args.to,
+      source: args.source,
+      messages,
+    });
+  } catch (error) {
+    console.error(
+      "[billing] could not record a delivered message",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 }
 
 // Long replies are split on paragraph, then sentence, then hard boundaries.
@@ -189,6 +232,19 @@ export const sendOutbound = internalAction({
     // second description of the same thing, free to drift from the first.
     message: v.any(),
     replyTo: v.optional(v.string()),
+    /**
+     * Who is sending, and on which thread, for the billing ledger. Absent is
+     * an agent — the engine's rich-message tools were the first caller.
+     */
+    source: v.optional(
+      v.union(
+        v.literal("agent"),
+        v.literal("human"),
+        v.literal("follow_up"),
+        v.literal("system")
+      )
+    ),
+    conversationId: v.optional(v.id("conversations")),
   },
   handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const resolved = await ctx.runQuery(internal.channels.resolveById, {
@@ -202,12 +258,18 @@ export const sendOutbound = internalAction({
       };
     }
 
-    const result = await send(
-      channel.whatsapp,
-      args.to,
-      args.message as Outbound,
-      args.replyTo
-    );
+    const message = args.message as Outbound;
+    const result = await send(channel.whatsapp, args.to, message, args.replyTo);
+    if (result.ok) {
+      await bill(ctx, {
+        workspaceId: channel.workspaceId,
+        channelId: channel._id,
+        conversationId: args.conversationId,
+        to: args.to,
+        source: args.source ?? "agent",
+        messages: [message],
+      });
+    }
     if (!result.ok) {
       // Surfaced on the Channels page, which is where someone looks when a
       // rich message silently fails to arrive.
@@ -294,20 +356,38 @@ export const handleInbound = internalAction({
             channelId: channel._id,
             error: reason,
           });
-          await send(config, from, {
+          const apology: Outbound = {
             kind: "text",
             body: "Sorry, I could not make out that voice note. Could you type it instead?",
-          });
+          };
+          if ((await send(config, from, apology)).ok) {
+            await bill(ctx, {
+              workspaceId: channel.workspaceId,
+              channelId: channel._id,
+              to: from,
+              source: "system",
+              messages: [apology],
+            });
+          }
           return { handled: true, reason: "voice_failed" };
         }
       }
     }
 
     if (!text?.trim()) {
-      await send(config, from, {
+      const hint: Outbound = {
         kind: "text",
         body: "I can read text messages and listen to voice notes. Could you send your question that way?",
-      });
+      };
+      if ((await send(config, from, hint)).ok) {
+        await bill(ctx, {
+          workspaceId: channel.workspaceId,
+          channelId: channel._id,
+          to: from,
+          source: "system",
+          messages: [hint],
+        });
+      }
       return { handled: true, reason: "unsupported_type" };
     }
 
@@ -315,6 +395,7 @@ export const handleInbound = internalAction({
     const result: {
       ok: boolean;
       text: string | null;
+      conversationId: Id<"conversations"> | null;
       toolCalls: string[];
       heldForHuman?: boolean;
       answeredWithControl?: boolean;
@@ -354,8 +435,12 @@ export const handleInbound = internalAction({
       return { handled: false, reason: result.error ?? "no_reply" };
     }
 
+    // Billed together once the loop ends: a long reply is several WhatsApp
+    // messages and each one is charged, but only the ones that went out.
+    const delivered: Outbound[] = [];
     for (const part of splitForWhatsApp(result.text)) {
-      const sent = await send(config, from, { kind: "text", body: part });
+      const message: Outbound = { kind: "text", body: part };
+      const sent = await send(config, from, message);
       if (!sent.ok) {
         console.error("[whatsapp] send failed", sent.error);
         await ctx.runMutation(internal.channels.touchInbound, {
@@ -364,7 +449,16 @@ export const handleInbound = internalAction({
         });
         break;
       }
+      delivered.push(message);
     }
+    await bill(ctx, {
+      workspaceId: channel.workspaceId,
+      channelId: channel._id,
+      conversationId: result.conversationId ?? undefined,
+      to: from,
+      source: "agent",
+      messages: delivered,
+    });
 
     return { handled: true, toolCalls: result.toolCalls };
   },

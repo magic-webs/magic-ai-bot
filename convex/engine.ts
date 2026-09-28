@@ -656,7 +656,7 @@ function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
       }
       const result: { ok: boolean; error?: string } = await ctx.runAction(
         internal.whatsapp.sendOutbound,
-        { channelId, to: externalId, message }
+        { channelId, to: externalId, message, source: "agent", conversationId }
       );
       if (!result.ok) {
         throw new Error(

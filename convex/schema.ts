@@ -80,6 +80,19 @@ export const productImage = v.object({
   alt: v.optional(v.string()),
 });
 
+/**
+ * What a WhatsApp message is billed as — Meta's own four categories.
+ *
+ * Service is a free-form reply inside the 24-hour window; the other three are
+ * templates, and which of them is fixed when Meta approves the template.
+ */
+export const messageCategory = v.union(
+  v.literal("service"),
+  v.literal("utility"),
+  v.literal("marketing"),
+  v.literal("authentication")
+);
+
 export const orderStatus = v.union(
   v.literal("new"),
   v.literal("quoted"),
@@ -170,6 +183,12 @@ export default defineSchema({
     currency: v.string(), // e.g. "GBP"
     // Which palette the console renders in. Absent = the default.
     theme: v.optional(v.string()),
+    // The company's own mark, shown in the sidebar, the admin list and the web
+    // chat header. An upload or a link to one hosted elsewhere — the same
+    // either-or team photos use — and the upload wins when both are set.
+    // Absent draws the Magic Agent mark, as every workspace did before.
+    logoStorageId: v.optional(v.id("_storage")),
+    logoUrl: v.optional(v.string()),
     // Where order_created / escalation events are POSTed
     webhookUrl: v.optional(v.string()),
     webhookSecret: v.optional(v.string()),
@@ -1178,6 +1197,74 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_workspace_createdAt", ["workspaceId", "createdAt"]),
 
+  // -------------------------------------------------------------------------
+  // Billing — what each WhatsApp message is charged to the account.
+  //
+  // Separate from `usageEvents` on purpose. That table is what the platform
+  // pays the model provider, in nano-USD; this is what the platform charges a
+  // company, per message, at rates an administrator sets per account and in
+  // that account's own currency. The two answer different people.
+  // -------------------------------------------------------------------------
+
+  /**
+   * The price of one message in each category.
+   *
+   * One row per workspace that has its own rates, plus one with no workspace:
+   * the platform default every other workspace is billed at. Editing a row
+   * changes what the next message costs, never what one already sent cost —
+   * each charge carries its own amount.
+   */
+  billingRates: defineTable({
+    // Absent = the platform default.
+    workspaceId: v.optional(v.id("workspaces")),
+    currency: v.string(),
+    // Per message, in millionths of `currency`. Integers for the reason
+    // usageEvents uses nano-USD: float money drifts once it is summed across
+    // tens of thousands of rows, and a utility message can cost 0.0034.
+    serviceMicros: v.number(),
+    utilityMicros: v.number(),
+    marketingMicros: v.number(),
+    authenticationMicros: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /** One row per WhatsApp message sent, with what it was charged. */
+  billingEvents: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.optional(v.id("conversations")),
+    channelId: v.optional(v.id("channels")),
+    /** The recipient's WhatsApp number — who the message went to. */
+    to: v.string(),
+    category: messageCategory,
+    /** What sent it. */
+    source: v.union(
+      v.literal("agent"), // an agent's reply, or a rich message it sent
+      v.literal("human"), // a colleague replying by hand from the inbox
+      v.literal("follow_up"), // the follow-up desk's nudge
+      v.literal("campaign"), // a marketing template: festival or birthday
+      v.literal("system") // the platform's own fallback lines
+    ),
+    /** The first line of what was sent, so the ledger reads as messages. */
+    preview: v.optional(v.string()),
+    templateName: v.optional(v.string()),
+    currency: v.string(),
+    /** Millionths of `currency`, fixed at send time. */
+    amountMicros: v.number(),
+    /**
+     * False when no rate card existed at all, so the message was counted at
+     * zero. The ledger says so rather than presenting it as free.
+     */
+    rated: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_workspace_createdAt", ["workspaceId", "createdAt"])
+    .index("by_workspace_category_createdAt", [
+      "workspaceId",
+      "category",
+      "createdAt",
+    ]),
+
   webhookEvents: defineTable({
     workspaceId: v.id("workspaces"),
     event: v.string(), // "order_created" | "escalation" | "record_filed" | ...
@@ -1279,6 +1366,18 @@ export default defineSchema({
     metaTemplateName: v.optional(v.string()),
     /** Meta's language code for the approved template — "en", "hi", "en_US". */
     languageCode: v.string(),
+    /**
+     * What Meta approved it as, which is what every send of it is billed at.
+     * Never service: that category is only for free-form replies. Absent on
+     * templates saved before billing, which were all greetings — marketing.
+     */
+    category: v.optional(
+      v.union(
+        v.literal("marketing"),
+        v.literal("utility"),
+        v.literal("authentication")
+      )
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),

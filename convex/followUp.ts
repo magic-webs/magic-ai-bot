@@ -273,6 +273,8 @@ export const review = internalAction({
             channelId: context.channelId,
             to: context.externalId,
             message: { kind: "text", body: followUpText },
+            source: "follow_up",
+            conversationId: args.conversationId,
           }
         );
         followedUp = sent.ok;

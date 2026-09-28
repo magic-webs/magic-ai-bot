@@ -46,7 +46,12 @@ import {
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { WorkspaceAccessDialog } from "@/components/workspace-access";
-import { SelectField } from "@/components/select-field";
+import { CompanyLogo } from "@/components/company-logo";
+import {
+  CurrencyPicker,
+  LocalePicker,
+  TimezonePicker,
+} from "@/components/regional-pickers";
 import { toast } from "@/components/ui/toast";
 import { CardGridSkeleton, TableSkeleton } from "@/components/skeletons";
 import {
@@ -59,18 +64,6 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
-
-const LOCALES = ["en-GB", "en-US", "en-IN", "en-AU", "de-DE", "fr-FR", "es-ES"];
-const CURRENCIES = ["GBP", "USD", "EUR", "INR", "AUD", "CAD", "AED"];
-const TIMEZONES = [
-  "Europe/London",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Asia/Kolkata",
-  "Asia/Dubai",
-  "Australia/Sydney",
-];
 
 /**
  * The two ways to read the same list.
@@ -227,43 +220,28 @@ function CreateWorkspaceDialog() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 flex-col gap-1.5">
               <Label htmlFor="ws-locale">Locale</Label>
-              <SelectField
+              <LocalePicker
                 id="ws-locale"
-                className="w-full"
                 value={form.locale}
                 onValueChange={set("locale")}
-                options={LOCALES.map((locale) => ({
-                  value: locale,
-                  label: locale,
-                }))}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 flex-col gap-1.5">
               <Label htmlFor="ws-currency">Currency</Label>
-              <SelectField
+              <CurrencyPicker
                 id="ws-currency"
-                className="w-full"
                 value={form.currency}
                 onValueChange={set("currency")}
-                options={CURRENCIES.map((currency) => ({
-                  value: currency,
-                  label: currency,
-                }))}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 flex-col gap-1.5">
               <Label htmlFor="ws-tz">Timezone</Label>
-              <SelectField
+              <TimezonePicker
                 id="ws-tz"
-                className="w-full"
                 value={form.timezone}
                 onValueChange={set("timezone")}
-                options={TIMEZONES.map((timezone) => ({
-                  value: timezone,
-                  label: timezone,
-                }))}
               />
             </div>
           </div>
@@ -389,6 +367,10 @@ export default function AdminWorkspacesPage() {
                 <TableRow key={workspace._id}>
                   <TableCell className="max-w-56 min-w-0">
                     <span className="flex min-w-0 items-center gap-2">
+                      <CompanyLogo
+                        src={workspace.logoSrc}
+                        className="size-7 rounded-md"
+                      />
                       <span className="truncate font-medium">
                         {workspace.name}
                       </span>
@@ -447,8 +429,9 @@ export default function AdminWorkspacesPage() {
           {workspaces.map((workspace) => (
             <Card key={workspace._id} className="flex flex-col">
               <CardHeader>
-                <CardTitle className="flex items-center justify-between gap-2">
-                  <span className="truncate">{workspace.name}</span>
+                <CardTitle className="flex items-center gap-2">
+                  <CompanyLogo src={workspace.logoSrc} className="size-9" />
+                  <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
                   {workspace.status === "archived" ? (
                     <Badge variant="secondary">archived</Badge>
                   ) : null}

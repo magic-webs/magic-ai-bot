@@ -12,6 +12,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { stepHref } from "@/lib/onboarding";
+import {
+  CurrencyPicker,
+  LocalePicker,
+  TimezonePicker,
+} from "@/components/regional-pickers";
+import { COMMON_TIMEZONES, timezoneCity } from "@/convex/lib/regional";
 import { FloppyDiskIcon } from "@phosphor-icons/react";
 
 /**
@@ -28,16 +34,12 @@ import { FloppyDiskIcon } from "@phosphor-icons/react";
  * themes and deletion, which is the wrong company on day one.
  */
 
-/** The values these are most often set to. Every field stays free text. */
-const CURRENCIES = ["GBP", "USD", "EUR", "INR", "AED"];
-const TIMEZONES = [
-  "Europe/London",
-  "America/New_York",
-  "Asia/Kolkata",
-  "Asia/Dubai",
-  "Australia/Sydney",
-];
-const LOCALES = ["en-GB", "en-US", "en-IN", "en-AE"];
+/**
+ * The values these are most often set to, as one-tap chips under each picker.
+ * The pickers themselves offer the full lists from convex/lib/regional.
+ */
+const COMMON_CURRENCIES = ["GBP", "USD", "EUR", "INR", "AED", "TZS", "KES"];
+const COMMON_LOCALES = ["en-GB", "en-US", "en-IN", "en-AE", "en-TZ", "sw-TZ"];
 
 function Suggestions({
   options,
@@ -269,18 +271,14 @@ export function ProfileStep() {
             htmlFor="currency"
             hint="What an agent quotes in, and how every price in this console is written."
           >
-            <Input
+            <CurrencyPicker
               id="currency"
               value={form.currency}
-              maxLength={3}
-              onChange={(event) =>
-                set("currency", event.target.value.toUpperCase())
-              }
-              placeholder="GBP"
-              className="max-w-32"
+              onValueChange={(code) => set("currency", code)}
+              className="max-w-80"
             />
             <Suggestions
-              options={CURRENCIES}
+              options={COMMON_CURRENCIES}
               value={form.currency}
               onPick={(code) => set("currency", code)}
             />
@@ -289,20 +287,19 @@ export function ProfileStep() {
           <FormRow
             label="Timezone"
             htmlFor="timezone"
-            hint="An IANA name. It decides what an agent counts as today."
+            hint="It decides what an agent counts as today, and when greetings go out."
           >
-            <Input
+            <TimezonePicker
               id="timezone"
               value={form.timezone}
-              onChange={(event) => set("timezone", event.target.value)}
-              placeholder="Europe/London"
+              onValueChange={(zone) => set("timezone", zone)}
               className="max-w-80"
             />
             <Suggestions
-              options={TIMEZONES}
+              options={COMMON_TIMEZONES}
               value={form.timezone}
               onPick={(zone) => set("timezone", zone)}
-              format={(zone) => zone.split("/")[1].replace(/_/g, " ")}
+              format={timezoneCity}
             />
           </FormRow>
 
@@ -311,15 +308,14 @@ export function ProfileStep() {
             htmlFor="locale"
             hint="How dates and numbers are written back to a customer."
           >
-            <Input
+            <LocalePicker
               id="locale"
               value={form.locale}
-              onChange={(event) => set("locale", event.target.value)}
-              placeholder="en-GB"
-              className="max-w-32"
+              onValueChange={(code) => set("locale", code)}
+              className="max-w-80"
             />
             <Suggestions
-              options={LOCALES}
+              options={COMMON_LOCALES}
               value={form.locale}
               onPick={(code) => set("locale", code)}
             />

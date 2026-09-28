@@ -668,6 +668,8 @@ export const sendManualReply = action({
           channelId: context.channelId,
           to: context.externalId,
           message: { kind: "text", body },
+          source: "human",
+          conversationId: args.conversationId,
         }
       );
       if (!sent.ok) {

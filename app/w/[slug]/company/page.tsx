@@ -5,6 +5,12 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useWorkspace } from "@/components/workspace-provider";
 import { KeyValueEditor, type KeyValue } from "@/components/editors";
+import { CompanyLogoCard } from "@/components/company-logo-card";
+import {
+  CurrencyPicker,
+  LocalePicker,
+  TimezonePicker,
+} from "@/components/regional-pickers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -113,6 +119,8 @@ export default function CompanyProfilePage() {
       </header>
 
       <div className="flex min-w-0 flex-col gap-5 p-4 sm:p-6">
+        <CompanyLogoCard />
+
         <Card>
           <CardHeader>
             <CardTitle>The business</CardTitle>
@@ -194,35 +202,38 @@ export default function CompanyProfilePage() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <div className="flex flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <Label htmlFor="c-locale">Locale</Label>
-                <Input
+                <LocalePicker
                   id="c-locale"
-                  className="font-mono"
                   value={form.locale}
-                  onChange={(event) => set("locale", event.target.value)}
+                  onValueChange={(value) => set("locale", value)}
                 />
                 <p className="text-xs text-muted-foreground">
                   Drives spelling conventions, e.g. en-GB gives &ldquo;colour&rdquo;.
                 </p>
               </div>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <Label htmlFor="c-timezone">Timezone</Label>
-                <Input
+                <TimezonePicker
                   id="c-timezone"
-                  className="font-mono"
                   value={form.timezone}
-                  onChange={(event) => set("timezone", event.target.value)}
+                  onValueChange={(value) => set("timezone", value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  What an agent counts as today, and when greetings go out.
+                </p>
               </div>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <Label htmlFor="c-currency">Currency</Label>
-                <Input
+                <CurrencyPicker
                   id="c-currency"
-                  className="font-mono"
                   value={form.currency}
-                  onChange={(event) => set("currency", event.target.value)}
+                  onValueChange={(value) => set("currency", value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  What agents quote in, and how prices are written here.
+                </p>
               </div>
             </div>
 

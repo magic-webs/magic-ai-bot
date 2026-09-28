@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { CATEGORY_LABELS } from "@/convex/lib/billing";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { useHourBucket } from "@/components/use-now";
@@ -85,6 +86,18 @@ type Occasion = Doc<"marketingTemplates">["occasion"];
 type EventStatus = Doc<"marketingEvents">["status"];
 type CalendarEvent = Doc<"marketingEvents"> & { templateName: string | null };
 type Festival = { key: string; name: string; date: string };
+
+type TemplateCategory = NonNullable<Doc<"marketingTemplates">["category"]>;
+
+/**
+ * Meta's template categories, which are also what each send is billed at.
+ * Service is missing on purpose: it is not something a template can be.
+ */
+const TEMPLATE_CATEGORIES: { value: TemplateCategory; label: string }[] = [
+  { value: "marketing", label: CATEGORY_LABELS.marketing },
+  { value: "utility", label: CATEGORY_LABELS.utility },
+  { value: "authentication", label: CATEGORY_LABELS.authentication },
+];
 
 const OCCASIONS: { value: Occasion; label: string }[] = [
   { value: "festival", label: "Festival" },
@@ -727,6 +740,7 @@ type TemplateDraft = {
   templateId?: Id<"marketingTemplates">;
   name: string;
   occasion: Occasion;
+  category: TemplateCategory;
   body: string;
   metaTemplateName: string;
   languageCode: string;
@@ -774,6 +788,7 @@ function TemplateDialog({
         templateId: draft.templateId,
         name: draft.name,
         occasion: draft.occasion,
+        category: draft.category,
         body: draft.body,
         metaTemplateName: draft.metaTemplateName,
         languageCode: draft.languageCode,
@@ -815,7 +830,7 @@ function TemplateDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr]">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="template-name">Name</Label>
               <Input
@@ -833,6 +848,17 @@ function TemplateDialog({
                 value={draft.occasion}
                 onValueChange={(next) => setDraft({ ...draft, occasion: next as Occasion })}
                 options={OCCASIONS}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Category</Label>
+              <SelectField
+                aria-label="Category"
+                value={draft.category}
+                onValueChange={(next) =>
+                  setDraft({ ...draft, category: next as TemplateCategory })
+                }
+                options={TEMPLATE_CATEGORIES}
               />
             </div>
           </div>
@@ -866,8 +892,10 @@ function TemplateDialog({
               </p>
               <p className="font-mono text-sm whitespace-pre-wrap select-all">{numbered}</p>
               <p className="text-xs text-muted-foreground">
-                Category <strong>Marketing</strong>. Keep the numbered variables in this order —
-                they are filled in the same order the names appear above.
+                Category <strong>{CATEGORY_LABELS[draft.category]}</strong> — the same
+                category Meta approves it under is what each send is billed at. Keep the
+                numbered variables in this order; they are filled in the same order the
+                names appear above.
               </p>
             </div>
           ) : null}
@@ -1231,11 +1259,19 @@ export default function MarketingPage() {
             templateId: template._id,
             name: template.name,
             occasion: template.occasion,
+            category: template.category ?? "marketing",
             body: template.body,
             metaTemplateName: template.metaTemplateName ?? "",
             languageCode: template.languageCode,
           }
-        : { name: "", occasion: "festival", body: "", metaTemplateName: "", languageCode: "en" }
+        : {
+            name: "",
+            occasion: "festival",
+            category: "marketing",
+            body: "",
+            metaTemplateName: "",
+            languageCode: "en",
+          }
     );
 
   const unlinked = templates.filter((t) => !t.metaTemplateName).length;
@@ -1488,6 +1524,13 @@ export default function MarketingPage() {
                   <span className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
                     <Badge variant="outline">{template.occasion}</Badge>
+                    {/* Marketing is the default and nearly every greeting;
+                        only the exceptions are worth a badge. */}
+                    {template.category && template.category !== "marketing" ? (
+                      <Badge variant="outline">
+                        {CATEGORY_LABELS[template.category]}
+                      </Badge>
+                    ) : null}
                     {template.metaTemplateName ? (
                       <Badge>linked</Badge>
                     ) : (

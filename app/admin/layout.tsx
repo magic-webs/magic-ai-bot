@@ -37,6 +37,7 @@ import {
   Building03Icon,
   Coins01Icon,
   DashboardSpeed02Icon,
+  Invoice01Icon,
   Key01Icon,
   PlugSocketIcon,
 } from "@hugeicons/core-free-icons";
@@ -45,18 +46,21 @@ import {
 // estate is doing, the tenants themselves, the connector each of them hands to
 // an assistant, the models they all run on, what it costs, and who may sign in.
 //
-// Flat rows rather than the workspace sidebar's collapsible sections — six
+// Flat rows rather than the workspace sidebar's collapsible sections — seven
 // destinations do not need grouping, and a section that opens onto one item is
 // a control that does nothing.
 //
 // Models sits next to Tokens & cost because it is the other half of the same
 // question: the catalogue sets the price, that page reports what it came to.
+// Billing follows them: those two are what the platform pays, and this is
+// what it charges each account, per WhatsApp message.
 const NAV: Array<{ href: string; label: string; icon: IconSvgElement }> = [
   { href: "", label: "Overview", icon: DashboardSpeed02Icon },
   { href: "/workspaces", label: "Workspaces", icon: Building03Icon },
   { href: "/mcp", label: "MCP connector", icon: PlugSocketIcon },
   { href: "/models", label: "AI models", icon: AiBrain01Icon },
   { href: "/usage", label: "Tokens & cost", icon: Coins01Icon },
+  { href: "/billing", label: "Billing", icon: Invoice01Icon },
   { href: "/access", label: "Access", icon: Key01Icon },
 ];
 

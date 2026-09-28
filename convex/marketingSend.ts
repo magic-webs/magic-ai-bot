@@ -81,6 +81,7 @@ async function sendPage(
 
   const results: Array<{
     contactId: Id<"contacts">;
+    to: string;
     ok: boolean;
     text: string;
     error?: string;
@@ -98,7 +99,7 @@ async function sendPage(
       parameters,
       text
     );
-    results.push({ contactId: contact.contactId, text, ...sent });
+    results.push({ contactId: contact.contactId, to: contact.to, text, ...sent });
   }
 
   await ctx.runMutation(internal.marketing.recordBatch, {
@@ -106,6 +107,10 @@ async function sendPage(
     eventId: args.eventId,
     key: args.key,
     agentId: args.context.agentId ?? undefined,
+    // Billed at what Meta approved the template as. A template saved before
+    // it had a category was a greeting, and greetings are marketing.
+    category: args.context.template.category ?? "marketing",
+    templateName: args.context.template.metaTemplateName,
     results,
     done: page.isDone,
   });

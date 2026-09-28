@@ -25,6 +25,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { resolveGreeting } from "./lib/prompt";
+import { logoSrcFor } from "./lib/branding";
 
 const MAX_SESSION_ID_CHARS = 64;
 const MAX_FIELD_CHARS = 120;
@@ -73,6 +74,10 @@ export const bootstrap = query({
     return {
       channelName: channel.name,
       workspaceName: workspace.name,
+      // The company's own logo for the chat header, or null for the robot
+      // mark the widget has always drawn. Public by nature: it is already on
+      // the site the chat is embedded in.
+      logoSrc: await logoSrcFor(ctx, workspace),
       // The entry agent — normally the workspace's front desk. Whoever it
       // routes to answers under their own name, which `session` reports.
       agent: {

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
-import { Logo } from "@/components/logo";
+import { CompanyLogo } from "@/components/company-logo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +40,7 @@ export function WorkspaceSwitcher({
   workspace,
   isAdmin,
 }: {
-  workspace: Doc<"workspaces">;
+  workspace: Doc<"workspaces"> & { logoSrc?: string | null };
   isAdmin: boolean;
 }) {
   const { isMobile } = useSidebar();
@@ -71,11 +71,11 @@ export function WorkspaceSwitcher({
   // components/logo.tsx makes about filled tiles. Sized by height, as that
   // component asks, so the artwork keeps its ratio; h-3.5 is 25px across,
   // which leaves the wide mark some air inside the 32px tile.
-  const tile = (
-    <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-card ring-1 ring-sidebar-border">
-      <Logo className="h-3.5 w-auto" />
-    </div>
-  );
+  //
+  // The company's own logo takes the tile when it has uploaded one — the
+  // sidebar is theirs, and the product mark stays on the sign-in page and
+  // the widget footer.
+  const tile = <CompanyLogo src={workspace.logoSrc} />;
   const subtitle = workspace.industry ?? workspace.locale;
   const identity = (
     // min-w-0 is what lets the truncation actually happen: a grid child's
@@ -155,6 +155,7 @@ export function WorkspaceSwitcher({
                   key={row._id}
                   render={<Link href={`/w/${row.slug}${section}`} />}
                 >
+                  <CompanyLogo src={row.logoSrc} className="size-5 rounded-md" />
                   <span className="truncate">{row.name}</span>
                   {row.slug === workspace.slug ? (
                     <HugeiconsIcon

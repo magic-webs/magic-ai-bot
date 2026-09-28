@@ -26,6 +26,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
+import { charge } from "./lib/billing";
 import { ensureMarketingDesk } from "./agents";
 import {
   festivalsBetween,
@@ -48,6 +49,13 @@ const occasion = v.union(
   v.literal("festival"),
   v.literal("offer"),
   v.literal("general")
+);
+
+/** What Meta approved a template as — and so what each send is billed at. */
+const templateCategory = v.union(
+  v.literal("marketing"),
+  v.literal("utility"),
+  v.literal("authentication")
 );
 
 // ------------------------------------------------------------------ helpers
@@ -359,6 +367,7 @@ export const saveTemplate = mutation({
     body: v.string(),
     metaTemplateName: v.optional(v.string()),
     languageCode: v.optional(v.string()),
+    category: v.optional(templateCategory),
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
@@ -390,6 +399,9 @@ export const saveTemplate = mutation({
         body,
         metaTemplateName,
         languageCode,
+        // Left alone when not given, so a caller that predates categories
+        // cannot quietly move a utility template back to marketing.
+        ...(args.category ? { category: args.category } : {}),
         updatedAt: now,
       });
       return args.templateId;
@@ -402,6 +414,7 @@ export const saveTemplate = mutation({
       body,
       metaTemplateName,
       languageCode,
+      category: args.category ?? "marketing",
       createdAt: now,
       updatedAt: now,
     });
@@ -790,9 +803,14 @@ export const recordBatch = internalMutation({
     eventId: v.optional(v.id("marketingEvents")),
     key: v.string(),
     agentId: v.optional(v.id("agents")),
+    /** What each delivered send is billed as. */
+    category: v.optional(templateCategory),
+    templateName: v.optional(v.string()),
     results: v.array(
       v.object({
         contactId: v.id("contacts"),
+        /** The WhatsApp number it went to, for the billing ledger. */
+        to: v.optional(v.string()),
         ok: v.boolean(),
         text: v.string(),
         error: v.optional(v.string()),
@@ -835,6 +853,20 @@ export const recordBatch = internalMutation({
         (best, row) => (!best || row.lastMessageAt > best.lastMessageAt ? row : best),
         null
       );
+
+      // Charged whether or not there is a thread to write it into: the
+      // customer received a template either way, and that is what is billed.
+      if (result.to) {
+        await charge(ctx, {
+          workspaceId: args.workspaceId,
+          conversationId: thread?._id,
+          to: result.to,
+          category: args.category ?? "marketing",
+          source: "campaign",
+          preview: result.text,
+          templateName: args.templateName,
+        });
+      }
       if (!thread) continue;
 
       await ctx.db.insert("messages", {
