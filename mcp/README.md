@@ -313,6 +313,10 @@ the candidates.
 **Operations** — `list_conversations`, `read_conversation`, `list_contacts`,
 `list_orders`, `usage_summary`
 
+**Leads** — `list_lead_stages`, `seed_default_lead_stages`,
+`create_lead_stage`, `update_lead_stage`, `reorder_lead_stages`,
+`delete_lead_stage`, `list_leads`, `set_lead_stage`
+
 **Platform administration** (admin sign-in only) — `create_workspace`,
 `issue_workspace_password`, `set_workspace_access`, `set_workspace_status`,
 `delete_workspace`, `workspace_access_report`, `platform_usage`
@@ -337,6 +341,12 @@ dashboard gives.
   dashboard's job — an MCP tool cannot carry bytes usefully.
 - **`draft_agent`** / **`draft_catalogue`** spend model tokens on the
   workspace's own account.
+- **Lead stages are what the follow-up desk decides against.** It files a
+  quiet conversation by matching the transcript to each stage's description,
+  so write descriptions as tests, not labels. Stages are positioned with
+  `after` ("after Quoted", or "start") rather than numbers. `delete_lead_stage`
+  unfiles its leads rather than deleting them, and `set_lead_stage` pins a lead
+  so the desk stops refiling it — `stage: "none"` hands it back.
 - **`issue_workspace_password`** returns the password once and keeps only the
   hash. There is no way to read it back, only to issue a new one — which also
   drops that company's live sessions.

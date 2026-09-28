@@ -110,6 +110,19 @@ const TOOL_GROUPS = [
       "usage_summary",
     ],
   },
+  {
+    group: "Leads",
+    tools: [
+      "list_lead_stages",
+      "seed_default_lead_stages",
+      "create_lead_stage",
+      "update_lead_stage",
+      "reorder_lead_stages",
+      "delete_lead_stage",
+      "list_leads",
+      "set_lead_stage",
+    ],
+  },
 ];
 
 /** Three short steps. Deliberately not prose: this is a form to fill in. */

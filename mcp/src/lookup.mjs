@@ -104,6 +104,15 @@ export async function findRecordWebhook(bookId, wanted) {
   return pickByName(hooks, wanted, "destination", ["name", "url"]);
 }
 
+/** A lead stage by name or id. Returns the stage and the full, ordered list. */
+export async function findLeadStage(workspaceId, wanted) {
+  const stages = await call.query(api.leads.listStages, { workspaceId });
+  const stage =
+    stages.find((s) => s._id === wanted) ??
+    pickByName(stages, wanted, "lead stage", ["name"]);
+  return { stage, stages };
+}
+
 export async function findCustomTool(workspaceId, wanted) {
   const tools = await call.query(api.tools.listByWorkspace, { workspaceId });
   if (tools.some((t) => t._id === wanted)) {
