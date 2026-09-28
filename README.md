@@ -95,7 +95,7 @@ reaches all three things the platform needs:
 
 | Use | Model | Why that one |
 | --- | --- | --- |
-| Chat | `deepseek/deepseek-v4-flash` | Tool-capable, and at $0.13/$0.26 per million tokens roughly a quarter of gpt-4.1-mini |
+| Chat | `deepseek/deepseek-v4.1-flash` | Tool-capable, reads images, 1M context, and at $0.30/$1.20 per million tokens still under gpt-4.1-mini |
 | Retrieval | `openai/text-embedding-3-small` | The `knowledgeChunks` vector index is pinned to 1536 dimensions — any other model stops matching and every source in every workspace needs re-embedding |
 | Voice notes | `openai/whisper-1` | Same model the direct OpenAI call used |
 

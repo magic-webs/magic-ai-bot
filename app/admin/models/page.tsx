@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { DEFAULT_CHAT_MODEL } from "@/convex/lib/shared";
 import { SelectField } from "@/components/select-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ import {
   CpuIcon,
   PencilSimpleIcon,
   PlusIcon,
+  RobotIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
 
@@ -337,10 +339,16 @@ export default function AdminModelsPage() {
   const setEnabled = useMutation(api.models.setEnabled);
   const remove = useMutation(api.models.remove);
   const reprice = useMutation(api.models.repriceUnpriced);
+  const moveAgents = useMutation(api.models.moveAgentsToDefault);
 
   const [editing, setEditing] = useState<Entry | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [repricing, setRepricing] = useState(false);
+  const [moving, setMoving] = useState(false);
+
+  const defaultLabel =
+    models?.find((model) => model.modelId === DEFAULT_CHAT_MODEL)?.label ??
+    DEFAULT_CHAT_MODEL;
 
   const openNew = () => {
     setEditing(null);
@@ -391,6 +399,42 @@ export default function AdminModelsPage() {
     }
   };
 
+  // A page of agents per call, until the server says it has seen them all.
+  const runMove = async () => {
+    setMoving(true);
+    let moved = 0;
+    let scanned = 0;
+    try {
+      let cursor: string | null = null;
+      for (;;) {
+        const result: Awaited<ReturnType<typeof moveAgents>> =
+          await moveAgents({ cursor });
+        moved += result.moved;
+        scanned += result.scanned;
+        if (result.done) break;
+        cursor = result.cursor;
+      }
+      toast.add({
+        title:
+          moved === 0
+            ? "Every agent is already on the default"
+            : `${moved} agent${moved === 1 ? "" : "s"} moved to ${DEFAULT_CHAT_MODEL}`,
+        description: `${scanned} agent${scanned === 1 ? "" : "s"} checked across every workspace.`,
+        type: "success",
+      });
+    } catch (error) {
+      toast.add({
+        title: "Could not move every agent",
+        description: `${moved} moved before it stopped. ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        type: "error",
+      });
+    } finally {
+      setMoving(false);
+    }
+  };
+
   const offered = models?.filter(
     (model) => model.kind === "chat" && model.enabled
   ).length;
@@ -408,6 +452,44 @@ export default function AdminModelsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button
+                  variant="outline"
+                  disabled={moving}
+                  aria-label="Move every agent to the default model"
+                >
+                  {moving ? <Spinner /> : <RobotIcon />}{" "}
+                  <span className="hidden sm:inline">
+                    Move all agents to default
+                  </span>
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Move every agent to the default?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Every agent in every workspace, front desks and desks
+                  included, switches to{" "}
+                  <span className="font-medium text-foreground">
+                    {defaultLabel}
+                  </span>
+                  . That includes any you set to another model. Replies use
+                  it from the next message, and are costed at its price.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  render={<Button variant="ghost">Cancel</Button>}
+                />
+                <AlertDialogAction
+                  render={<Button onClick={runMove}>Move agents</Button>}
+                />
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button
             variant="outline"
             disabled={repricing}

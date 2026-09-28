@@ -207,8 +207,13 @@ export const ROUTER_DEFAULTS = {
     "Escalate to a human if the customer asks for a person, is complaining, or no colleague on the team covers what they need.",
 } as const;
 
-/** The model a new agent and every front desk is created with. */
-export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
+/**
+ * The model a new agent and every desk is created with.
+ *
+ * An agent keeps the model it was saved with, so changing this moves new
+ * agents only. /admin/models has the button that moves the rest.
+ */
+export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4.1-flash";
 
 /**
  * What the model picker offers. Ids are the Vercel AI Gateway's
@@ -230,8 +235,12 @@ export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash";
  */
 export const CHAT_MODELS = [
   {
+    id: "deepseek/deepseek-v4.1-flash",
+    label: "DeepSeek V4.1 Flash — tool-capable, vision, 1M context",
+  },
+  {
     id: "deepseek/deepseek-v4-flash",
-    label: "DeepSeek V4 Flash — fast, tool-capable, cheapest",
+    label: "DeepSeek V4 Flash — the previous default, cheapest",
   },
   {
     id: "deepinfra/deepseek-v4-flash",

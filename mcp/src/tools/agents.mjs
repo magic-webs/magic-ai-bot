@@ -121,7 +121,12 @@ export function register(server) {
           .optional()
           .describe("Hard 'never' instructions"),
         escalationPolicy: z.string().optional(),
-        model: z.string().optional().describe("Default gpt-4.1-mini"),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            "Admin only; everyone else gets the default, deepseek/deepseek-v4.1-flash"
+          ),
         builtinTools: z
           .array(z.enum(BUILTIN_TOOL_KEYS))
           .optional()

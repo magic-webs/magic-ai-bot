@@ -17,11 +17,16 @@ import {
   mergedCatalogue,
 } from "./lib/modelCatalogue";
 import { costNanoUsd } from "./lib/pricing";
+import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 
 // A mutation may not rewrite an unbounded number of rows, and repricing is a
 // correction rather than a migration. The page reports what is left so an
 // operator can press it again.
 const REPRICE_CAP = 2_000;
+
+// Agent rows carry whole prompts, so a page is kept well under what one
+// mutation may read. The page calls again with the cursor until it is done.
+const MOVE_BATCH = 100;
 
 const kindValidator = v.union(v.literal("chat"), v.literal("embedding"));
 
@@ -206,6 +211,40 @@ export const remove = mutation({
     if (!existing) return { removed: false };
     await ctx.db.delete(existing._id);
     return { removed: true };
+  },
+});
+
+/**
+ * Put every agent in every workspace on the default model — desks included,
+ * and agents an administrator had set to something else.
+ *
+ * An agent keeps the model it was saved with and a company cannot change it,
+ * so moving `DEFAULT_CHAT_MODEL` alone leaves every existing agent where it
+ * was. This is the other half. One page per call; `done` says when to stop.
+ */
+export const moveAgentsToDefault = mutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const page = await ctx.db
+      .query("agents")
+      .paginate({ numItems: MOVE_BATCH, cursor: args.cursor });
+
+    const now = Date.now();
+    let moved = 0;
+    for (const agent of page.page) {
+      if (agent.model === DEFAULT_CHAT_MODEL) continue;
+      await ctx.db.patch(agent._id, { model: DEFAULT_CHAT_MODEL, updatedAt: now });
+      moved += 1;
+    }
+
+    return {
+      moved,
+      scanned: page.page.length,
+      cursor: page.continueCursor,
+      done: page.isDone,
+    };
   },
 });
 

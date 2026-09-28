@@ -14,8 +14,8 @@ import { createGateway } from "ai";
 
 // Re-exported, not redeclared: the value has to be reachable from queries and
 // mutations too, which may not import the SDK, so it lives in shared.ts.
-// DeepSeek V4 Flash is tool-capable and, at $0.13/$0.26 per million tokens,
-// about a quarter of what gpt-4.1-mini cost for the same conversation.
+// DeepSeek V4.1 Flash is tool-capable, reads images and holds 1M tokens of
+// context, at $0.30/$1.20 per million — still under gpt-4.1-mini's $0.40/$1.60.
 export { DEFAULT_CHAT_MODEL } from "./shared";
 
 /**
