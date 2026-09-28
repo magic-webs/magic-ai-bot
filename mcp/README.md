@@ -302,6 +302,11 @@ the candidates.
 **Catalogue** — `list_products`, `create_product`, `update_product`,
 `delete_product`, `import_products`, `draft_catalogue`
 
+**Records** — `list_record_books`, `create_record_book`, `update_record_book`,
+`delete_record_book`, `list_records`, `list_record_webhooks`,
+`create_record_webhook`, `update_record_webhook`, `delete_record_webhook`,
+`test_record_webhook`
+
 **Knowledge** — `list_knowledge`, `add_knowledge`, `delete_knowledge`
 
 **Channels** — `list_channels`, `create_channel`, `update_channel`,
@@ -316,6 +321,14 @@ the candidates.
 **Leads** — `list_lead_stages`, `seed_default_lead_stages`,
 `create_lead_stage`, `update_lead_stage`, `reorder_lead_stages`,
 `delete_lead_stage`, `list_leads`, `set_lead_stage`
+
+**Notifications** — `get_notification_settings`, `update_notification_settings`,
+`send_test_email`, `sync_whatsapp_templates`, `list_whatsapp_templates`,
+`list_email_templates`, `create_email_template`, `update_email_template`,
+`delete_email_template`, `list_notification_alerts`,
+`create_notification_alert`, `update_notification_alert`,
+`delete_notification_alert`, `rotate_alert_url`, `test_notification_alert`,
+`send_notification`, `list_notification_activity`
 
 **Platform administration** (admin sign-in only) — `create_workspace`,
 `issue_workspace_password`, `set_workspace_access`, `set_workspace_status`,
@@ -347,6 +360,16 @@ dashboard gives.
   `after` ("after Quoted", or "start") rather than numbers. `delete_lead_stage`
   unfiles its leads rather than deleting them, and `set_lead_stage` pins a lead
   so the desk stops refiling it — `stage: "none"` hands it back.
+- **Alerts fill their blanks from the event.** A WhatsApp alert sends an
+  approved template synced from the panel — `sync_whatsapp_templates` first,
+  which needs the channel's WABA ID (`update_channel` sets it). Each blank is a
+  slot from `list_whatsapp_templates` (`body:1`, `header:media`, `button:0`)
+  filled with text and `{{path}}` placeholders over the event's payload;
+  `get_notification_settings` lists every event's variables. Recipients take
+  the same placeholders, or `customer` for the event's own customer. An
+  `inbound` alert returns its own URL for another system to POST to.
+  `test_notification_alert` sends a saved alert once to one number; WhatsApp
+  tests and `send_notification` are real, billed messages.
 - **`issue_workspace_password`** returns the password once and keeps only the
   hash. There is no way to read it back, only to issue a new one — which also
   drops that company's live sessions.

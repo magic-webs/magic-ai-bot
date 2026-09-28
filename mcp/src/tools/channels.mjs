@@ -48,6 +48,8 @@ export function register(server) {
                 callbackUrl: `${convexSite}/whatsapp/${channel.channelKey}`,
                 displayPhoneNumber: channel.whatsapp?.displayPhoneNumber ?? null,
                 phoneNumberId: channel.whatsapp?.phoneNumberId ?? null,
+                // What notification templates sync from.
+                wabaId: channel.whatsapp?.wabaId ?? null,
                 hasAccessToken: channel.hasAccessToken,
               }),
         }))
@@ -133,25 +135,56 @@ export function register(server) {
     {
       title: "Update channel",
       description:
-        "Rename a channel, repoint it at a different agent, or take it live / pause it. A paused channel silently ignores inbound messages.",
+        "Rename a channel, repoint it at a different agent, or take it live / pause it. A paused channel silently ignores inbound messages. On a WhatsApp channel, also change its connection — the WABA ID notification templates sync from, the display number, a new access token. Omitted WhatsApp fields keep their stored value.",
       inputSchema: {
         ...workspaceArg,
         channel: z.string().describe("Channel name or id"),
         name: z.string().optional(),
         agent: z.string().optional().describe("Who answers here"),
         status: z.enum(["active", "paused"]).optional(),
+        wabaId: z
+          .string()
+          .optional()
+          .describe("WhatsApp only: the business account id. Needed to sync templates."),
+        displayPhoneNumber: z.string().optional().describe("WhatsApp only"),
+        phoneNumberId: z.string().optional().describe("WhatsApp only"),
+        accessToken: z.string().optional().describe("WhatsApp only: omit to keep the stored one"),
+        apiBaseUrl: z.string().optional().describe("WhatsApp only"),
+        apiVersion: z.string().optional().describe("WhatsApp only"),
       },
     },
-    handler(async ({ workspace, channel, name, agent, status }) => {
+    handler(async ({ workspace, channel, name, agent, status, ...connection }) => {
       const found = await resolveWorkspace(workspace);
       const target = await findChannel(found._id, channel);
       const agentId = agent ? (await findAgent(found._id, agent))._id : undefined;
+
+      // The mutation replaces the WhatsApp connection whole, so a change to
+      // one field sends the rest as stored. The token comes back masked, and
+      // a masked or absent token is what tells the mutation to keep its own.
+      const touched = Object.values(connection).some((value) => value !== undefined);
+      let whatsapp;
+      if (touched) {
+        if (target.type !== "whatsapp" || !target.whatsapp) {
+          throw new Error(`${target.name} is not a WhatsApp channel.`);
+        }
+        const stored = target.whatsapp;
+        whatsapp = {
+          apiBaseUrl: connection.apiBaseUrl ?? stored.apiBaseUrl,
+          apiVersion: connection.apiVersion ?? stored.apiVersion,
+          phoneNumberId: connection.phoneNumberId ?? stored.phoneNumberId,
+          wabaId: connection.wabaId ?? stored.wabaId,
+          businessId: stored.businessId,
+          displayPhoneNumber: connection.displayPhoneNumber ?? stored.displayPhoneNumber,
+          ...(connection.accessToken ? { accessToken: connection.accessToken } : {}),
+        };
+      }
 
       await call.mutation(api.channels.update, {
         channelId: target._id,
         name,
         agentId,
         status,
+        ...(whatsapp ? { whatsapp } : {}),
       });
       return ok(`Updated ${target.name}.`);
     })

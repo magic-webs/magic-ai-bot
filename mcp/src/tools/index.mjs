@@ -5,8 +5,8 @@
  * platform: what you can see, then agents, what they sell, what they collect,
  * what they know,
  * where customers reach them, what they can call, what they did, where each
- * lead has got to — and last the admin tools most callers will never be
- * allowed to use.
+ * lead has got to, who gets told when something happens — and last the admin
+ * tools most callers will never be allowed to use.
  */
 
 import { register as context } from "./context.mjs";
@@ -18,6 +18,7 @@ import { register as channels } from "./channels.mjs";
 import { register as customTools } from "./custom-tools.mjs";
 import { register as operations } from "./operations.mjs";
 import { register as leads } from "./leads.mjs";
+import { register as notifications } from "./notifications.mjs";
 import { register as admin } from "./admin.mjs";
 
 const GROUPS = [
@@ -30,6 +31,7 @@ const GROUPS = [
   customTools,
   operations,
   leads,
+  notifications,
   admin,
 ];
 
