@@ -1242,7 +1242,8 @@ export default defineSchema({
       v.literal("human"), // a colleague replying by hand from the inbox
       v.literal("follow_up"), // the follow-up desk's nudge
       v.literal("campaign"), // a marketing template: festival or birthday
-      v.literal("system") // the platform's own fallback lines
+      v.literal("system"), // the platform's own fallback lines
+      v.literal("notification") // an alert rule's template, or one sent by hand
     ),
     /** The first line of what was sent, so the ledger reads as messages. */
     preview: v.optional(v.string()),
@@ -1451,4 +1452,164 @@ export default defineSchema({
   })
     .index("by_contact_and_key", ["contactId", "key"])
     .index("by_workspace", ["workspaceId"]),
+
+  // -------------------------------------------------------------------------
+  // Notifications — alerts on WhatsApp and email when something happens.
+  //
+  // A *rule* listens for one event — a record filed, an order taken, an
+  // external system calling the rule's own URL — and sends one template to a
+  // list of recipients. Parameters and recipients are text with `{{path}}`
+  // placeholders over the event's payload, the same JSON the workspace webhook
+  // receives. See convex/lib/notifications.ts.
+  // -------------------------------------------------------------------------
+
+  /**
+   * One per workspace: which number alerts go out from, and the ZeptoMail
+   * account email goes out through.
+   *
+   * The token lives here rather than on `workspaces` for the reason the
+   * workspace login does: `workspaces.getBySlug` hands that whole document to
+   * the browser. `notifications.overview` returns this row without it.
+   */
+  notificationSettings: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Absent = the workspace's first live WhatsApp channel. */
+    whatsappChannelId: v.optional(v.id("channels")),
+    /**
+     * Digits only, e.g. "91". Put in front of a number typed without one,
+     * because a ten-digit number on its own could be anywhere.
+     */
+    defaultCountryCode: v.optional(v.string()),
+    /** ZeptoMail's data centre: "com", "in", "eu"… */
+    zeptoRegion: v.optional(v.string()),
+    /** The Send Mail token, with or without its "Zoho-enczapikey" scheme. */
+    zeptoToken: v.optional(v.string()),
+    /** Must be on a domain verified in ZeptoMail, or every send bounces. */
+    fromEmail: v.optional(v.string()),
+    fromName: v.optional(v.string()),
+    replyTo: v.optional(v.string()),
+    /** The last template sync, so the screen can say how fresh the list is. */
+    templatesSyncedAt: v.optional(v.number()),
+    templatesSyncError: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The WhatsApp templates the panel holds for a channel's business account,
+   * as last synced.
+   *
+   * A copy rather than a live read: a rule firing mid-conversation cannot
+   * wait on the panel's template list, and the app needs the variables of
+   * every template to build the rule editor. Synced on demand; a template
+   * gone from the panel is gone from here on the next sync.
+   */
+  whatsappTemplates: defineTable({
+    workspaceId: v.id("workspaces"),
+    channelId: v.id("channels"),
+    /** The panel's own id, when it sends one. */
+    providerId: v.optional(v.string()),
+    name: v.string(),
+    /** Meta's language code: "en", "en_US", "hi". */
+    language: v.string(),
+    /** MARKETING, UTILITY or AUTHENTICATION, as Meta returns it. */
+    category: v.string(),
+    /** APPROVED, PENDING, REJECTED, PAUSED… Only APPROVED can send. */
+    status: v.string(),
+    /** The components array, as JSON. Parsed by lib/notifications. */
+    components: v.string(),
+    syncedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_channel", ["channelId"]),
+
+  /** Email content the workspace writes and keeps, with `{{path}}` variables. */
+  emailTemplates: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    subject: v.string(),
+    body: v.string(),
+    /** HTML is sent as written; text is escaped and line-broken. */
+    format: v.union(v.literal("text"), v.literal("html")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  notificationRules: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    enabled: v.boolean(),
+    event: v.union(
+      v.literal("record_filed"),
+      v.literal("record_updated"),
+      v.literal("record_stage_changed"),
+      v.literal("order_created"),
+      v.literal("escalation"),
+      v.literal("inbound")
+    ),
+    /** Record events only. Absent = every book. */
+    bookId: v.optional(v.id("recordBooks")),
+    /**
+     * Record events only: fire when the record is at this stage — the stage it
+     * moved to, for a stage change. Absent = any stage.
+     */
+    stage: v.optional(v.string()),
+    /**
+     * The unguessable segment of an incoming webhook's URL,
+     * /notify/<inboundKey>. Only set on `inbound` rules; the key is the
+     * credential, the same way a channel's key is.
+     */
+    inboundKey: v.optional(v.string()),
+    /** The last body that URL received, as JSON, so fields can be mapped. */
+    lastInboundPayload: v.optional(v.string()),
+    lastInboundAt: v.optional(v.number()),
+    channel: v.union(v.literal("whatsapp"), v.literal("email")),
+    /** By name and language rather than id: a re-sync replaces the rows. */
+    whatsappTemplateName: v.optional(v.string()),
+    whatsappLanguage: v.optional(v.string()),
+    emailTemplateId: v.optional(v.id("emailTemplates")),
+    /** Template slot ("body:1", "header:media"…) to text with placeholders. */
+    params: v.array(kvPair),
+    /** Phones or emails, literal or `{{path}}`, one entry each. */
+    recipients: v.array(v.string()),
+    sentCount: v.number(),
+    failedCount: v.number(),
+    lastFiredAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_event", ["workspaceId", "event"])
+    .index("by_inboundKey", ["inboundKey"]),
+
+  /** One row per message an alert (or a person, by hand) tried to send. */
+  notificationLogs: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Absent for a message sent by hand from a template. */
+    ruleId: v.optional(v.id("notificationRules")),
+    /** Kept beside the id so the log still reads after a rule is deleted. */
+    ruleName: v.optional(v.string()),
+    event: v.optional(v.string()),
+    channel: v.union(v.literal("whatsapp"), v.literal("email")),
+    /** The number or address. Empty when there was nobody to send to. */
+    to: v.string(),
+    templateName: v.optional(v.string()),
+    subject: v.optional(v.string()),
+    preview: v.optional(v.string()),
+    status: v.union(
+      v.literal("sent"),
+      v.literal("failed"),
+      // Nothing was sent, and nothing went wrong sending: the event carried no
+      // address, or the rule is missing its template.
+      v.literal("skipped")
+    ),
+    error: v.optional(v.string()),
+    /** The provider's message or request id, for chasing a delivery. */
+    messageId: v.optional(v.string()),
+    /** A test from the rule editor, or a message sent by hand. */
+    kind: v.optional(v.union(v.literal("test"), v.literal("manual"))),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_rule", ["ruleId"]),
 });

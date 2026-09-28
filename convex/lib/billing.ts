@@ -28,7 +28,8 @@ export type BillingSource =
   | "human"
   | "follow_up"
   | "campaign"
-  | "system";
+  | "system"
+  | "notification";
 
 export const MESSAGE_CATEGORIES: MessageCategory[] = [
   "service",
@@ -58,6 +59,7 @@ export const SOURCE_LABELS: Record<BillingSource, string> = {
   follow_up: "Follow-up desk",
   campaign: "Campaign",
   system: "Platform",
+  notification: "Notification",
 };
 
 // --- Money ----------------------------------------------------------------

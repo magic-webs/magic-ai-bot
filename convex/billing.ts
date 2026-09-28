@@ -29,7 +29,8 @@ const sourceValidator = v.union(
   v.literal("human"),
   v.literal("follow_up"),
   v.literal("campaign"),
-  v.literal("system")
+  v.literal("system"),
+  v.literal("notification")
 );
 
 // ---------------------------------------------------------------------------

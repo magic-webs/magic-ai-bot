@@ -253,6 +253,77 @@ http.route({
   }),
 });
 
+// --- Incoming webhooks for alerts --------------------------------------------
+//
+//   https://<deployment>.convex.site/notify/<inboundKey>
+//
+// Another system — a website form, a payment gateway, a booking tool — posts
+// here and the alert that owns the key sends its template. The key is the
+// credential, as a channel's is: unguessable, one per alert, and rotated from
+// the app when it leaks.
+
+const MAX_INBOUND_BYTES = 64_000;
+
+function inboundResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+http.route({
+  pathPrefix: "/notify/",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const key = url.pathname.replace(/^\/notify\//, "").replace(/\/+$/, "");
+    if (!key || key.includes("/")) {
+      return inboundResponse(404, { ok: false, error: "Not found." });
+    }
+
+    const text = await request.text();
+    if (text.length > MAX_INBOUND_BYTES) {
+      return inboundResponse(413, { ok: false, error: "Body too large." });
+    }
+
+    // JSON is what nearly everything sends; form posts are what website
+    // builders send. Anything else is refused rather than guessed at.
+    let body: unknown = {};
+    const type = request.headers.get("content-type") ?? "";
+    if (type.includes("application/x-www-form-urlencoded")) {
+      body = Object.fromEntries(new URLSearchParams(text));
+    } else if (text.trim()) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return inboundResponse(400, { ok: false, error: "Send JSON or a form post." });
+      }
+    }
+    // Placeholders address fields by name, so the payload has to be an object.
+    const data: Record<string, unknown> =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? { ...(body as Record<string, unknown>) }
+        : Array.isArray(body)
+          ? { items: body }
+          : { value: body };
+    const query = Object.fromEntries(url.searchParams);
+    if (Object.keys(query).length > 0) data.query = query;
+
+    const status = await ctx.runMutation(internal.notifications.acceptInbound, {
+      inboundKey: key,
+      payload: JSON.stringify(data),
+    });
+    if (status === "unknown") {
+      return inboundResponse(404, { ok: false, error: "No alert has this address." });
+    }
+    return inboundResponse(status === "queued" ? 202 : 200, {
+      ok: true,
+      queued: status === "queued",
+      ...(status === "disabled" ? { reason: "The alert is switched off." } : {}),
+    });
+  }),
+});
+
 http.route({
   pathPrefix: "/integrations/google/",
   method: "POST",

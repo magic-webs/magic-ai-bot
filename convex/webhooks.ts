@@ -10,6 +10,7 @@ import {
   requireWorkspace,
 } from "./lib/auth";
 import { postWebhook } from "./lib/webhookDelivery";
+import { isNotificationEvent } from "./lib/notifications";
 
 const MAX_PAYLOAD_LOG = 8000;
 
@@ -102,6 +103,19 @@ export const deliver = internalAction({
         workspaceId: args.workspaceId,
         event: args.event,
         data: args.data,
+      });
+    }
+
+    /* Alerts next, for the same reason push comes before the URL check — and
+       regardless of `push`: a customer told their site visit is booked should
+       be told whether an agent booked it or the team did. Scheduled, so a
+       slow WhatsApp or mail provider cannot hold up this delivery either. */
+    if (isNotificationEvent(args.event)) {
+      await ctx.scheduler.runAfter(0, internal.notificationsSend.dispatch, {
+        workspaceId: args.workspaceId,
+        event: args.event,
+        data: args.data,
+        recordBookId: args.recordBookId,
       });
     }
 
