@@ -587,37 +587,65 @@ export const revokeMcpToken = action({
 });
 
 /**
- * The administrator's own connector.
+ * The administrator's own connectors.
  *
- * Unlike a workspace's, this one reaches every tenant and unlocks the platform
- * tools — so it is issued to the administrator asking for it, not to a
- * workspace, and each admin holds at most one.
+ * Unlike a workspace's, these reach every tenant and unlock the platform tools
+ * — so they are issued to the administrator asking, not to a workspace. An
+ * admin can hold several, one per assistant they plug in, each with its own
+ * name and its own URL: rotating or revoking one leaves the others working.
  */
 export const issueAdminMcpToken = action({
-  args: {},
-  handler: async (ctx): Promise<{ token: string; prefix: string }> => {
+  args: { name: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ token: string; prefix: string; tokenId: Id<"adminMcpTokens"> }> => {
     const { adminId } = await ctx.runQuery(internal.authDb.assertAdmin, {});
 
     const token = randomToken(MCP_TOKEN_BYTES);
     const prefix = token.slice(0, MCP_PREFIX_CHARS);
 
-    await ctx.runMutation(internal.authDb.setAdminMcpToken, {
+    const tokenId: Id<"adminMcpTokens"> = await ctx.runMutation(
+      internal.authDb.addAdminMcpToken,
+      {
+        adminId,
+        name: args.name,
+        tokenHash: await sha256Hex(token),
+        prefix,
+      }
+    );
+
+    // Returned once, like the workspace one. Only the hash is kept.
+    return { token, prefix, tokenId };
+  },
+});
+
+/** A new URL for one of this administrator's connectors. */
+export const rotateAdminMcpToken = action({
+  args: { tokenId: v.id("adminMcpTokens") },
+  handler: async (ctx, args): Promise<{ token: string; prefix: string }> => {
+    const { adminId } = await ctx.runQuery(internal.authDb.assertAdmin, {});
+
+    const token = randomToken(MCP_TOKEN_BYTES);
+    const prefix = token.slice(0, MCP_PREFIX_CHARS);
+
+    await ctx.runMutation(internal.authDb.rotateAdminMcpToken, {
       adminId,
+      tokenId: args.tokenId,
       tokenHash: await sha256Hex(token),
       prefix,
     });
-
-    // Returned once, like the workspace one. Only the hash is kept.
     return { token, prefix };
   },
 });
 
 export const revokeAdminMcpToken = action({
-  args: {},
-  handler: async (ctx): Promise<{ removed: boolean }> => {
+  args: { tokenId: v.id("adminMcpTokens") },
+  handler: async (ctx, args): Promise<{ removed: boolean }> => {
     const { adminId } = await ctx.runQuery(internal.authDb.assertAdmin, {});
-    return await ctx.runMutation(internal.authDb.clearAdminMcpToken, {
+    return await ctx.runMutation(internal.authDb.removeAdminMcpToken, {
       adminId,
+      tokenId: args.tokenId,
     });
   },
 });
@@ -655,6 +683,7 @@ export const mcpLogin = action({
       tokenId: Id<"adminMcpTokens">;
       adminId: Id<"admins">;
       label: string;
+      connectorName: string;
     } | null = await ctx.runQuery(internal.authDb.adminByMcpTokenHash, {
       tokenHash,
     });
@@ -669,7 +698,9 @@ export const mcpLogin = action({
       return {
         ...session,
         role: "admin",
-        label: asAdmin.label,
+        // Which connector, too: an admin with several can then tell from
+        // whoami which of their URLs an assistant is holding.
+        label: `${asAdmin.label} · ${asAdmin.connectorName}`,
         workspaceSlug: null,
       };
     }

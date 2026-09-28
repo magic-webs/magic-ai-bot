@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,20 +28,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import {
   ArrowsClockwiseIcon,
   CopyIcon,
   PlugsConnectedIcon,
+  PlusIcon,
   TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 
 /**
- * What an assistant holding *this* connector can do.
+ * What an assistant holding one of *these* connectors can do.
  *
  * The workspace card leaves the platform tools out, because a company's token
  * is refused for them. Here they are the point, so they lead.
@@ -119,49 +119,20 @@ const TOOL_GROUPS = [
       "usage_summary",
     ],
   },
+  {
+    group: "Leads",
+    tools: [
+      "list_lead_stages",
+      "seed_default_lead_stages",
+      "create_lead_stage",
+      "update_lead_stage",
+      "reorder_lead_stages",
+      "delete_lead_stage",
+      "list_leads",
+      "set_lead_stage",
+    ],
+  },
 ];
-
-/** Three short steps. Deliberately not prose: this is a form to fill in. */
-function Steps({ items, note }: { items: string[]; note?: string }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ol>
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
-    </div>
-  );
-}
-
-/** A copyable command. */
-function Snippet({ label, code }: { label: string; code: string }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <Label>{label}</Label>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(code);
-              toast.add({ title: "Copied", type: "success" });
-            } catch {
-              toast.add({ title: "Copy failed", type: "error" });
-            }
-          }}
-        >
-          <CopyIcon /> Copy
-        </Button>
-      </div>
-      <pre className="overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">
-        {code}
-      </pre>
-    </div>
-  );
-}
 
 function when(timestamp: number | null): string {
   if (!timestamp) return "never";
@@ -172,48 +143,192 @@ function when(timestamp: number | null): string {
   }
 }
 
+async function copy(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.add({ title: `${what} copied`, type: "success" });
+  } catch {
+    toast.add({
+      title: "Copy failed",
+      description: "Select the text and copy it manually.",
+      type: "error",
+    });
+  }
+}
+
+function fail(title: string, error: unknown) {
+  toast.add({
+    title,
+    description: error instanceof Error ? error.message : String(error),
+    type: "error",
+  });
+}
+
+type Connector = {
+  id: Id<"adminMcpTokens">;
+  name: string;
+  prefix: string;
+  issuedAt: number;
+  lastUsedAt: number | null;
+};
+
+/** One connection: its name, which token is live, and what to do with it. */
+function ConnectorRow({
+  connector,
+  busy,
+  onRotate,
+  onRevoke,
+}: {
+  connector: Connector;
+  busy: boolean;
+  onRotate: () => void;
+  onRevoke: () => Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-center gap-2">
+          <PlugsConnectedIcon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate font-medium">{connector.name}</span>
+        </p>
+        <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+          <span className="font-mono">{connector.prefix}…</span>
+          <span>Created {when(connector.issuedAt)}</span>
+          <span>
+            {connector.lastUsedAt
+              ? `Last used ${when(connector.lastUsedAt)}`
+              : "Never used"}
+          </span>
+        </p>
+      </div>
+
+      <div className="flex shrink-0 gap-1">
+        <Button size="sm" variant="outline" disabled={busy} onClick={onRotate}>
+          {busy ? <Spinner /> : <ArrowsClockwiseIcon />} Rotate
+        </Button>
+
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button size="sm" variant="ghost" disabled={busy}>
+                <TrashIcon /> Revoke
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revoke “{connector.name}”?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Its URL stops working at once and the assistant using it loses
+                access to the platform. Your other connectors keep working, and
+                nothing else changes.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                render={<Button variant="ghost">Cancel</Button>}
+              />
+              <AlertDialogAction
+                render={
+                  <Button variant="destructive" onClick={() => void onRevoke()}>
+                    Revoke
+                  </Button>
+                }
+              />
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </div>
+  );
+}
+
 /**
- * The administrator's own MCP connector.
+ * The administrator's own MCP connectors.
  *
- * One URL, which is itself the credential: a connector form — claude.ai's,
+ * Each is one URL, which is itself the credential: a connector form — claude.ai's,
  * ChatGPT's — has a URL field and nowhere to put a header, so the token lives
  * in the path. Everything here follows from that: it is shown once, only its
  * hash is stored, and rotating stops the old URL working immediately.
  *
- * It signs in as *you*, so it carries administrator rights across every
- * workspace — which is the whole point, and also the thing to be careful with.
- * A company's own connector is a separate token, issued from their workspace
- * settings, and reaches only them.
+ * One per assistant, each with a name. Handing claude.ai and Claude Code the
+ * same URL meant rotating one rotated both; separate connectors can be
+ * rotated, revoked and recognised on their own.
+ *
+ * Every one of them signs in as *you*, so it carries administrator rights
+ * across every workspace — which is the whole point, and also the thing to be
+ * careful with. A company's own connector is a separate token, issued from
+ * their workspace settings, and reaches only them.
  */
 export default function AdminMcpPage() {
-  const connector = useQuery(api.authDb.adminMcpConnector, {});
+  const connectors = useQuery(api.authDb.adminMcpConnectors, {});
   const issue = useAction(api.auth.issueAdminMcpToken);
+  const rotate = useAction(api.auth.rotateAdminMcpToken);
   const revoke = useAction(api.auth.revokeAdminMcpToken);
 
-  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+  const [adding, setAdding] = useState(false);
+  // Which connector a rotate is in flight for.
+  const [rotating, setRotating] = useState<Id<"adminMcpTokens"> | null>(null);
   // Held in memory for this visit only: there is nowhere to read it back from.
-  const [freshUrl, setFreshUrl] = useState<string | null>(null);
+  const [fresh, setFresh] = useState<{
+    id: Id<"adminMcpTokens">;
+    name: string;
+    url: string;
+  } | null>(null);
 
-  const generate = async () => {
-    setBusy(true);
+  const urlFor = (token: string) => `${window.location.origin}/api/mcp/${token}`;
+
+  const add = async () => {
+    const wanted = name.trim();
+    if (!wanted || adding) return;
+    setAdding(true);
     try {
-      const result = await issue({});
-      setFreshUrl(`${window.location.origin}/api/mcp/${result.token}`);
+      const result = await issue({ name: wanted });
+      setFresh({ id: result.tokenId, name: wanted, url: urlFor(result.token) });
+      setName("");
       toast.add({
-        title: connector ? "Connector rotated" : "Connector created",
-        description: connector
-          ? "The previous URL stopped working immediately."
-          : "Copy the URL now — it is not shown again.",
+        title: `${wanted} added`,
+        description: "Copy the URL now — it is not shown again.",
         type: "success",
       });
     } catch (error) {
-      toast.add({
-        title: "Could not create the connector",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
+      fail("Could not add the connector", error);
     } finally {
-      setBusy(false);
+      setAdding(false);
+    }
+  };
+
+  const rotateOne = async (connector: Connector) => {
+    setRotating(connector.id);
+    try {
+      const result = await rotate({ tokenId: connector.id });
+      setFresh({
+        id: connector.id,
+        name: connector.name,
+        url: urlFor(result.token),
+      });
+      toast.add({
+        title: `${connector.name} rotated`,
+        description: "Its previous URL stopped working immediately.",
+        type: "success",
+      });
+    } catch (error) {
+      fail("Could not rotate the connector", error);
+    } finally {
+      setRotating(null);
+    }
+  };
+
+  const revokeOne = async (connector: Connector) => {
+    try {
+      await revoke({ tokenId: connector.id });
+      // The URL on screen, if it was this one's, is now dead — do not leave
+      // it sitting there looking copyable.
+      if (fresh?.id === connector.id) setFresh(null);
+      toast.add({ title: `${connector.name} revoked`, type: "success" });
+    } catch (error) {
+      fail("Could not revoke the connector", error);
     }
   };
 
@@ -241,33 +356,40 @@ export default function AdminMcpPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PlugsConnectedIcon className="size-4" />
-            Your connector
-            {connector ? <Badge variant="secondary">active</Badge> : null}
+            Your connectors
+            {connectors?.length ? (
+              <Badge variant="secondary">{connectors.length} active</Badge>
+            ) : null}
           </CardTitle>
           <CardDescription>
-            Issued to your administrator account, so it acts with exactly your
-            rights — every workspace, plus the platform tools.
+            One for each assistant you connect, each with its own URL. All of
+            them act with exactly your rights — every workspace, plus the
+            platform tools.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="flex flex-col gap-5">
-          {/* Shown once, right after issuing. A refresh loses it, which is the
-              point: only the hash is stored, so this is the single moment the
-              URL exists anywhere but the clipboard. */}
-          {freshUrl ? (
+          {/* Shown once, right after adding or rotating. A refresh loses it,
+              which is the point: only the hash is stored, so this is the
+              single moment the URL exists anywhere but the clipboard. */}
+          {fresh ? (
             <Alert>
               <WarningIcon />
-              <AlertTitle>Copy this now — it is not shown again</AlertTitle>
+              <AlertTitle>
+                Copy the URL for “{fresh.name}” now — it is not shown again
+              </AlertTitle>
               <AlertDescription className="flex flex-col gap-2">
                 <span>
                   This URL is the credential, and it is the whole platform:
                   anyone holding it can create, suspend and delete any
-                  workspace. Paste it into your assistant and nowhere else.
+                  workspace. Paste it into that assistant and nowhere else. It
+                  has to be reached from the internet — no assistant will
+                  connect to <span className="font-mono">localhost</span>.
                 </span>
                 <div className="flex w-full gap-2">
                   <Input
                     readOnly
-                    value={freshUrl}
+                    value={fresh.url}
                     className="font-mono text-xs"
                     onFocus={(event) => event.currentTarget.select()}
                   />
@@ -275,18 +397,7 @@ export default function AdminMcpPage() {
                     size="icon-lg"
                     variant="outline"
                     aria-label="Copy the connector URL"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(freshUrl);
-                        toast.add({ title: "URL copied", type: "success" });
-                      } catch {
-                        toast.add({
-                          title: "Copy failed",
-                          description: "Select the text and copy it manually.",
-                          type: "error",
-                        });
-                      }
-                    }}
+                    onClick={() => void copy(fresh.url, "URL")}
                   >
                     <CopyIcon />
                   </Button>
@@ -295,162 +406,54 @@ export default function AdminMcpPage() {
             </Alert>
           ) : null}
 
-          {connector === undefined ? (
-            <Spinner />
-          ) : connector === null ? (
-            <div className="flex flex-col items-start gap-2">
-              <p className="text-sm text-muted-foreground">No connector yet.</p>
-              <Button onClick={() => void generate()} disabled={busy}>
-                {busy ? <Spinner /> : <PlugsConnectedIcon />} Create the
-                connector
+          {/* ------------------------------------------------------ add one */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="connector-name">Add a connector</Label>
+            <div className="flex gap-2">
+              <Input
+                id="connector-name"
+                value={name}
+                maxLength={60}
+                placeholder="Name it for where it goes, e.g. Claude.ai or Claude Code"
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void add();
+                }}
+              />
+              <Button
+                onClick={() => void add()}
+                disabled={adding || !name.trim()}
+              >
+                {adding ? <Spinner /> : <PlusIcon />} Add
               </Button>
             </div>
+          </div>
+
+          {/* --------------------------------------------------- the list */}
+          {connectors === undefined ? (
+            <Spinner />
+          ) : connectors.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              No connectors yet. Add one above for each assistant you want to
+              give access to.
+            </p>
           ) : (
-            <div className="flex flex-col gap-3">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs text-muted-foreground">Token</Label>
-                  <p className="font-mono text-sm">{connector.prefix}…</p>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Created
-                  </Label>
-                  <p className="text-sm">{when(connector.issuedAt)}</p>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Last used
-                  </Label>
-                  <p className="text-sm">{when(connector.lastUsedAt)}</p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => void generate()}
-                  disabled={busy}
-                >
-                  {busy ? <Spinner /> : <ArrowsClockwiseIcon />} Rotate
-                </Button>
-
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={
-                      <Button variant="ghost">
-                        <TrashIcon /> Revoke
-                      </Button>
-                    }
-                  />
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        Revoke your connector?
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        The URL stops working at once and any assistant using it
-                        loses access to the platform. Nothing else changes — no
-                        workspace, and no other administrator&apos;s connector.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel
-                        render={<Button variant="ghost">Cancel</Button>}
-                      />
-                      <AlertDialogAction
-                        render={
-                          <Button
-                            variant="destructive"
-                            onClick={async () => {
-                              await revoke({});
-                              setFreshUrl(null);
-                              toast.add({
-                                title: "Connector revoked",
-                                type: "success",
-                              });
-                            }}
-                          >
-                            Revoke
-                          </Button>
-                        }
-                      />
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-
+            <div className="flex flex-col gap-2">
+              {connectors.map((connector) => (
+                <ConnectorRow
+                  key={connector.id}
+                  connector={connector}
+                  busy={rotating === connector.id}
+                  onRotate={() => void rotateOne(connector)}
+                  onRevoke={() => revokeOne(connector)}
+                />
+              ))}
               <p className="text-xs text-muted-foreground">
-                Lost the URL? It cannot be read back — only the hash is stored.
-                Rotate to get a new one.
+                Lost a URL? It cannot be read back — only the hash is stored.
+                Rotate that connector to get a new one.
               </p>
             </div>
           )}
-
-          <Separator />
-
-          <div className="flex flex-col gap-2">
-            <Label>Where are you adding it?</Label>
-            <Tabs defaultValue="claude">
-              <TabsList className="w-full">
-                <TabsTrigger value="claude">Claude.ai</TabsTrigger>
-                <TabsTrigger value="chatgpt">ChatGPT</TabsTrigger>
-                <TabsTrigger value="code">Claude Code</TabsTrigger>
-                <TabsTrigger value="other">Other</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="claude" className="pt-3">
-                <Steps
-                  items={[
-                    "Customize → Connectors → “+” → Add custom connector.",
-                    "Paste the URL. Leave the OAuth fields under Advanced empty — the token in the URL is the credential.",
-                    "Add, then enable it in a new chat and ask “list my workspaces”.",
-                  ]}
-                  note="On Team and Enterprise an Owner adds it under Organization settings → Connectors first, and members then enable it — which, for an administrator's connector, hands the whole platform to whoever that includes."
-                />
-              </TabsContent>
-
-              <TabsContent value="chatgpt" className="pt-3">
-                <Steps
-                  items={[
-                    "Settings → Connectors → Create.",
-                    "Name it, keep Connection on “Server URL”, and paste the URL.",
-                    "Leave Authentication on “No Auth”, tick the risk acknowledgement, then Create.",
-                  ]}
-                  note="This endpoint speaks Streamable HTTP, the current MCP transport, and also opens an event stream on GET."
-                />
-              </TabsContent>
-
-              <TabsContent value="code" className="pt-3">
-                <Snippet
-                  label="Run this once"
-                  code={`claude mcp add --transport http magic-agent ${
-                    freshUrl ?? "<your connector URL>"
-                  }`}
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Add <span className="font-mono">--scope user</span> to reach it
-                  from every project rather than this one.
-                </p>
-              </TabsContent>
-
-              <TabsContent value="other" className="pt-3">
-                <Steps
-                  items={[
-                    "Add it as a remote MCP server over Streamable HTTP.",
-                    "No headers and no OAuth: the token in the path is the whole credential.",
-                    "POST carries the calls; GET opens the event stream.",
-                  ]}
-                />
-              </TabsContent>
-            </Tabs>
-
-            <p className="text-xs text-muted-foreground">
-              The assistant reaches this URL from its own servers, so it has to
-              be a public address — no connector will reach{" "}
-              <span className="font-mono">localhost</span>.
-            </p>
-          </div>
         </CardContent>
       </Card>
 

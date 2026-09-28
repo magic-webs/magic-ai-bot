@@ -439,9 +439,17 @@ export default defineSchema({
   // missing field away from being read as a tenant's.
   //
   // Per administrator, not per deployment: revoking one person's connector must
-  // not cut off everybody else's.
+  // not cut off everybody else's. And several per administrator, each named
+  // for where it is plugged in — "Claude.ai", "Claude Code on the laptop" — so
+  // one assistant's URL can be rotated or revoked without breaking the rest.
   adminMcpTokens: defineTable({
     adminId: v.id("admins"),
+    /**
+     * What this connection is, in the administrator's words. Optional because
+     * the single connector each admin had before naming existed has none; the
+     * page shows those as "Connector".
+     */
+    name: v.optional(v.string()),
     tokenHash: v.string(),
     prefix: v.string(),
     issuedAt: v.number(),

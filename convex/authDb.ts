@@ -257,27 +257,48 @@ export const touchMcpToken = internalMutation({
 });
 
 // ---------------------------------------------------------------------------
-// The administrator's own connector. Same shape as above, keyed by the admin
-// rather than a workspace, and only ever read by the admin it belongs to.
+// The administrator's own connectors. Same shape as above, keyed by the admin
+// rather than a workspace, and only ever read by the admin they belong to.
+// Several per administrator, each named for the assistant it is plugged into.
 // ---------------------------------------------------------------------------
 
-/** The signed-in administrator's connector, or null if they have not made one. */
-export const adminMcpConnector = query({
+/** Enough for everywhere one person plugs in, few enough to keep track of. */
+const MAX_ADMIN_CONNECTORS = 20;
+
+/** Shown for the one connector each admin had before connectors had names. */
+const UNNAMED_CONNECTOR = "Connector";
+
+/** The signed-in administrator's connectors, newest first. */
+export const adminMcpConnectors = query({
   args: {},
   handler: async (ctx) => {
     const principal = await requireAdmin(ctx);
-    const row = await ctx.db
+    const rows = await ctx.db
       .query("adminMcpTokens")
       .withIndex("by_admin", (q) => q.eq("adminId", principal.adminId))
-      .unique();
-    if (!row) return null;
-    return {
-      prefix: row.prefix,
-      issuedAt: row.issuedAt,
-      lastUsedAt: row.lastUsedAt ?? null,
-    };
+      .take(MAX_ADMIN_CONNECTORS + 5);
+    return rows
+      .sort((a, b) => b.issuedAt - a.issuedAt)
+      .map((row) => ({
+        id: row._id,
+        name: row.name?.trim() || UNNAMED_CONNECTOR,
+        prefix: row.prefix,
+        issuedAt: row.issuedAt,
+        lastUsedAt: row.lastUsedAt ?? null,
+      }));
   },
 });
+
+/** A connector of this administrator's, or an error — never someone else's. */
+async function ownConnector(
+  ctx: MutationCtx,
+  adminId: Id<"admins">,
+  tokenId: Id<"adminMcpTokens">
+) {
+  const row = await ctx.db.get("adminMcpTokens", tokenId);
+  if (!row || row.adminId !== adminId) throw new Error("Connector not found.");
+  return row;
+}
 
 /** Resolves an admin connector token to its administrator. */
 export const adminByMcpTokenHash = internalQuery({
@@ -296,43 +317,86 @@ export const adminByMcpTokenHash = internalQuery({
       tokenId: row._id,
       adminId: row.adminId,
       label: admin.name?.trim() || admin.email,
+      connectorName: row.name?.trim() || UNNAMED_CONNECTOR,
     };
   },
 });
 
-/** One token per administrator: issuing replaces whatever was there. */
-export const setAdminMcpToken = internalMutation({
+/**
+ * A new, named connector alongside the administrator's others.
+ *
+ * Names are unique per administrator, ignoring case: they are how a person
+ * tells "Claude.ai" from "Claude Code" when deciding which one to revoke, and
+ * two called the same defeats that.
+ */
+export const addAdminMcpToken = internalMutation({
   args: {
     adminId: v.id("admins"),
+    name: v.string(),
     tokenHash: v.string(),
     prefix: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"adminMcpTokens">> => {
+    const name = args.name.trim().replace(/\s+/g, " ").slice(0, 60);
+    if (!name) throw new Error("Give the connector a name, e.g. Claude.ai.");
+
     const existing = await ctx.db
       .query("adminMcpTokens")
       .withIndex("by_admin", (q) => q.eq("adminId", args.adminId))
-      .unique();
-    if (existing) await ctx.db.delete(existing._id);
+      .take(MAX_ADMIN_CONNECTORS + 5);
+    if (existing.length >= MAX_ADMIN_CONNECTORS) {
+      throw new Error(
+        `You already have ${MAX_ADMIN_CONNECTORS} connectors. Revoke one you no longer use first.`
+      );
+    }
+    const taken = existing.some(
+      (row) =>
+        (row.name?.trim() || UNNAMED_CONNECTOR).toLowerCase() ===
+        name.toLowerCase()
+    );
+    if (taken) {
+      throw new Error(
+        `You already have a connector called "${name}". Rotate that one, or pick another name.`
+      );
+    }
 
-    await ctx.db.insert("adminMcpTokens", {
+    return await ctx.db.insert("adminMcpTokens", {
       adminId: args.adminId,
+      name,
       tokenHash: args.tokenHash,
       prefix: args.prefix,
       issuedAt: Date.now(),
     });
-    return { success: true };
   },
 });
 
-export const clearAdminMcpToken = internalMutation({
-  args: { adminId: v.id("admins") },
+/** A new URL for one connector. The old one stops working with this write. */
+export const rotateAdminMcpToken = internalMutation({
+  args: {
+    adminId: v.id("admins"),
+    tokenId: v.id("adminMcpTokens"),
+    tokenHash: v.string(),
+    prefix: v.string(),
+  },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("adminMcpTokens")
-      .withIndex("by_admin", (q) => q.eq("adminId", args.adminId))
-      .unique();
-    if (existing) await ctx.db.delete(existing._id);
-    return { removed: Boolean(existing) };
+    const row = await ownConnector(ctx, args.adminId, args.tokenId);
+    await ctx.db.patch("adminMcpTokens", row._id, {
+      tokenHash: args.tokenHash,
+      prefix: args.prefix,
+      issuedAt: Date.now(),
+      // A fresh URL has not been used by anything yet.
+      lastUsedAt: undefined,
+    });
+    return { name: row.name?.trim() || UNNAMED_CONNECTOR };
+  },
+});
+
+export const removeAdminMcpToken = internalMutation({
+  args: { adminId: v.id("admins"), tokenId: v.id("adminMcpTokens") },
+  handler: async (ctx, args) => {
+    const row = await ownConnector(ctx, args.adminId, args.tokenId);
+    await ctx.db.delete("adminMcpTokens", row._id);
+    return { removed: true };
   },
 });
 
