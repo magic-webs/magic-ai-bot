@@ -1534,9 +1534,21 @@ function buildAppTools(
             known
           );
           const ref = randomKey(24);
+          // The number the customer is chatting from, saved by Magic Forms on
+          // every response through this link — whether or not the form asks
+          // for a phone. Only on WhatsApp, where the external id is the
+          // number; a web visitor has none to give.
+          const whatsapp =
+            turn.channelType === "whatsapp"
+              ? formatPhone(turn.externalId)
+              : undefined;
           const path = `/api/v1/links/form/${encodeURIComponent(connection.account.slug)}/${encodeURIComponent(item.key)}`;
 
-          let link = await callApp(connection, "POST", path, { data: prefill, ref });
+          let link = await callApp(connection, "POST", path, {
+            data: prefill,
+            ref,
+            whatsapp,
+          });
           // The app refuses the whole link over one answer it does not like.
           // A blank form still beats no form, so ask once more without them.
           if (
@@ -1544,7 +1556,11 @@ function buildAppTools(
             (link.status === 400 || link.status === 422) &&
             Object.keys(prefill).length > 0
           ) {
-            link = await callApp(connection, "POST", path, { data: {}, ref });
+            link = await callApp(connection, "POST", path, {
+              data: {},
+              ref,
+              whatsapp,
+            });
           }
           if (!link.ok) {
             if (link.status === 404) {
