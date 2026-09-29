@@ -913,6 +913,119 @@ export default defineSchema({
   }).index("by_state", ["state"]),
 
   // -------------------------------------------------------------------------
+  // Magic apps — Magic Forms and Magic Reward, connected by API key.
+  //
+  // A table of their own rather than more rows in integrationConnections,
+  // which is shaped around a Google grant: these have an API key instead of a
+  // refresh token, a webhook registered on the other side, and a copy of the
+  // account's forms or offers for the tool to offer. See convex/lib/apps.ts
+  // for the whole round trip.
+  // -------------------------------------------------------------------------
+  appConnections: defineTable({
+    workspaceId: v.id("workspaces"),
+    app: v.union(v.literal("magic_forms"), v.literal("magic_reward")),
+    /** The app's own API key. Never returned to the browser. */
+    apiKey: v.string(),
+    /**
+     * The app's API base, read from its env var when connecting. Kept on the
+     * row so the webhook registered there can still be removed after the env
+     * var has moved on.
+     */
+    baseUrl: v.string(),
+    /** The workspace or company the key belongs to. */
+    account: v.object({ id: v.string(), name: v.string(), slug: v.string() }),
+    /** The unguessable path key of `/apps/<inboundKey>`, where results arrive. */
+    inboundKey: v.string(),
+    /** Signs every delivery; handed back when the webhook was registered. */
+    webhookSecret: v.string(),
+    /** So disconnecting can remove the webhook it registered. */
+    remoteWebhookId: v.optional(v.string()),
+    /** The forms or offers an agent may send. Bounded by MAX_APP_ITEMS. */
+    items: v.array(
+      v.object({
+        id: v.string(),
+        key: v.string(),
+        title: v.string(),
+        description: v.optional(v.string()),
+        url: v.optional(v.string()),
+        kind: v.optional(v.string()),
+        prefill: v.optional(
+          v.array(
+            v.object({
+              key: v.string(),
+              label: v.string(),
+              type: v.string(),
+              required: v.boolean(),
+              multiple: v.boolean(),
+              options: v.optional(
+                v.array(v.object({ label: v.string(), value: v.string() }))
+              ),
+            })
+          )
+        ),
+        prizes: v.optional(
+          v.array(v.object({ label: v.string(), isWin: v.boolean() }))
+        ),
+      })
+    ),
+    /**
+     * Whether a result coming back wakes the agent to answer it. Off, it is
+     * still written into the thread — for the team, and for the agent's next
+     * turn — but nothing is sent to the customer.
+     */
+    replyOnResult: v.boolean(),
+    status: v.union(v.literal("connected"), v.literal("error")),
+    lastError: v.optional(v.string()),
+    sentCount: v.number(),
+    resultCount: v.number(),
+    lastResultAt: v.optional(v.number()),
+    syncedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_app", ["workspaceId", "app"])
+    .index("by_inboundKey", ["inboundKey"]),
+
+  /**
+   * One link an agent sent, and the ref that ties its result back.
+   *
+   * The ref is the only thing that crosses to the app. It is minted here, it
+   * means nothing there, and a result carrying one that is not in this table
+   * is dropped — so a form filled from a link posted on a website, which has
+   * no ref, never lands in somebody's conversation by accident.
+   */
+  appLinks: defineTable({
+    workspaceId: v.id("workspaces"),
+    connectionId: v.id("appConnections"),
+    app: v.union(v.literal("magic_forms"), v.literal("magic_reward")),
+    ref: v.string(),
+    conversationId: v.id("conversations"),
+    contactId: v.id("contacts"),
+    agentId: v.optional(v.id("agents")),
+    itemKey: v.string(),
+    itemTitle: v.string(),
+    url: v.string(),
+    resultCount: v.number(),
+    lastResultAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_ref", ["ref"])
+    .index("by_conversation", ["conversationId"]),
+
+  /**
+   * Deliveries already acted on. Both apps retry, and a retried submission
+   * must not become a second customer turn and a second reply.
+   */
+  appDeliveries: defineTable({
+    connectionId: v.id("appConnections"),
+    deliveryId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_connection_delivery", ["connectionId", "deliveryId"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // -------------------------------------------------------------------------
   // Orders — captured by the create_order tool.
   // -------------------------------------------------------------------------
   orders: defineTable({

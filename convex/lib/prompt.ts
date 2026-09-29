@@ -141,6 +141,10 @@ export function compileSystemPrompt(opts: {
   // Whether this agent can actually send a picture or a link button. Without
   // it, "use send_media instead" is advice it cannot take.
   const sendsMedia = (opts.toolNames ?? []).includes("send_media");
+  // The Magic apps' tools. Their results come back as the customer's own turn,
+  // which the model has to be told how to read.
+  const sendsForms = (opts.toolNames ?? []).includes("send_form");
+  const sendsOffers = (opts.toolNames ?? []).includes("send_offer");
   // Whether it can reach a price at all. Same reasoning as sendsMedia: the
   // pricing rules are worth their space only for an agent with a catalogue
   // behind it.
@@ -290,6 +294,12 @@ export function compileSystemPrompt(opts: {
           : null,
         sendsMedia
           ? "- When the customer asks for a link, a page, a form, a catalogue or your website, send it with send_link_button. Do not answer that you cannot, and do not describe where to find it."
+          : null,
+        sendsForms
+          ? "- When the customer needs one of the company's forms, send it with send_form rather than a link button or a list of questions — the answers come back to you, and they do not with a plain link."
+          : null,
+        sendsForms || sendsOffers
+          ? '- A customer message that starts with "[Form submitted" or "[Played the offer" was not typed by them: it is what they did on the page you sent. Reply to it as that — thank them, confirm what they gave or what they won, and say what happens next. Never ask them to fill it in or play it again.'
           : null,
         routes
           ? '- transfer_to_agent and escalate_to_human are not the same thing. transfer_to_agent moves the conversation to an AI colleague, silently and immediately; escalate_to_human pulls in a person. If a colleague listed under "Your team" covers the request, transfer — do not escalate, and do not answer around it.'

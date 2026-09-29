@@ -11,6 +11,7 @@
 import type * as agents from "../agents.js";
 import type * as ai from "../ai.js";
 import type * as analytics from "../analytics.js";
+import type * as apps from "../apps.js";
 import type * as assistant from "../assistant.js";
 import type * as assistantDb from "../assistantDb.js";
 import type * as auth from "../auth.js";
@@ -29,6 +30,9 @@ import type * as integrations from "../integrations.js";
 import type * as knowledge from "../knowledge.js";
 import type * as leads from "../leads.js";
 import type * as lib_agentTemplates from "../lib/agentTemplates.js";
+import type * as lib_appClient from "../lib/appClient.js";
+import type * as lib_appWebhooks from "../lib/appWebhooks.js";
+import type * as lib_apps from "../lib/apps.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_billing from "../lib/billing.js";
 import type * as lib_branding from "../lib/branding.js";
@@ -75,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   agents: typeof agents;
   ai: typeof ai;
   analytics: typeof analytics;
+  apps: typeof apps;
   assistant: typeof assistant;
   assistantDb: typeof assistantDb;
   auth: typeof auth;
@@ -93,6 +98,9 @@ declare const fullApi: ApiFromModules<{
   knowledge: typeof knowledge;
   leads: typeof leads;
   "lib/agentTemplates": typeof lib_agentTemplates;
+  "lib/appClient": typeof lib_appClient;
+  "lib/appWebhooks": typeof lib_appWebhooks;
+  "lib/apps": typeof lib_apps;
   "lib/auth": typeof lib_auth;
   "lib/billing": typeof lib_billing;
   "lib/branding": typeof lib_branding;

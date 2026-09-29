@@ -69,4 +69,13 @@ crons.interval(
   {}
 );
 
+// Both apps finish retrying a webhook within minutes, so a delivery id only
+// has to be remembered for long enough to refuse the retry.
+crons.interval(
+  "prune app delivery log",
+  { hours: 6 },
+  internal.apps.pruneDeliveries,
+  {}
+);
+
 export default crons;

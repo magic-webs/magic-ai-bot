@@ -9,12 +9,17 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { BUILTIN_TOOLS } from "@/convex/lib/shared";
 import { recordToolNames } from "@/convex/lib/records";
 import { INTEGRATIONS } from "@/convex/lib/integrations";
+import { APPS } from "@/convex/lib/apps";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
   GoogleCalendarIcon,
   GoogleDriveIcon,
   GoogleSheetsIcon,
 } from "@/components/integrations/google-icons";
+import {
+  MagicFormsIcon,
+  MagicRewardIcon,
+} from "@/components/integrations/app-icons";
 import { ChipListEditor, StringListEditor } from "@/components/editors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +80,8 @@ const INTEGRATION_ICONS: Record<
   google_sheets: GoogleSheetsIcon,
   google_calendar: GoogleCalendarIcon,
   google_drive: GoogleDriveIcon,
+  magic_forms: MagicFormsIcon,
+  magic_reward: MagicRewardIcon,
 };
 
 // Slider reports either a scalar or a tuple depending on how it is driven.
@@ -156,6 +163,9 @@ export default function AgentConfigPage({
   const removeAgent = useMutation(api.agents.remove);
 
   const recordBooks = useQuery(api.records.listBooks, {
+    workspaceId: workspace._id,
+  });
+  const appConnections = useQuery(api.apps.list, {
     workspaceId: workspace._id,
   });
   // The whole roster, so the heading can double as a switcher. Configuring a
@@ -322,6 +332,11 @@ export default function AgentConfigPage({
   // is edited on the Custom tools page.
   const integrationTools = scopedTools.filter((tool) => tool.integration);
   const scopedCustomTools = scopedTools.filter((tool) => !tool.integration);
+  // A Magic app contributes one tool, built by the engine rather than stored
+  // as a tools row, so it is listed from the connection instead.
+  const connectedApps = APPS.filter((app) =>
+    (appConnections ?? []).some((connection) => connection.app === app.id)
+  );
 
   const isRouter = agent.kind === "router";
 
@@ -1062,15 +1077,16 @@ export default function AgentConfigPage({
               <CardHeader>
                 <CardTitle>Integration tools</CardTitle>
                 <CardDescription>
-                  What connecting Google put in the workspace. Every one is off
-                  until you switch it on here, so a connection never widens
-                  what a live agent can do on its own.
+                  What connecting Google or a Magic app put in the workspace.
+                  Every one is off until you switch it on here, so a
+                  connection never widens what a live agent can do on its own.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {customTools === undefined ? (
+                {customTools === undefined || appConnections === undefined ? (
                   <Spinner />
-                ) : integrationTools.length === 0 ? (
+                ) : integrationTools.length === 0 &&
+                  connectedApps.length === 0 ? (
                   <div className="flex flex-col items-start gap-2">
                     <p className="text-sm text-muted-foreground">
                       Nothing connected yet.
@@ -1081,11 +1097,49 @@ export default function AgentConfigPage({
                       nativeButton={false}
                       render={<Link href={`${base}/integrations`} />}
                     >
-                      <PlugsConnectedIcon /> Connect Sheets, Calendar or Drive
+                      <PlugsConnectedIcon /> Connect Magic Forms, Magic Reward
+                      or Google
                     </Button>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-5">
+                    {connectedApps.map((app) => {
+                      const Icon = INTEGRATION_ICONS[app.id];
+
+                      return (
+                        <div key={app.id} className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            {Icon ? <Icon className="size-5" /> : null}
+                            <p className="text-sm font-medium">{app.name}</p>
+                          </div>
+                          <ItemGroup className="gap-2">
+                            <Item variant="outline">
+                              <ItemContent>
+                                <ItemTitle className="flex flex-wrap items-center gap-2">
+                                  <span className="font-mono">
+                                    {app.toolName}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {app.toolLabel}
+                                  </span>
+                                </ItemTitle>
+                                <ItemDescription>
+                                  {app.toolSummary}
+                                </ItemDescription>
+                              </ItemContent>
+                              <Switch
+                                checked={draft.integrationTools.includes(
+                                  app.toolName
+                                )}
+                                onCheckedChange={() =>
+                                  toggleIntegrationTool(app.toolName)
+                                }
+                              />
+                            </Item>
+                          </ItemGroup>
+                        </div>
+                      );
+                    })}
                     {INTEGRATIONS.map((integration) => {
                       const owned = integrationTools.filter(
                         (tool) => tool.integration === integration.id

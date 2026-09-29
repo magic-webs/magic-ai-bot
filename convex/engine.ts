@@ -28,8 +28,16 @@ import {
 import {
   MAX_HANDOFFS_PER_TURN,
   MAX_WIDGET_MESSAGE_CHARS,
+  randomKey,
   truncate,
 } from "./lib/shared";
+import {
+  BUTTON_TEXT_MAX,
+  buildPrefill,
+  formatPhone,
+  type AppItem,
+} from "./lib/apps";
+import { callApp } from "./lib/appClient";
 import { summarise, type HeaderSpec, type Outbound } from "./lib/whatsappSend";
 import {
   parametersToJsonSchema,
@@ -631,18 +639,27 @@ const ASKS_ITS_OWN_QUESTION = new Set<Outbound["kind"]>([
   "catalog",
 ]);
 
-function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
-  const { workspace, agent, conversationId, channelId, externalId, channelType, trace } =
+const ALREADY_ASKED =
+  "You have already put a question to the customer this turn. They can only answer one, and a second would bury the first — wait for their reply before asking the next thing.";
+
+type Delivered =
+  | { ok: true; note: string }
+  | { ok: false; error: string };
+
+/**
+ * Sends one rich message on the conversation's channel and records it.
+ *
+ * Shared by the rich-message tools and the Magic apps' tools, which end in the
+ * same link button and must obey the same one-question-per-turn rule.
+ */
+function makeDeliver(ctx: ActionCtx, turn: TurnContext) {
+  const { workspace, agent, conversationId, channelId, externalId, channelType } =
     turn;
 
-  const deliver = async (message: Outbound) => {
+  return async (message: Outbound): Promise<Delivered> => {
     if (ASKS_ITS_OWN_QUESTION.has(message.kind)) {
       if (turn.askedThisTurn) {
-        return {
-          ok: false,
-          error:
-            "You have already put a question to the customer this turn. They can only answer one, and a second would bury the first — wait for their reply before asking the next thing.",
-        };
+        return { ok: false, error: ALREADY_ASKED };
       }
       turn.askedThisTurn = true;
       turn.askedBy = agent._id;
@@ -680,6 +697,11 @@ function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
         : "Sent. The customer can see it, so add at most one short line and never describe what is in it.",
     };
   };
+}
+
+function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
+  const { trace } = turn;
+  const deliver = makeDeliver(ctx, turn);
 
   // A header is optional on most of these, and is either a line of text or an
   // image. Shared so the four tools that take one agree on the shape.
@@ -1383,6 +1405,290 @@ function buildRecordTools(
 }
 
 // ---------------------------------------------------------------------------
+// Magic apps
+//
+// `send_form` and `send_offer`, each built only for an agent that has the app
+// switched on and only when the app has something to send. Both end in the
+// same link button as send_link_button — what makes them more than that is
+// the ref: minted here, filed against this conversation, carried by the link,
+// and handed back with the result so it lands in this thread.
+// ---------------------------------------------------------------------------
+
+/** An app's copy of its forms or offers is re-read once it is older than this. */
+const APP_ITEMS_STALE_MS = 30 * 60 * 1000;
+
+function buttonLabel(given: unknown, fallback: string): string {
+  const text = typeof given === "string" ? given.trim() : "";
+  const label = text || fallback;
+  return label.length <= BUTTON_TEXT_MAX
+    ? label
+    : `${label.slice(0, BUTTON_TEXT_MAX - 1)}…`;
+}
+
+function buildAppTools(
+  ctx: ActionCtx,
+  turn: TurnContext,
+  connections: Doc<"appConnections">[]
+): ToolSet {
+  const { trace } = turn;
+  const deliver = makeDeliver(ctx, turn);
+  const registry: ToolSet = {};
+
+  // What the apps prefill from. On WhatsApp the external id is the number
+  // even when the contact row has not stored it yet.
+  const known = {
+    name: turn.contact.name,
+    phone: formatPhone(
+      turn.contact.phone ??
+        (turn.channelType === "whatsapp" ? turn.externalId : undefined)
+    ),
+    email: turn.contact.email,
+    company: turn.contact.company,
+  };
+
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+  for (const connection of connections) {
+    if (connection.items.length === 0) continue;
+
+    const find = (key: unknown): AppItem => {
+      const item = connection.items.find((row) => row.key === String(key ?? ""));
+      if (!item) {
+        throw new Error(
+          `There is no ${connection.app === "magic_forms" ? "form" : "offer"} called "${String(key)}". Use one of: ${connection.items.map((row) => row.key).join(", ")}.`
+        );
+      }
+      return item;
+    };
+
+    const fileLink = async (item: AppItem, ref: string, url: string) =>
+      ctx.runMutation(internal.apps.recordLink, {
+        connectionId: connection._id,
+        ref,
+        conversationId: turn.conversationId,
+        contactId: turn.contactId,
+        agentId: turn.agent._id,
+        itemKey: item.key,
+        itemTitle: item.title,
+        url,
+      });
+
+    if (connection.app === "magic_forms") {
+      const catalogue = connection.items
+        .map((item) => {
+          const fields = (item.prefill ?? [])
+            .slice(0, 12)
+            .map((field) => `${field.key} (${field.label})`)
+            .join(", ");
+          return [
+            `- ${item.key}: ${item.title}`,
+            item.description ? ` — ${item.description}` : "",
+            fields ? `. Can prefill: ${fields}` : "",
+          ].join("");
+        })
+        .join("\n");
+
+      registry.send_form = dynamicTool({
+        description: [
+          "Send the customer one of the company's forms, as a button that opens it. Use it when the customer asks for a form, or has to give details a form collects better than a chat — a booking, an application, a detailed enquiry.",
+          "Their name, number and email are filled in for them where the form asks; put anything else they have already told you in prefill, so they do not type it twice.",
+          'When they submit it, their answers arrive in this conversation as their next message, starting "[Form submitted". Do not ask them to tell you once they are done.',
+          `The forms:\n${catalogue}`,
+        ].join(" "),
+        inputSchema: jsonSchema({
+          type: "object" as const,
+          properties: {
+            form: {
+              type: "string",
+              enum: connection.items.map((item) => item.key),
+              description: "Which form, by its key from the list",
+            },
+            message: {
+              type: "string",
+              description:
+                "Why they should open it, in a sentence or two. Max 1024 characters.",
+            },
+            buttonText: {
+              type: "string",
+              description: `Button label, max ${BUTTON_TEXT_MAX} characters. 'Open form' if you leave it out.`,
+            },
+            prefill: {
+              type: "object",
+              description:
+                "Answers the customer has already given you, keyed by the form's field keys. Only what they actually said — never a guess.",
+              additionalProperties: { type: "string" },
+            },
+          },
+          required: ["form", "message"],
+          additionalProperties: false as const,
+        }),
+        execute: traced(trace, "send_form", async (rawInput: unknown) => {
+          const input = (rawInput ?? {}) as Record<string, unknown>;
+          if (turn.askedThisTurn) return { ok: false, error: ALREADY_ASKED };
+          const item = find(input.form);
+
+          const prefill = buildPrefill(
+            item.prefill ?? [],
+            (input.prefill ?? {}) as Record<string, unknown>,
+            known
+          );
+          const ref = randomKey(24);
+          const path = `/api/v1/links/form/${encodeURIComponent(connection.account.slug)}/${encodeURIComponent(item.key)}`;
+
+          let link = await callApp(connection, "POST", path, { data: prefill, ref });
+          // The app refuses the whole link over one answer it does not like.
+          // A blank form still beats no form, so ask once more without them.
+          if (
+            !link.ok &&
+            (link.status === 400 || link.status === 422) &&
+            Object.keys(prefill).length > 0
+          ) {
+            link = await callApp(connection, "POST", path, { data: {}, ref });
+          }
+          if (!link.ok) {
+            if (link.status === 404) {
+              await ctx.scheduler.runAfter(0, internal.apps.refreshItems, {
+                connectionId: connection._id,
+              });
+              throw new Error(
+                `"${item.title}" is no longer available. Do not offer it again.`
+              );
+            }
+            throw new Error(`The form link could not be made: ${link.error}`);
+          }
+          const url = text((link.body as { url?: unknown } | null)?.url);
+          if (!url) throw new Error("Magic Forms returned no link.");
+
+          await fileLink(item, ref, url);
+          const sent = await deliver({
+            kind: "cta_url",
+            body: text(input.message) ?? `Please fill in ${item.title}.`,
+            displayText: buttonLabel(input.buttonText, "Open form"),
+            url,
+          });
+          if (!sent.ok) return sent;
+          return {
+            ...sent,
+            form: item.title,
+            note: `${sent.note} Their answers will arrive here as their next message.`,
+          };
+        }),
+      });
+    }
+
+    if (connection.app === "magic_reward") {
+      const catalogue = connection.items
+        .map((item) => {
+          const prizes = (item.prizes ?? [])
+            .filter((prize) => prize.isWin)
+            .map((prize) => prize.label)
+            .join(", ");
+          return [
+            `- ${item.key}: ${item.title}`,
+            item.kind ? ` (${item.kind})` : "",
+            prizes ? ` — prizes: ${prizes}` : "",
+          ].join("");
+        })
+        .join("\n");
+
+      registry.send_offer = dynamicTool({
+        description: [
+          "Send the customer one of the company's running offers — a game such as spin the wheel or a scratch card, where they win a prize — as a button that opens it.",
+          "These are the only offers that exist. Offer one when the customer asks about offers, deals or discounts, or when your job says to; never mention, promise or invent any other offer or prize.",
+          "Their name and number are filled in for them. Each customer can play each offer once.",
+          'When they play, the result arrives in this conversation as their next message, starting "[Played the offer".',
+          `The offers:\n${catalogue}`,
+        ].join(" "),
+        inputSchema: jsonSchema({
+          type: "object" as const,
+          properties: {
+            offer: {
+              type: "string",
+              enum: connection.items.map((item) => item.key),
+              description: "Which offer, by its key from the list",
+            },
+            message: {
+              type: "string",
+              description:
+                "Why they should open it, in a sentence or two. Max 1024 characters.",
+            },
+            buttonText: {
+              type: "string",
+              description: `Button label, max ${BUTTON_TEXT_MAX} characters, e.g. 'Spin the wheel'.`,
+            },
+          },
+          required: ["offer", "message"],
+          additionalProperties: false as const,
+        }),
+        execute: traced(trace, "send_offer", async (rawInput: unknown) => {
+          const input = (rawInput ?? {}) as Record<string, unknown>;
+          if (turn.askedThisTurn) return { ok: false, error: ALREADY_ASKED };
+          const item = find(input.offer);
+
+          const ref = randomKey(24);
+          const invite = await callApp(
+            connection,
+            "POST",
+            `/api/v1/offers/${encodeURIComponent(item.id)}/invites`,
+            { name: known.name, phone: known.phone, externalRef: ref }
+          );
+          if (!invite.ok) {
+            if (invite.status === 404) {
+              await ctx.scheduler.runAfter(0, internal.apps.refreshItems, {
+                connectionId: connection._id,
+              });
+              throw new Error(
+                `"${item.title}" is not running any more. Do not offer it again.`
+              );
+            }
+            throw new Error(`The offer link could not be made: ${invite.error}`);
+          }
+
+          const body = (invite.body ?? {}) as {
+            url?: unknown;
+            alreadyPlayed?: unknown;
+            prize?: { label?: unknown; isWin?: unknown } | null;
+          };
+          if (body.alreadyPlayed === true) {
+            const label = text(body.prize?.label);
+            return {
+              ok: true,
+              sent: false,
+              alreadyPlayed: true,
+              prize: label ?? null,
+              won: body.prize?.isWin === true,
+              note: `Not sent: this customer has already played ${item.title}${label ? ` and got "${label}"` : ""}. Tell them so rather than offering it again.`,
+            };
+          }
+          const url = text(body.url);
+          if (!url) throw new Error("Magic Reward returned no link.");
+
+          await fileLink(item, ref, url);
+          const sent = await deliver({
+            kind: "cta_url",
+            body: text(input.message) ?? `You have a chance to win with ${item.title}.`,
+            displayText: buttonLabel(
+              input.buttonText,
+              item.kind && item.kind.length <= BUTTON_TEXT_MAX ? item.kind : "Play now"
+            ),
+            url,
+          });
+          if (!sent.ok) return sent;
+          return {
+            ...sent,
+            offer: item.title,
+            note: `${sent.note} Their result will arrive here as their next message.`,
+          };
+        }),
+      });
+    }
+  }
+
+  return registry;
+}
+
+// ---------------------------------------------------------------------------
 // The turn
 // ---------------------------------------------------------------------------
 
@@ -1613,6 +1919,21 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         agentId: agent._id,
       });
 
+      // Per agent for the same reason: send_form belongs to whoever has it
+      // switched on, not to the conversation.
+      const apps = await ctx.runQuery(internal.apps.forAgent, {
+        agentId: agent._id,
+      });
+      // Refreshed behind the turn, not in front of it: this turn sends from
+      // the copy it has, and the next one gets the fresh list.
+      for (const connection of apps) {
+        if (Date.now() - connection.syncedAt > APP_ITEMS_STALE_MS) {
+          await ctx.scheduler.runAfter(0, internal.apps.refreshItems, {
+            connectionId: connection._id,
+          });
+        }
+      }
+
       const toolset: ToolSet = {
         ...buildBuiltinTools(ctx, turn, apiKey, {
           team,
@@ -1625,6 +1946,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           ? buildRichMessageTools(ctx, turn)
           : {}),
         ...buildRecordTools(ctx, turn, books),
+        ...buildAppTools(ctx, turn, apps),
         ...buildCustomTools(ctx, turn, customTools),
       };
 

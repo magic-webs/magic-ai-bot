@@ -120,6 +120,34 @@ function present(event: string, data: unknown): Presentation {
     };
   }
 
+  // A Magic app's result on a link an agent sent. A submitted form is new work
+  // arriving, like a filed record; an offer played is worth knowing about but
+  // rarely needs anyone to move.
+  if (event === "form_submitted" || event === "offer_played") {
+    const contact = (row.contact as { name?: string | null } | undefined)?.name;
+    if (event === "form_submitted") {
+      const form = (row.form as { title?: string } | undefined)?.title;
+      return {
+        title: "Form submitted",
+        body: [form, contact].filter(Boolean).join(" · ") || "A customer sent a form back.",
+        channelId: CHANNELS.orders,
+        sound: "order.wav",
+        priority: "high",
+      };
+    }
+    const offer = (row.offer as { title?: string } | undefined)?.title;
+    const prize = (row.prize as { label?: string } | null | undefined)?.label;
+    return {
+      title: row.won === true ? "Offer won" : "Offer played",
+      body:
+        [offer, contact, prize].filter(Boolean).join(" · ") ||
+        "A customer played an offer.",
+      channelId: CHANNELS.default,
+      sound: "default",
+      priority: "default",
+    };
+  }
+
   // Anything else still arrives rather than being silently dropped, so a new
   // event type is visible before it has been given its own copy.
   return {

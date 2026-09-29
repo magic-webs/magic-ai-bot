@@ -23,6 +23,7 @@ import {
   INTEGRATION_TOOL_NAMES,
   isCatalogueIntegration,
 } from "./lib/integrations";
+import { APP_TOOL_NAMES, findApp } from "./lib/apps";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import { enabledToolNames } from "./lib/records";
 import { MARKETING_DEFAULTS } from "./lib/marketing";
@@ -657,7 +658,8 @@ export const update = mutation({
     // every time an integration is renamed is a list nobody can read.
     if (Array.isArray(patch.integrationTools)) {
       patch.integrationTools = (patch.integrationTools as string[]).filter(
-        (name) => INTEGRATION_TOOL_NAMES.includes(name)
+        (name) =>
+          INTEGRATION_TOOL_NAMES.includes(name) || APP_TOOL_NAMES.includes(name)
       );
     }
 
@@ -794,6 +796,24 @@ export const previewPrompt = query({
         )
         .map((t) => t.name),
     ];
+
+    // The Magic apps' tools, resolved as apps.forAgent resolves them: switched
+    // on for this agent, and the app connected with something to send.
+    const apps = await ctx.db
+      .query("appConnections")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", agent.workspaceId))
+      .take(10);
+    for (const connection of apps) {
+      const toolName = findApp(connection.app)?.toolName;
+      if (
+        toolName &&
+        connection.items.length > 0 &&
+        (agent.integrationTools ?? []).includes(toolName)
+      ) {
+        toolNames.push(toolName);
+      }
+    }
+
     if (agent.kind === "router" && !toolNames.includes("transfer_to_agent")) {
       toolNames.unshift("transfer_to_agent");
     }

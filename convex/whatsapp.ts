@@ -392,15 +392,7 @@ export const handleInbound = internalAction({
     }
 
     // ---- Run the same engine the web playground uses -----------------------
-    const result: {
-      ok: boolean;
-      text: string | null;
-      conversationId: Id<"conversations"> | null;
-      toolCalls: string[];
-      heldForHuman?: boolean;
-      answeredWithControl?: boolean;
-      error?: string;
-    } = await ctx.runAction(internal.engine.respond, {
+    const result: TurnOutcome = await ctx.runAction(internal.engine.respond, {
       agentId: channel.agentId,
       channelType: "whatsapp",
       channelId: channel._id,
@@ -410,56 +402,160 @@ export const handleInbound = internalAction({
       text: text.trim(),
     });
 
-    // Nothing to send, and nothing wrong: a colleague has the thread. Kept
-    // above the error branch so a deliberate silence is not logged on the
-    // channel as a failure to reply.
-    if (result.heldForHuman) {
-      return { handled: true, reason: "human_handling" };
-    }
+    return await deliverReply(ctx, channel, config, from, result);
+  },
+});
 
-    // Also nothing to send, also nothing wrong: the reply was a menu or a set
-    // of buttons, which the rich-message tool has already sent over the Cloud
-    // API. There is deliberately no prose to follow it.
-    if (result.answeredWithControl) {
-      await ctx.runMutation(internal.channels.touchInbound, {
-        channelId: channel._id,
-      });
-      return { handled: true, reason: "answered_with_control" };
-    }
+/** The part of the engine's `TurnResult` sending a reply depends on. */
+type TurnOutcome = {
+  ok: boolean;
+  text: string | null;
+  conversationId: Id<"conversations"> | null;
+  toolCalls: string[];
+  heldForHuman?: boolean;
+  answeredWithControl?: boolean;
+  error?: string;
+};
 
-    if (!result.text) {
-      await ctx.runMutation(internal.channels.touchInbound, {
-        channelId: channel._id,
-        error: result.error ?? "The agent produced no reply.",
-      });
-      return { handled: false, reason: result.error ?? "no_reply" };
-    }
+/**
+ * Sends the agent's reply to one turn and bills it. Shared by an inbound
+ * message and a Magic app's result, so both reach the customer — and the
+ * channel's error log — the same way.
+ */
+async function deliverReply(
+  ctx: ActionCtx,
+  channel: { _id: Id<"channels">; workspaceId: Id<"workspaces"> },
+  config: WhatsAppConfig,
+  to: string,
+  result: TurnOutcome
+): Promise<{ handled: boolean; reason?: string; toolCalls?: string[] }> {
+  // Nothing to send, and nothing wrong: a colleague has the thread. Kept
+  // above the error branch so a deliberate silence is not logged on the
+  // channel as a failure to reply.
+  if (result.heldForHuman) {
+    return { handled: true, reason: "human_handling" };
+  }
 
-    // Billed together once the loop ends: a long reply is several WhatsApp
-    // messages and each one is charged, but only the ones that went out.
-    const delivered: Outbound[] = [];
-    for (const part of splitForWhatsApp(result.text)) {
-      const message: Outbound = { kind: "text", body: part };
-      const sent = await send(config, from, message);
-      if (!sent.ok) {
-        console.error("[whatsapp] send failed", sent.error);
-        await ctx.runMutation(internal.channels.touchInbound, {
-          channelId: channel._id,
-          error: sent.error,
-        });
-        break;
-      }
-      delivered.push(message);
-    }
-    await bill(ctx, {
-      workspaceId: channel.workspaceId,
+  // Also nothing to send, also nothing wrong: the reply was a menu or a set
+  // of buttons, which the rich-message tool has already sent over the Cloud
+  // API. There is deliberately no prose to follow it.
+  if (result.answeredWithControl) {
+    await ctx.runMutation(internal.channels.touchInbound, {
       channelId: channel._id,
-      conversationId: result.conversationId ?? undefined,
-      to: from,
-      source: "agent",
-      messages: delivered,
+    });
+    return { handled: true, reason: "answered_with_control" };
+  }
+
+  if (!result.text) {
+    await ctx.runMutation(internal.channels.touchInbound, {
+      channelId: channel._id,
+      error: result.error ?? "The agent produced no reply.",
+    });
+    return { handled: false, reason: result.error ?? "no_reply" };
+  }
+
+  // Billed together once the loop ends: a long reply is several WhatsApp
+  // messages and each one is charged, but only the ones that went out.
+  const delivered: Outbound[] = [];
+  for (const part of splitForWhatsApp(result.text)) {
+    const message: Outbound = { kind: "text", body: part };
+    const sent = await send(config, to, message);
+    if (!sent.ok) {
+      console.error("[whatsapp] send failed", sent.error);
+      await ctx.runMutation(internal.channels.touchInbound, {
+        channelId: channel._id,
+        error: sent.error,
+      });
+      break;
+    }
+    delivered.push(message);
+  }
+  await bill(ctx, {
+    workspaceId: channel.workspaceId,
+    channelId: channel._id,
+    conversationId: result.conversationId ?? undefined,
+    to,
+    source: "agent",
+    messages: delivered,
+  });
+
+  return { handled: true, toolCalls: result.toolCalls };
+}
+
+/**
+ * A Magic app's result, answered by the agent as the customer's next turn.
+ *
+ * Here rather than in convex/apps.ts because the reply has to go out over the
+ * same Cloud API call an inbound message's does. The web widget needs nothing
+ * sent: the turn's recorded reply is its delivery, as everywhere else.
+ *
+ * When the agent cannot answer — the channel is paused, the entry agent is
+ * paused — the result is still filed in the thread. It happened whether or
+ * not anybody replies to it.
+ */
+export const respondToEvent = internalAction({
+  args: { conversationId: v.id("conversations"), text: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ handled: boolean; reason?: string; toolCalls?: string[] }> => {
+    const context = await ctx.runQuery(internal.conversations.eventContext, {
+      conversationId: args.conversationId,
+    });
+    if (!context) return { handled: false, reason: "no_conversation" };
+
+    const fileOnly = async (reason: string) => {
+      await ctx.runMutation(internal.conversations.recordCustomerEvent, {
+        conversationId: args.conversationId,
+        text: args.text,
+      });
+      return { handled: false, reason };
+    };
+
+    let whatsapp: {
+      channel: { _id: Id<"channels">; workspaceId: Id<"workspaces"> };
+      config: WhatsAppConfig;
+    } | null = null;
+    if (context.channelType === "whatsapp") {
+      const resolved = context.channelId
+        ? await ctx.runQuery(internal.channels.resolveById, {
+            channelId: context.channelId,
+          })
+        : null;
+      const channel = resolved?.channel;
+      if (
+        !channel ||
+        channel.type !== "whatsapp" ||
+        !channel.whatsapp ||
+        channel.status !== "active"
+      ) {
+        return await fileOnly("channel_unavailable");
+      }
+      whatsapp = { channel, config: channel.whatsapp };
+    }
+
+    const result: TurnOutcome = await ctx.runAction(internal.engine.respond, {
+      agentId: context.agentId,
+      channelType: context.channelType,
+      channelId: context.channelId ?? undefined,
+      externalId: context.externalId,
+      contactName: context.contactName ?? undefined,
+      contactPhone: context.contactPhone ?? undefined,
+      text: args.text,
     });
 
-    return { handled: true, toolCalls: result.toolCalls };
+    // The turn never started, so the result is not in the thread yet.
+    if (!result.conversationId) {
+      return await fileOnly(result.error ?? "turn_not_started");
+    }
+    if (!whatsapp) return { handled: true, toolCalls: result.toolCalls };
+
+    return await deliverReply(
+      ctx,
+      whatsapp.channel,
+      whatsapp.config,
+      context.externalId,
+      result
+    );
   },
 });

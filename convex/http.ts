@@ -1,6 +1,8 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { interpretEvent } from "./lib/apps";
+import { verifyDelivery } from "./lib/appWebhooks";
 
 const http = httpRouter();
 
@@ -321,6 +323,87 @@ http.route({
       queued: status === "queued",
       ...(status === "disabled" ? { reason: "The alert is switched off." } : {}),
     });
+  }),
+});
+
+// --- Results from the Magic apps ---------------------------------------------
+//
+//   https://<deployment>.convex.site/apps/<inboundKey>
+//
+// Magic Forms and Magic Reward post here — a submission, a spin — on the
+// webhook `apps.connect` registered with them. The key picks the connection
+// and the signature proves the sender; both are checked before anything is
+// read. Anything that is not an agent's own link is acknowledged and dropped,
+// with a 200, so the app does not retry what will never match.
+
+const MAX_APP_EVENT_BYTES = 256_000;
+
+http.route({
+  pathPrefix: "/apps/",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const key = url.pathname.replace(/^\/apps\//, "").replace(/\/+$/, "");
+    if (!key || key.includes("/")) {
+      return inboundResponse(404, { ok: false, error: "Not found." });
+    }
+
+    const raw = await request.text();
+    if (raw.length > MAX_APP_EVENT_BYTES) {
+      return inboundResponse(413, { ok: false, error: "Body too large." });
+    }
+
+    const connection = await ctx.runQuery(internal.apps.byInboundKey, {
+      inboundKey: key,
+    });
+    if (!connection) {
+      return inboundResponse(404, { ok: false, error: "Not found." });
+    }
+
+    const verified = await verifyDelivery(
+      connection.app,
+      request.headers,
+      raw,
+      connection.webhookSecret,
+      Date.now()
+    );
+    if (!verified.ok) {
+      return inboundResponse(401, { ok: false, error: verified.error });
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return inboundResponse(400, { ok: false, error: "Invalid JSON." });
+    }
+    const envelopeEvent =
+      payload && typeof payload === "object"
+        ? (payload as { event?: unknown }).event
+        : undefined;
+    const event =
+      verified.delivery.event ||
+      (typeof envelopeEvent === "string" ? envelopeEvent : "");
+
+    const meaning = interpretEvent(connection.app, event, payload);
+    if (meaning.kind === "ignore") {
+      return inboundResponse(200, { ok: true, ignored: true });
+    }
+    if (meaning.kind === "catalogue") {
+      await ctx.scheduler.runAfter(0, internal.apps.refreshItems, {
+        connectionId: connection.connectionId,
+      });
+      return inboundResponse(200, { ok: true });
+    }
+
+    const status = await ctx.runMutation(internal.apps.acceptResult, {
+      connectionId: connection.connectionId,
+      deliveryId: verified.delivery.deliveryId,
+      ref: meaning.ref ?? undefined,
+      text: meaning.text,
+      data: meaning.data,
+    });
+    return inboundResponse(200, { ok: true, status });
   }),
 });
 

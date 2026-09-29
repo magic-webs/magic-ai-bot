@@ -259,6 +259,38 @@ disabled. `drive.metadata.readonly` is a sensitive scope, so a production
 deployment needs the consent screen verified before it can be used outside the
 test users list.
 
+### Magic apps — Magic Forms and Magic Reward
+
+Our own two products, connected by an API key made in each app rather than by
+OAuth (`convex/apps.ts`, catalogue in `convex/lib/apps.ts`). Connecting reads
+the account, copies its published forms or live offers into
+`appConnections.items`, and registers a signed webhook back to this deployment:
+
+```
+https://<deployment>.convex.site/apps/<inboundKey>
+```
+
+An agent with the app switched on under Knowledge & tools gets one tool —
+`send_form` or `send_offer` — built by the engine rather than stored as a
+`tools` row, because it needs the conversation: it mints a ref, files it in
+`appLinks` against this thread, asks the app for a link carrying it (name and
+number prefilled), and sends the link as a button. When the customer submits
+the form or plays the offer, the app posts the result with the ref, the route
+checks the signature and matches the ref, and the result arrives in the thread
+as the customer's next turn — `[Form submitted …]` / `[Played the offer …]` —
+which the agent answers (switchable per app) and push and the workspace webhook
+report as `form_submitted` / `offer_played`. A result with no ref, such as a
+form filled from a link on a website, is acknowledged and dropped.
+
+Nothing to set up: the apps are reached at `https://forms.magicwebs.ai` and
+`https://reward.magicwebs.ai`. A development deployment can point elsewhere —
+at the apps' own development deployments — with:
+
+```bash
+npx convex env set MAGIC_FORMS_API_URL  https://<forms-deployment>.convex.site
+npx convex env set MAGIC_REWARD_API_URL http://localhost:3001
+```
+
 ### Knowledge base
 
 `knowledge.addSource` schedules `ingest.processSource`, which extracts text

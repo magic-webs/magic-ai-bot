@@ -1035,6 +1035,65 @@ export const recordRichMessage = internalMutation({
   },
 });
 
+/**
+ * What answering a thread from outside a customer message needs: a form
+ * submitted or an offer played on a link an agent sent.
+ *
+ * `agentId` is the entry agent, not whoever holds the thread, because it is
+ * the key `startTurn` finds the conversation by — the engine then picks up the
+ * active agent itself, exactly as for an inbound message.
+ */
+export const eventContext = internalQuery({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (!conversation) return null;
+    const contact = await ctx.db.get("contacts", conversation.contactId);
+    if (!contact) return null;
+    return {
+      workspaceId: conversation.workspaceId,
+      agentId: conversation.agentId,
+      channelType: conversation.channelType,
+      channelId: conversation.channelId ?? null,
+      externalId: contact.externalId,
+      contactName: contact.name ?? null,
+      contactPhone: contact.phone ?? null,
+    };
+  },
+});
+
+/**
+ * Files something the customer did elsewhere as their turn, without an agent
+ * answering it — the Magic apps' results when replying is switched off.
+ *
+ * Their own turn rather than a note because it is theirs, and because only
+ * text rows reach the model: the agent has to see the answers next time they
+ * write, or it will ask for them all over again.
+ */
+export const recordCustomerEvent = internalMutation({
+  args: { conversationId: v.id("conversations"), text: v.string() },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (!conversation) return { success: false };
+    const now = Date.now();
+    await ctx.db.insert("messages", {
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation._id,
+      role: "user",
+      kind: "text",
+      text: args.text,
+      createdAt: now,
+    });
+    await ctx.db.patch(conversation._id, {
+      messageCount: conversation.messageCount + 1,
+      lastMessageAt: now,
+      lastMessagePreview: args.text.slice(0, 140),
+      lastMessageRole: "user",
+    });
+    return { success: true };
+  },
+});
+
 export const markEscalated = internalMutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
