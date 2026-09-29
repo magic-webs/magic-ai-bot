@@ -24,6 +24,7 @@ import {
   isCatalogueIntegration,
 } from "./lib/integrations";
 import { APP_TOOL_NAMES, findApp } from "./lib/apps";
+import { ensureOrdersBook } from "./lib/ordersBook";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import { enabledToolNames } from "./lib/records";
 import { MARKETING_DEFAULTS } from "./lib/marketing";
@@ -552,7 +553,13 @@ async function insertSpecialist(
     knowledgeEnabled: true,
     knowledgeTopK: 6,
     builtinTools: args.builtinTools ?? [...DEFAULT_BUILTIN_TOOLS],
-    recordBooks: args.recordBooks ?? [],
+    // An agent made with the defaults takes orders, as it always did — now
+    // through the Orders record book rather than a builtin tool.
+    recordBooks:
+      args.recordBooks ??
+      (args.builtinTools === undefined
+        ? [await ensureOrdersBook(ctx, args.workspaceId)]
+        : []),
     status: "draft",
     createdAt: now,
     updatedAt: now,
@@ -628,6 +635,9 @@ export const createFromTemplate = mutation({
       guardrails: filled.guardrails,
       escalationPolicy: filled.escalationPolicy,
       builtinTools: filled.builtinTools,
+      recordBooks: filled.usesOrders
+        ? [await ensureOrdersBook(ctx, args.workspaceId)]
+        : [],
       routingDescription: filled.routingDescription,
     });
   },

@@ -313,6 +313,10 @@ export const review = internalAction({
       .filter(Boolean)
       .join(" ");
 
+    // The review lands on the conversation's lead-stage note, which is where
+    // the inbox and the pipeline show it. Never on the contact's remark: that
+    // is the Notes box human agents keep on the person, and the desk
+    // overwriting it lost whatever a colleague had written there.
     await ctx.runMutation(internal.leads.recordReview, {
       conversationId: args.conversationId,
       workspaceId: args.workspaceId,
@@ -321,15 +325,6 @@ export const review = internalAction({
       reviewedAt: now,
       followedUp,
     });
-
-    if (followedUp && context.contactId) {
-      await ctx.runMutation(internal.leads.setContactRemark, {
-        contactId: context.contactId,
-        remark: `Followed up ${
-          stage ? `at ${stage.name}` : ""
-        }: ${reason || "conversation had gone quiet"}.`.replace(/\s+/g, " "),
-      });
-    }
 
     return { reviewed: true, stage: stage?.name, followedUp };
   },

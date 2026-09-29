@@ -66,6 +66,11 @@ export type AgentTemplate = {
   guardrails: string[];
   escalationPolicy: string;
   builtinTools: BuiltinToolKey[];
+  /**
+   * Switches the workspace's Orders record book on for the agent, which is
+   * how an agent takes (file_order) and looks up (find_order) an order.
+   */
+  usesOrders?: boolean;
 };
 
 const TONE: Tone = {
@@ -123,13 +128,13 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     builtinTools: [
       "search_products",
       "get_product_requirements",
-      "create_order",
       "search_knowledge",
       "save_contact_detail",
       "rich_messages",
       "escalate_to_human",
       "transfer_to_agent",
     ],
+    usesOrders: true,
   },
   {
     key: "lead_qualifier",
@@ -215,18 +220,19 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
       "Never blame the customer, even when the fix is something they missed.",
       "Never guess at a fix or a policy the knowledge base does not give you.",
       "Never argue with a complaint — acknowledge it and escalate it.",
+      "Never file a new order — look existing ones up; taking orders is the sales team's job.",
     ],
     escalationPolicy:
       "Escalate to a human if the customer asks for a person, is complaining or upset, or the problem is not solved after one attempt.",
     builtinTools: [
       "search_knowledge",
       "search_products",
-      "lookup_orders",
       "save_contact_detail",
       "rich_messages",
       "escalate_to_human",
       "transfer_to_agent",
     ],
+    usesOrders: true,
   },
   {
     key: "after_sales",
@@ -262,18 +268,19 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     guardrails: [
       "Never promise a delivery date, a refund or a replacement the team has not approved.",
       "Never cancel, change or refund anything yourself — pass the request to the team.",
+      "Never file a new order — look existing ones up; taking orders is the sales team's job.",
       "Never share an order's details with someone other than the customer who placed it.",
     ],
     escalationPolicy:
       "Escalate to a human for every change, cancellation, return, refund or replacement, for a late or missing order, and whenever the customer asks for a person.",
     builtinTools: [
-      "lookup_orders",
       "search_knowledge",
       "save_contact_detail",
       "rich_messages",
       "escalate_to_human",
       "transfer_to_agent",
     ],
+    usesOrders: true,
   },
   {
     key: "bookings",

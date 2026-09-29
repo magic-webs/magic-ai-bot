@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireWorkspace } from "./lib/auth";
+import { orderRecords, statusForStage } from "./lib/ordersBook";
 
 // Messages are the highest-volume table; cap what one dashboard read scans.
 const MESSAGE_SCAN_CAP = 4000;
@@ -42,10 +43,9 @@ export const dashboard = query({
         .query("conversations")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .collect(),
-      ctx.db
-        .query("orders")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .collect(),
+      // Orders are the Orders record book's records now — see
+      // convex/lib/ordersBook.ts. Their stages stand in for the old statuses.
+      orderRecords(ctx, args.workspaceId, 5000),
       ctx.db
         .query("tools")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -143,7 +143,8 @@ export const dashboard = query({
       statusOrder.map((status) => [status, 0])
     );
     for (const order of orders) {
-      statusCounts.set(order.status, (statusCounts.get(order.status) ?? 0) + 1);
+      const status = statusForStage(order.stage);
+      statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1);
     }
 
     let whatsapp = 0;

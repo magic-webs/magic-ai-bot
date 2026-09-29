@@ -18,8 +18,6 @@ export const BUILTIN_TOOL_KEYS = [
   "search_knowledge",
   "search_products",
   "get_product_requirements",
-  "create_order",
-  "lookup_orders",
   "save_contact_detail",
   "escalate_to_human",
   "transfer_to_agent",

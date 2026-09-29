@@ -1026,7 +1026,9 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"]),
 
   // -------------------------------------------------------------------------
-  // Orders — captured by the create_order tool.
+  // Orders — as the retired create_order tool captured them. New orders are
+  // records in the workspace's Orders record book (convex/lib/ordersBook.ts);
+  // these rows are kept only for `migrations:ordersToRecords` to copy from.
   // -------------------------------------------------------------------------
   orders: defineTable({
     workspaceId: v.id("workspaces"),

@@ -152,7 +152,7 @@ export function register(server) {
     {
       title: "List orders",
       description:
-        "Enquiries and orders the agents captured, with the specs they collected for each line.",
+        "Orders in the workspace's Orders record book, in the old order shape: the reference as orderNumber, the stage as status. list_records on the Orders book shows the same rows with every field.",
       inputSchema: {
         ...workspaceArg,
         status: z

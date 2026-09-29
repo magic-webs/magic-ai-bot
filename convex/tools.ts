@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import { kvPair, toolParameter } from "./schema";
 import { isCatalogueIntegration } from "./lib/integrations";
+import { orderRecords, recordAsOrder } from "./lib/ordersBook";
 import {
   requireTool,
   requireWorkspace,
@@ -338,11 +339,12 @@ export const runDbQuery = internalQuery({
     }
 
     if (args.table === "orders") {
-      const rows = await ctx.db
-        .query("orders")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .order("desc")
-        .take(200);
+      // The Orders record book, read in the shape orders always had, so a
+      // db_query tool written against the old table keeps answering.
+      const workspace = await ctx.db.get("workspaces", args.workspaceId);
+      const rows = (await orderRecords(ctx, args.workspaceId, 200)).map(
+        (record) => recordAsOrder(record, workspace?.currency ?? "")
+      );
       const filtered = term
         ? rows.filter((r) =>
             [

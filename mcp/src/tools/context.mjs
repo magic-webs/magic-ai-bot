@@ -127,7 +127,7 @@ export function register(server) {
         webhookUrl: z
           .string()
           .optional()
-          .describe("Where order_created and escalation events are POSTed"),
+          .describe("Where record, escalation and Magic app events are POSTed"),
         facts: z
           .array(kvArg)
           .optional()

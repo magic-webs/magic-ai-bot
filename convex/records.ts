@@ -32,6 +32,7 @@ import {
   type RecordField,
 } from "./lib/records";
 import { postWebhook } from "./lib/webhookDelivery";
+import { findOrdersBook } from "./lib/ordersBook";
 import {
   requireRecord,
   requireRecordBook,
@@ -208,8 +209,21 @@ export const listBookLinks = query({
         _id: book._id,
         name: book.name,
         pluralName: book.pluralName,
+        handle: book.handle,
         status: book.status,
       }));
+  },
+});
+
+/**
+ * The workspace's Orders book, for the old /orders address to send the
+ * browser on to. Null until the book exists.
+ */
+export const ordersBookId = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<Id<"recordBooks"> | null> => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return (await findOrdersBook(ctx, args.workspaceId))?._id ?? null;
   },
 });
 
@@ -769,8 +783,7 @@ export const noteDelivery = internalMutation({
  * Tell everyone who asked to be told.
  *
  * Scheduled rather than awaited by the tool call that caused it, so a slow or
- * broken endpoint cannot hold up a customer waiting on a reply. That is the one
- * place this differs from `create_order`, which still blocks on its webhook.
+ * broken endpoint cannot hold up a customer waiting on a reply.
  */
 export const announce = internalAction({
   args: {

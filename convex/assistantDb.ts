@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireWorkspace } from "./lib/auth";
+import { orderRecords, recordAsOrder } from "./lib/ordersBook";
 
 /**
  * The data half of the operator assistant.
@@ -44,11 +45,10 @@ export const snapshot = internalQuery({
       .order("desc")
       .take(200);
 
-    const orders = await ctx.db
-      .query("orders")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(100);
+    // The Orders record book, read in the shape orders always had.
+    const orders = (await orderRecords(ctx, args.workspaceId, 100))
+      .map((record) => recordAsOrder(record, workspace.currency))
+      .sort((a, b) => b.createdAt - a.createdAt);
 
     const agents = await ctx.db
       .query("agents")

@@ -167,12 +167,21 @@ consequential goes through a tool call:
 | `search_knowledge` | Vector search over the workspace knowledge base |
 | `search_products` | Confirm a product exists before discussing it |
 | `get_product_requirements` | The full spec checklist for one product |
-| `create_order` | Insert the order, link catalogue products, fire `order_created` |
-| `lookup_orders` | This contact's existing orders |
 | `save_contact_detail` | Remember a name / email / company / preference |
 | `escalate_to_human` | Mark the conversation escalated, fire `escalation` |
 
-Each is toggled per agent. Every call is wrapped so a thrown error becomes a
+Each is toggled per agent.
+
+Orders are not a builtin: every workspace has an **Orders record book**
+(`convex/lib/ordersBook.ts`), so an agent switched on for it takes orders with
+`file_order` and looks them up with `find_order`, and the team edits the
+book's fields and stages like any other. An order filed there fires
+`record_filed` with the book in the payload. `orders:listByWorkspace` still
+answers in the old order shape for the mobile app and MCP. Workspaces from
+before the move are brought over once with
+`npx convex run migrations:ordersToRecords`, which copies their orders into the
+book, moves agents off `create_order` / `lookup_orders`, and turns "New order"
+alerts into "Record filed" alerts on the book. Every call is wrapped so a thrown error becomes a
 value the model can reason about rather than a dead turn, and every call is
 recorded on the conversation — visible in the playground and the transcript view.
 

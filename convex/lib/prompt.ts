@@ -149,7 +149,7 @@ export function compileSystemPrompt(opts: {
   // pricing rules are worth their space only for an agent with a catalogue
   // behind it.
   const quotesPrices = (opts.toolNames ?? []).some((name) =>
-    ["search_products", "get_product_requirements", "create_order", "lookup_orders"].includes(
+    ["search_products", "get_product_requirements", "file_order", "find_order"].includes(
       name
     )
   );

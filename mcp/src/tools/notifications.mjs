@@ -23,11 +23,12 @@ import { handler, ok } from "../results.mjs";
 import { resolveWorkspace } from "../workspaces.mjs";
 
 // convex/lib/notifications.ts NOTIFICATION_EVENTS is the source of truth.
+// Not order_created: orders are the Orders record book's records, so an order
+// alert is record_filed on that book.
 const EVENTS = [
   "record_filed",
   "record_updated",
   "record_stage_changed",
-  "order_created",
   "escalation",
   "inbound",
 ];
@@ -44,7 +45,7 @@ const alertArg = z.string().describe("Alert name or id");
 const eventArg = z
   .enum(EVENTS)
   .describe(
-    "record_filed / record_updated / record_stage_changed: a record book event. order_created: an agent took an order. escalation: an agent handed a conversation to a person. inbound: another system POSTs to the alert's own URL."
+    "record_filed / record_updated / record_stage_changed: a record book event — an order taken is record_filed on the Orders book. escalation: an agent handed a conversation to a person. inbound: another system POSTs to the alert's own URL."
   );
 
 const paramsArg = z
@@ -501,7 +502,7 @@ export function register(server) {
     {
       title: "Create email template",
       description:
-        "Write an email an alert can send. Subject and body take {{path}} variables from the event — {{record.person.name}}, {{record.reference}}, {{orderNumber}}, {{workspace.name}}; see get_notification_settings for each event's list. In 'html' the body is sent as written and inserted values are escaped; in 'text' line breaks are kept.",
+        "Write an email an alert can send. Subject and body take {{path}} variables from the event — {{record.person.name}}, {{record.reference}}, {{record.details.items}}, {{workspace.name}}; see get_notification_settings for each event's list. In 'html' the body is sent as written and inserted values are escaped; in 'text' line breaks are kept.",
       inputSchema: {
         ...workspaceArg,
         name: z.string(),

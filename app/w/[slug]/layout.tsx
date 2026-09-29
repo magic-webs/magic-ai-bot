@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { ORDERS_HANDLE } from "@/convex/lib/ordersBook";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { WorkspaceTheme } from "@/components/workspace-theme";
 import { useSession } from "@/components/use-session";
@@ -145,16 +146,16 @@ const NAV: Array<{
     view: "escalations",
   },
   {
-    // In the order the work happens: a lead becomes a contact, then an order —
-    // and then whatever else the conversation produced. Each record book the
-    // workspace has defined is appended to this list at render, so filing a
-    // new kind of thing puts it on the sidebar under its own name.
+    // In the order the work happens: a lead becomes a contact, then whatever
+    // the conversation produced. Each record book the workspace has defined
+    // is appended to this list at render — Orders among them, which is a
+    // record book like the rest — so filing a new kind of thing puts it on
+    // the sidebar under its own name.
     label: "Leads",
     icon: ChartUpIcon,
     items: [
       { href: "/leads", label: "Stages", icon: FunnelIcon },
       { href: "/contacts", label: "Contacts", icon: UserMultipleIcon },
-      { href: "/orders", label: "Orders", icon: ReceiptIcon },
     ],
   },
   // After Leads: the customers a workspace has collected are who it markets
@@ -305,7 +306,8 @@ export default function WorkspaceLayout({
     const rows: NavItem[] = books.map((book) => ({
       href: `/records/${book._id}`,
       label: book.pluralName,
-      icon: Folder01Icon,
+      // The Orders book keeps the receipt it had as its own page.
+      icon: book.handle === ORDERS_HANDLE ? ReceiptIcon : Folder01Icon,
     }));
     return NAV.map((section) =>
       section.label === "Leads"

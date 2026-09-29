@@ -219,7 +219,10 @@ export const overview = query({
           status: channel.status,
         })),
       emailReady: Boolean(token && settings?.fromEmail),
-      events: NOTIFICATION_EVENTS,
+      // Not "New order": orders are the Orders record book's records now, so
+      // an order alert is a "Record filed" alert on that book. The event is
+      // still defined, for reading rules made before the move.
+      events: NOTIFICATION_EVENTS.filter((info) => info.value !== "order_created"),
       books: books
         .filter((book) => book.status !== "archived")
         .map((book) => ({

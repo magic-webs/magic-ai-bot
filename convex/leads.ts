@@ -454,21 +454,6 @@ export const recordReview = internalMutation({
   },
 });
 
-/**
- * The follow-up desk's own explanation, written where a person will look for
- * it: on the contact, not only in the thread.
- *
- * It overwrites. The remark is a single latest note rather than a log, and a
- * stale reason for a message sent weeks ago is worse than the current one.
- */
-export const setContactRemark = internalMutation({
-  args: { contactId: v.id("contacts"), remark: v.string() },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.contactId, { remark: args.remark.slice(0, 300) });
-    return { success: true };
-  },
-});
-
 /** Records the follow-up itself, so it reads as an ordinary outgoing message. */
 export const recordFollowUp = internalMutation({
   args: {

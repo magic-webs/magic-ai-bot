@@ -13,6 +13,7 @@ import {
   requireWorkspace,
 } from "./lib/auth";
 import { logoSrcFor } from "./lib/branding";
+import { ensureOrdersBook, orderRecords, statusForStage } from "./lib/ordersBook";
 import {
   isValidCurrency,
   isValidLocale,
@@ -132,7 +133,8 @@ export const summary = query({
         ctx.db.query("knowledgeSources").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
         ctx.db.query("channels").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
         ctx.db.query("products").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
-        ctx.db.query("orders").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
+        // The Orders record book — see convex/lib/ordersBook.ts.
+        orderRecords(ctx, ws, 5000),
         ctx.db.query("conversations").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
         ctx.db.query("tools").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
         ctx.db.query("contacts").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).collect(),
@@ -147,7 +149,7 @@ export const summary = query({
       liveChannels: channels.filter((c) => c.status === "active").length,
       products: products.filter((p) => p.status === "active").length,
       orders: orders.length,
-      newOrders: orders.filter((o) => o.status === "new").length,
+      newOrders: orders.filter((o) => statusForStage(o.stage) === "new").length,
       conversations: conversations.length,
       escalated: conversations.filter((c) => c.status === "escalated").length,
       tools: tools.length,
@@ -186,6 +188,8 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    // Every workspace keeps its orders in a record book of its own.
+    await ensureOrdersBook(ctx, workspaceId);
     return { workspaceId, slug };
   },
 });
@@ -455,6 +459,8 @@ export const seedDemo = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    // Every workspace keeps its orders in a record book of its own.
+    await ensureOrdersBook(ctx, workspaceId);
     return { workspaceId, slug };
   },
 });

@@ -46,8 +46,6 @@ export type BuiltinToolKey =
   | "search_knowledge"
   | "search_products"
   | "get_product_requirements"
-  | "create_order"
-  | "lookup_orders"
   | "save_contact_detail"
   | "escalate_to_human"
   | "transfer_to_agent"
@@ -85,20 +83,8 @@ export const BUILTIN_TOOLS: Array<{
       "Get the full specification checklist for one product: every field you must collect before an order can be created, with examples. Call this as soon as you know which product the customer wants.",
     needs: "products",
   },
-  {
-    key: "create_order",
-    label: "Create order",
-    summary: "Persist a completed order/enquiry and fire the order webhook.",
-    description:
-      "Create the order once you have collected every required detail and the customer has confirmed. This records the order and notifies the team. Never call it with placeholder or invented values.",
-  },
-  {
-    key: "lookup_orders",
-    label: "Look up orders",
-    summary: "Fetch this contact's existing orders.",
-    description:
-      "Look up the orders already placed by the person you are talking to, optionally by order number. Use it for 'where is my order' style questions.",
-  },
+  // Taking and looking up orders is the Orders record book's job now:
+  // file_order and find_order, switched on under "What this agent records".
   {
     key: "save_contact_detail",
     label: "Save contact detail",
@@ -153,7 +139,6 @@ export const DEFAULT_BUILTIN_TOOLS: BuiltinToolKey[] = [
   "search_knowledge",
   "search_products",
   "get_product_requirements",
-  "create_order",
   "save_contact_detail",
   "escalate_to_human",
   "transfer_to_agent",
