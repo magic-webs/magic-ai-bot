@@ -131,7 +131,9 @@ function RecordDetail({ book, row }: { book: Book; row: RecordRow }) {
           <DialogDescription>
             {row.source === "manual"
               ? "Added by your team"
-              : `Collected by ${row.filedBy ?? "an agent"} on ${row.source}`}{" "}
+              : row.source === "form"
+                ? "Submitted on Magic Forms"
+                : `Collected by ${row.filedBy ?? "an agent"} on ${row.source}`}{" "}
             · {new Date(row.createdAt).toLocaleString()}
           </DialogDescription>
         </DialogHeader>
@@ -953,7 +955,22 @@ export default function RecordBookPage({
           </div>
         </div>
 
-        {data.filedBy.length === 0 && book.status === "active" ? (
+        {book.formSource ? (
+          <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+            {book.status === "active"
+              ? "Every submission of its Magic Forms form is filed here as it comes in."
+              : "Paused — submissions of its Magic Forms form are not filed while it is."}{" "}
+            <Link
+              href={`${base}/integrations`}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              Manage in Integrations
+            </Link>
+          </div>
+        ) : null}
+        {data.filedBy.length === 0 &&
+        book.status === "active" &&
+        !book.formSource ? (
           <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
             No agent files into this yet, so nothing will be collected. Switch
             it on under <strong>Knowledge &amp; tools</strong> on the{" "}

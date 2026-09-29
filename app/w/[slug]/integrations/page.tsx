@@ -19,6 +19,7 @@ import {
   MagicRewardIcon,
 } from "@/components/integrations/app-icons";
 import { INTEGRATION_DETAILS } from "@/components/integrations/integration-details";
+import { FormSubmissions } from "@/components/integrations/form-submissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -776,7 +777,12 @@ function DetailPanel({
         </div>
 
         {app ? (
-          <AppAction app={app} connection={appConnection} />
+          <>
+            <AppAction app={app} connection={appConnection} />
+            {app.id === "magic_forms" && appConnection ? (
+              <FormSubmissions base={base} />
+            ) : null}
+          </>
         ) : google ? (
           <GoogleAction
             integration={google}

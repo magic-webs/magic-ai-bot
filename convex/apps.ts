@@ -29,6 +29,7 @@ import {
   type AppItem,
 } from "./lib/apps";
 import { callApp } from "./lib/appClient";
+import { storeSubmission, submissionShape } from "./formSubmissions";
 
 const appId = v.union(v.literal("magic_forms"), v.literal("magic_reward"));
 
@@ -525,6 +526,8 @@ export const byInboundKey = internalQuery({
  *
  * A result with no ref, or one this workspace never minted, is counted as
  * received and dropped. Only a link an agent sent may speak in a conversation.
+ * A form submission is kept either way, for the integrations page and for a
+ * record book the form is saved to.
  */
 export const acceptResult = internalMutation({
   args: {
@@ -533,6 +536,7 @@ export const acceptResult = internalMutation({
     ref: v.optional(v.string()),
     text: v.string(),
     data: v.any(),
+    submission: v.optional(submissionShape),
   },
   handler: async (
     ctx,
@@ -554,16 +558,37 @@ export const acceptResult = internalMutation({
     });
 
     const connection = await ctx.db.get("appConnections", args.connectionId);
-    if (!connection || !args.ref) return "unmatched";
+    if (!connection) return "unmatched";
 
-    const link = await ctx.db
-      .query("appLinks")
-      .withIndex("by_ref", (q) => q.eq("ref", args.ref!))
-      .unique();
-    if (!link || link.connectionId !== connection._id) return "unmatched";
+    const found = args.ref
+      ? await ctx.db
+          .query("appLinks")
+          .withIndex("by_ref", (q) => q.eq("ref", args.ref!))
+          .unique()
+      : null;
+    const link = found?.connectionId === connection._id ? found : null;
+    const conversation = link
+      ? await ctx.db.get("conversations", link.conversationId)
+      : null;
 
-    const conversation = await ctx.db.get("conversations", link.conversationId);
-    if (!conversation) return "unmatched";
+    if (args.submission) {
+      await storeSubmission(ctx, {
+        workspaceId: connection.workspaceId,
+        accountId: connection.account.id,
+        submission: args.submission,
+        link:
+          link && conversation
+            ? {
+                conversationId: conversation._id,
+                contactId: link.contactId,
+                agentId: link.agentId,
+              }
+            : null,
+        fromWebhook: true,
+      });
+    }
+
+    if (!link || !conversation) return "unmatched";
     const contact = await ctx.db.get("contacts", link.contactId);
 
     await ctx.db.patch(link._id, {

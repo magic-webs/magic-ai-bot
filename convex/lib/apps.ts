@@ -20,6 +20,12 @@
 //
 // Nothing is polled. An app that cannot reach this deployment simply never
 // reports back, and the link it sent still works for the customer.
+//
+// Every Magic Forms submission is also kept, link or no link, for the
+// integrations page to list — and a form saved to a record book files each one
+// there as a record. That side is convex/formSubmissions.ts.
+
+import type { RecordField } from "./records";
 
 export type AppId = "magic_forms" | "magic_reward";
 
@@ -349,6 +355,22 @@ export function formatPhone(phone: string | undefined): string | undefined {
 // Reading a result
 // ---------------------------------------------------------------------------
 
+/** One answer, as a person reads it: option labels, not stored values. */
+export type SubmissionAnswer = { key: string; label: string; value: string };
+
+/** A Magic Forms submission, from the webhook or from `GET /api/v1/submissions`. */
+export type AppSubmission = {
+  id: string;
+  formKey: string;
+  formTitle: string;
+  answers: SubmissionAnswer[];
+  viewUrl?: string;
+  whatsapp?: string;
+  ref?: string;
+  /** Absent when the app did not say; the caller stamps it on arrival. */
+  submittedAt?: number;
+};
+
 export type AppEvent =
   | { kind: "ignore" }
   /** The app's forms changed, so the copy in `items` is stale. */
@@ -360,6 +382,8 @@ export type AppEvent =
       text: string;
       /** Carried onto the platform event, for push and the workspace webhook. */
       data: Record<string, unknown>;
+      /** A form's answers, kept for the integrations page and record books. */
+      submission?: AppSubmission;
     };
 
 /** Where a result's text stops, so a huge form cannot flood the history. */
@@ -391,14 +415,21 @@ export function interpretEvent(
 
     const data = asObject(envelope.data);
     const title = asString(data.formTitle) ?? "a form";
-    const answers = asArray(data.answers)
-      .map((answer) => {
+    const rows = asArray(data.answers)
+      .map((answer): SubmissionAnswer | null => {
         const a = asObject(answer);
         const label = asString(a.label) ?? asString(a.key);
         const value = asString(a.value);
-        return label && value ? { label, value } : null;
+        return label && value
+          ? { key: asString(a.key) ?? label, label, value }
+          : null;
       })
-      .filter((a): a is { label: string; value: string } => a !== null);
+      .filter((a): a is SubmissionAnswer => a !== null);
+    const answers = rows.map(({ label, value }) => ({ label, value }));
+
+    const submissionId = asString(data.submissionId);
+    const formKey = asString(data.formSlug);
+    const submittedAt = Date.parse(asString(envelope.createdAt) ?? "");
 
     const text = [
       `[Form submitted on the page we sent: ${title}]`,
@@ -412,11 +443,24 @@ export function interpretEvent(
       ref: asString(data.externalRef) ?? null,
       text,
       data: {
-        form: { title, slug: asString(data.formSlug) ?? null },
-        submissionId: asString(data.submissionId) ?? null,
+        form: { title, slug: formKey ?? null },
+        submissionId: submissionId ?? null,
         answers,
         viewUrl: asString(data.viewUrl) ?? null,
       },
+      submission:
+        submissionId && formKey
+          ? {
+              id: submissionId,
+              formKey,
+              formTitle: title,
+              answers: rows,
+              viewUrl: asString(data.viewUrl),
+              whatsapp: asString(data.whatsapp),
+              ref: asString(data.externalRef),
+              submittedAt: Number.isFinite(submittedAt) ? submittedAt : undefined,
+            }
+          : undefined,
     };
   }
 
@@ -447,4 +491,149 @@ export function interpretEvent(
       registrationId: asString(registration.id) ?? null,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Submissions, and filing them in a record book
+// ---------------------------------------------------------------------------
+
+/** "full_name" → "Full name", for a key the form's field list does not name. */
+function labelFromKey(key: string): string {
+  const words = key.replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : key;
+}
+
+/**
+ * A stored value as a person reads it — the same rules Magic Forms uses for the
+ * webhook's `answers`, since the API hands back raw values instead.
+ */
+function readableAnswer(field: AppPrefillField, raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (field.type === "checkbox" || field.type === "switch") {
+    return raw === "true" || raw === true ? "Yes" : "No";
+  }
+  const values = (Array.isArray(raw) ? raw : [raw])
+    .map((value) => String(value).trim())
+    .filter(Boolean)
+    .map(
+      (value) =>
+        field.options?.find((option) => option.value === value)?.label ?? value
+    );
+  return values.length > 0 ? values.join(", ") : undefined;
+}
+
+/**
+ * Submissions from `GET /api/v1/submissions`.
+ *
+ * That endpoint returns raw values keyed by field and no labels, so each is
+ * read against its form's field list. A submission to a form that is no longer
+ * published has no field list here, and is skipped: it could only be shown as
+ * a list of keys.
+ */
+export function readSubmissions(body: unknown, items: AppItem[]): AppSubmission[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const out: AppSubmission[] = [];
+
+  for (const raw of asArray(asObject(body).submissions)) {
+    const row = asObject(raw);
+    const id = asString(row.id);
+    const item = byId.get(asString(row.formId) ?? "");
+    if (!id || !item) continue;
+
+    const data = asObject(row.data);
+    const answers: SubmissionAnswer[] = [];
+    const known = new Set<string>();
+    for (const field of item.prefill ?? []) {
+      known.add(field.key);
+      const value = readableAnswer(field, data[field.key]);
+      if (value) answers.push({ key: field.key, label: field.label, value });
+    }
+    for (const [key, value] of Object.entries(data)) {
+      if (known.has(key)) continue;
+      const text = Array.isArray(value)
+        ? value.map(String).join(", ")
+        : asString(value);
+      if (text) answers.push({ key, label: labelFromKey(key), value: text });
+    }
+
+    // Files by name only. The bytes stay in Magic Forms, behind `viewUrl`.
+    const files = new Map<string, string[]>();
+    for (const file of asArray(row.files)) {
+      const f = asObject(file);
+      const key = asString(f.key);
+      const name = asString(f.name);
+      if (key && name) files.set(key, [...(files.get(key) ?? []), name]);
+    }
+    for (const [key, names] of files) {
+      answers.push({ key, label: labelFromKey(key), value: names.join(", ") });
+    }
+
+    const submittedAt = Date.parse(asString(row.submittedAt) ?? "");
+    out.push({
+      id,
+      formKey: item.key,
+      formTitle: item.title,
+      answers,
+      viewUrl: asString(row.viewUrl),
+      whatsapp: asString(row.whatsapp),
+      ref: asString(row.externalRef),
+      submittedAt: Number.isFinite(submittedAt) ? submittedAt : undefined,
+    });
+  }
+
+  return out;
+}
+
+/**
+ * A record book's fields, from a form's.
+ *
+ * Choice fields keep their option *labels*, because a submission's answers
+ * carry labels and the book's validation matches on them. A field that takes
+ * several choices has no book type of its own, so it is text: "Red, Blue".
+ */
+export function formBookFields(fields: AppPrefillField[]): RecordField[] {
+  return fields.map((field): RecordField => {
+    const base = { key: field.key, label: field.label, required: field.required };
+    if (field.type === "number" || field.type === "slider" || field.type === "rating") {
+      return { ...base, type: "number" };
+    }
+    if (field.type === "date") return { ...base, type: "date" };
+    if (field.type === "checkbox" || field.type === "switch") {
+      return { ...base, type: "boolean" };
+    }
+    if (!field.multiple && field.options?.length) {
+      return {
+        ...base,
+        type: "select",
+        options: field.options.map((option) => option.label),
+      };
+    }
+    return { ...base, type: "text" };
+  });
+}
+
+/**
+ * Who a submission is about, when no conversation says so: the answers that
+ * obviously hold a name, a number, an email or a company, and failing a number,
+ * the WhatsApp number the link was built for.
+ */
+export function personFromAnswers(
+  answers: SubmissionAnswer[],
+  whatsapp?: string
+): KnownContact {
+  const person: KnownContact = {};
+  for (const answer of answers) {
+    const words = `${answer.key.replace(/_/g, " ")} ${answer.label}`.toLowerCase();
+    if (/\be-?mail\b/.test(words)) {
+      person.email ??= answer.value;
+    } else if (/\b(phone|mobile|whatsapp)\b/.test(words)) {
+      person.phone ??= answer.value;
+    } else if (/\b(company|business|organi[sz]ation)\b/.test(words)) {
+      person.company ??= answer.value;
+    } else if (/\bname\b/.test(words)) {
+      person.name ??= answer.value;
+    }
+  }
+  person.phone ??= formatPhone(whatsapp);
+  return person;
 }

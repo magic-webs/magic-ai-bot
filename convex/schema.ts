@@ -1025,6 +1025,50 @@ export default defineSchema({
     .index("by_connection_delivery", ["connectionId", "deliveryId"])
     .index("by_createdAt", ["createdAt"]),
 
+  /**
+   * Every Magic Forms submission the connection has seen — through a link an
+   * agent sent or not — so the team can read them from the integrations page,
+   * and a form switched to a record book can file each one as a record.
+   *
+   * Keyed to the Magic Forms account rather than the connection row: a
+   * disconnect deletes that row, and reconnecting the same account should find
+   * its submissions still here. Another account's are simply not shown.
+   */
+  formSubmissions: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** The Magic Forms workspace it was submitted in — `account.id`. */
+    accountId: v.string(),
+    /** Magic Forms' own id, so the webhook and an import cannot both add it. */
+    submissionId: v.string(),
+    /** The form's slug, which is `key` on the connection's items. */
+    formKey: v.string(),
+    formTitle: v.string(),
+    /** In the form's order, each value as a person reads it. */
+    answers: v.array(
+      v.object({ key: v.string(), label: v.string(), value: v.string() })
+    ),
+    /** Magic Forms' page for the full response, files included. */
+    viewUrl: v.optional(v.string()),
+    /** The WhatsApp number the link was built for, when it was. */
+    whatsapp: v.optional(v.string()),
+    /** Set when it came back through a link an agent sent. */
+    conversationId: v.optional(v.id("conversations")),
+    contactId: v.optional(v.id("contacts")),
+    agentId: v.optional(v.id("agents")),
+    /** The record it was filed as, while the form is saved to a book. */
+    recordId: v.optional(v.id("records")),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_account", ["workspaceId", "accountId", "submittedAt"])
+    .index("by_account_form", [
+      "workspaceId",
+      "accountId",
+      "formKey",
+      "submittedAt",
+    ])
+    .index("by_submission", ["workspaceId", "submissionId"]),
+
   // -------------------------------------------------------------------------
   // Orders — as the retired create_order tool captured them. New orders are
   // records in the workspace's Orders record book (convex/lib/ordersBook.ts);
@@ -1128,6 +1172,18 @@ export default defineSchema({
       v.literal("active"),
       v.literal("archived")
     ),
+    /**
+     * The Magic Forms form whose submissions are filed here as they arrive.
+     * Set when the book is made from a form on the integrations page; cleared
+     * by "Stop saving", which leaves the book and its records as they are.
+     */
+    formSource: v.optional(
+      v.object({
+        app: v.literal("magic_forms"),
+        accountId: v.string(),
+        formKey: v.string(),
+      })
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1170,7 +1226,9 @@ export default defineSchema({
       v.literal("web"),
       v.literal("api"),
       // Typed in by the team on the records page, rather than collected.
-      v.literal("manual")
+      v.literal("manual"),
+      // A Magic Forms submission, filed because its form is saved to the book.
+      v.literal("form")
     ),
     /** Lowercased reference, person and values, for the find_ tool. */
     searchBlob: v.string(),

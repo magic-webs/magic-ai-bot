@@ -70,7 +70,7 @@ type Person = {
 // Shaping
 // ---------------------------------------------------------------------------
 
-function searchBlobFor(
+export function searchBlobFor(
   reference: string,
   person: Person | undefined,
   values: Array<{ key: string; value: string }>
@@ -118,7 +118,7 @@ function detailsObject(
  * "cannot", and a duplicate reference is the one thing that would make the find
  * tool answer the wrong customer. Three tries, then a longer one.
  */
-async function freshReference(
+export async function freshReference(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
   prefix: string
@@ -267,48 +267,71 @@ export const createBook = mutation({
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-
-    const name = args.name.trim();
-    if (!name) throw new Error("Give the record a name, such as “Membership”.");
-
-    // The handle is the model's tool name, so two books cannot share one —
-    // `file_membership` can only mean one thing.
-    const base = toHandle(name);
-    const existing = await ctx.db
-      .query("recordBooks")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-    const taken = new Set(existing.map((book) => book.handle));
-    let handle = base;
-    let suffix = 2;
-    while (taken.has(handle)) {
-      handle = `${base}_${suffix}`;
-      suffix += 1;
-    }
-
-    const now = Date.now();
-    const bookId = await ctx.db.insert("recordBooks", {
-      workspaceId: args.workspaceId,
-      name,
-      pluralName: args.pluralName?.trim() || `${name}s`,
-      handle,
-      purpose: args.purpose?.trim() || "",
-      fields: args.fields ?? [],
-      stages: (args.stages ?? []).map((stage) => stage.trim()).filter(Boolean),
-      referencePrefix:
-        args.referencePrefix?.trim().toUpperCase() || suggestPrefix(name),
-      allowLookup: args.allowLookup ?? true,
-      allowUpdate: args.allowUpdate ?? true,
-      // Draft, so a half-written book is never handed to a live agent. The
-      // page's own switch is what turns it on.
-      status: args.status ?? "draft",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return { bookId, handle };
+    return await insertBook(ctx, args);
   },
 });
+
+/**
+ * A new book, with a handle no other book in the workspace has. Shared by the
+ * records page and by saving a Magic Forms form to a book.
+ */
+export async function insertBook(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    name: string;
+    pluralName?: string;
+    purpose?: string;
+    fields?: RecordField[];
+    stages?: string[];
+    referencePrefix?: string;
+    allowLookup?: boolean;
+    allowUpdate?: boolean;
+    status?: Doc<"recordBooks">["status"];
+    formSource?: Doc<"recordBooks">["formSource"];
+  }
+): Promise<{ bookId: Id<"recordBooks">; handle: string }> {
+  const name = args.name.trim();
+  if (!name) throw new Error("Give the record a name, such as “Membership”.");
+
+  // The handle is the model's tool name, so two books cannot share one —
+  // `file_membership` can only mean one thing.
+  const base = toHandle(name);
+  const existing = await ctx.db
+    .query("recordBooks")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .collect();
+  const taken = new Set(existing.map((book) => book.handle));
+  let handle = base;
+  let suffix = 2;
+  while (taken.has(handle)) {
+    handle = `${base}_${suffix}`;
+    suffix += 1;
+  }
+
+  const now = Date.now();
+  const bookId = await ctx.db.insert("recordBooks", {
+    workspaceId: args.workspaceId,
+    name,
+    pluralName: args.pluralName?.trim() || `${name}s`,
+    handle,
+    purpose: args.purpose?.trim() || "",
+    fields: args.fields ?? [],
+    stages: (args.stages ?? []).map((stage) => stage.trim()).filter(Boolean),
+    referencePrefix:
+      args.referencePrefix?.trim().toUpperCase() || suggestPrefix(name),
+    allowLookup: args.allowLookup ?? true,
+    allowUpdate: args.allowUpdate ?? true,
+    // Draft, so a half-written book is never handed to a live agent. The
+    // page's own switch is what turns it on.
+    status: args.status ?? "draft",
+    formSource: args.formSource,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return { bookId, handle };
+}
 
 export const updateBook = mutation({
   args: {

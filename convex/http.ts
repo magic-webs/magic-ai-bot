@@ -402,6 +402,7 @@ http.route({
       ref: meaning.ref ?? undefined,
       text: meaning.text,
       data: meaning.data,
+      submission: meaning.submission,
     });
     return inboundResponse(200, { ok: true, status });
   }),
