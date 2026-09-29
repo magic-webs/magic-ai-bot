@@ -48,7 +48,60 @@ import {
   TrashIcon,
   PaperPlaneTiltIcon,
   ArrowsClockwiseIcon,
+  SunIcon,
+  MoonIcon,
+  DesktopIcon,
 } from "@phosphor-icons/react";
+import { setAppearance, useAppearance } from "@/components/appearance";
+import { APPEARANCES } from "@/lib/appearance";
+
+const APPEARANCE_ICONS = { light: SunIcon, dark: MoonIcon, system: DesktopIcon };
+
+/**
+ * Light, dark or the device's setting. Unlike everything else on this page it
+ * is not the workspace's: it is kept in this browser, applies the moment it is
+ * picked, and needs no Save.
+ */
+function AppearanceCard() {
+  const appearance = useAppearance();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Appearance</CardTitle>
+        <CardDescription>
+          Just for you, on this browser. It applies straight away — also under
+          your name at the bottom of the sidebar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-3 sm:max-w-md" role="radiogroup" aria-label="Appearance">
+          {APPEARANCES.map((option) => {
+            const Icon = APPEARANCE_ICONS[option.value];
+            const selected = appearance === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setAppearance(option.value)}
+                className={cn(
+                  "flex flex-col items-center gap-2 rounded-xl border p-3 text-sm font-medium transition-colors",
+                  selected
+                    ? "border-primary ring-2 ring-primary/30"
+                    : "border-border hover:border-foreground/20"
+                )}
+              >
+                <Icon className="size-5" weight={selected ? "fill" : "regular"} />
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function WorkspaceSettingsPage() {
   const workspace = useWorkspace();
@@ -281,13 +334,14 @@ export default function WorkspaceSettingsPage() {
               workspaceName={workspace.name}
             />
           </TabsContent>
-          <TabsContent value="theme">
+          <TabsContent value="theme" className="flex flex-col gap-4">
+            <AppearanceCard />
             <Card>
               <CardHeader>
-                <CardTitle>Theme</CardTitle>
+                <CardTitle>Palette</CardTitle>
                 <CardDescription>
-                  The palette this workspace&apos;s console renders in. Light
-                  and dark are chosen separately, by your system.
+                  The colours this workspace&apos;s console renders in, for
+                  everyone. Light and dark are each person&apos;s own, above.
                 </CardDescription>
               </CardHeader>
               <CardContent>

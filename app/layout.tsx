@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, IBM_Plex_Sans, Space_Grotesk, Inter, Instrument_Sans
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Providers } from "./providers";
+import { APPEARANCE_SCRIPT } from "@/lib/appearance";
 
 const spaceGroteskHeading = Space_Grotesk({subsets:['latin'],variable:'--font-heading'});
 
@@ -29,7 +30,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable, spaceGroteskHeading.variable)}
+      // The script below adds `dark` and a color-scheme before React hydrates,
+      // so <html> legitimately differs from what the server rendered.
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <Providers>{children}</Providers>
       </body>

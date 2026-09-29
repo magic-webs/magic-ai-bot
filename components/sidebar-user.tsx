@@ -6,7 +6,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -16,13 +21,24 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useSession } from "@/components/use-session";
+import { setAppearance, useAppearance } from "@/components/appearance";
+import { APPEARANCES, isAppearance, type Appearance } from "@/lib/appearance";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Building03Icon,
+  ComputerIcon,
   Logout01Icon,
+  Moon02Icon,
   Settings01Icon,
+  Sun03Icon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
+
+const APPEARANCE_ICONS: Record<Appearance, typeof Sun03Icon> = {
+  light: Sun03Icon,
+  dark: Moon02Icon,
+  system: ComputerIcon,
+};
 
 /** Two letters for the avatar: initials where there are two words, else one. */
 function initialsOf(label: string): string {
@@ -34,7 +50,8 @@ function initialsOf(label: string): string {
 
 /**
  * Who is signed in, and everything that used to sit in the sidebar as its own
- * row — settings, the way back to the platform, signing out.
+ * row — settings, the way back to the platform, signing out — plus light and
+ * dark, which is each person's own and so belongs here rather than in settings.
  *
  * Folding them into this menu is most of the text the sidebar no longer
  * spends: three permanent rows become one, and the two that only an
@@ -54,6 +71,7 @@ export function SidebarUser({
 }) {
   const { isMobile } = useSidebar();
   const session = useSession();
+  const appearance = useAppearance();
 
   const label = session.me?.label ?? "Signed in";
   const email = session.me?.email;
@@ -138,6 +156,33 @@ export function SidebarUser({
                 All workspaces
               </DropdownMenuItem>
             ) : null}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <HugeiconsIcon
+                  icon={APPEARANCE_ICONS[appearance]}
+                  strokeWidth={2}
+                />
+                Theme
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-36">
+                <DropdownMenuRadioGroup
+                  value={appearance}
+                  onValueChange={(value) => {
+                    if (isAppearance(value)) setAppearance(value);
+                  }}
+                >
+                  {APPEARANCES.map((option) => (
+                    <DropdownMenuRadioItem key={option.value} value={option.value}>
+                      <HugeiconsIcon
+                        icon={APPEARANCE_ICONS[option.value]}
+                        strokeWidth={2}
+                      />
+                      {option.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
 
             <DropdownMenuSeparator />
             <DropdownMenuItem

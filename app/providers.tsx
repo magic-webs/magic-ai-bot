@@ -6,6 +6,7 @@ import {
   ConvexReactClient,
 } from "convex/react";
 import { Toaster } from "@/components/ui/toast";
+import { AppearanceSync } from "@/components/appearance";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -83,6 +84,7 @@ function useCookieAuth() {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ConvexProviderWithAuth client={convex} useAuth={useCookieAuth}>
+      <AppearanceSync />
       <Toaster>{children}</Toaster>
     </ConvexProviderWithAuth>
   );
