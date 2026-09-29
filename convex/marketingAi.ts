@@ -13,7 +13,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { aiGateway, gatewayModelId } from "./lib/gateway";
+import { aiGateway, gatewayModelId, gatewayRouting } from "./lib/gateway";
 import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 
 const draftSchema = z.object({
@@ -95,6 +95,7 @@ export const draft = action({
       try {
         const result = await generateText({
           model: aiGateway()(model),
+          providerOptions: gatewayRouting(model),
           output: Output.object({ schema: draftSchema }),
           instructions:
             attempt === 0

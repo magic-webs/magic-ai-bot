@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateText } from "ai";
-import { aiGateway, gatewayModelId } from "./lib/gateway";
+import { aiGateway, gatewayModelId, gatewayRouting } from "./lib/gateway";
 import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 
 /**
@@ -90,8 +90,10 @@ export const ask = action({
       JSON.stringify(data, null, 1),
     ].join("\n");
 
+    const model = gatewayModelId(agent.model || DEFAULT_CHAT_MODEL);
     const result = await generateText({
-      model: aiGateway()(gatewayModelId(agent.model || DEFAULT_CHAT_MODEL)),
+      model: aiGateway()(model),
+      providerOptions: gatewayRouting(model),
       instructions,
       messages: [
         ...history.map((turn) => ({

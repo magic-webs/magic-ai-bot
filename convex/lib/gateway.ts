@@ -59,3 +59,21 @@ export function gatewayModelId(model: string): string {
   const trimmed = model.trim();
   return trimmed.includes("/") ? trimmed : `openai/${trimmed}`;
 }
+
+/**
+ * The inference providers a model may run on, in the order the gateway tries
+ * them. Left to itself the gateway picks from every provider serving the model
+ * on recent uptime and latency, so a turn can land on any of them; listing a
+ * model here pins it to these and falls through them in turn.
+ *
+ * A model not listed is routed however the gateway chooses.
+ */
+const PROVIDER_ROUTING: Record<string, string[]> = {
+  "deepseek/deepseek-v4.1-flash": ["morph", "deepseek", "fireworks", "deepinfra"],
+};
+
+/** `providerOptions` for a gateway model id, or undefined when it is unrouted. */
+export function gatewayRouting(model: string) {
+  const providers = PROVIDER_ROUTING[model];
+  return providers ? { gateway: { order: providers, only: providers } } : undefined;
+}

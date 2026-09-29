@@ -8,7 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { aiGateway, gatewayModelId, EMBEDDING_MODEL } from "./lib/gateway";
+import { aiGateway, gatewayModelId, gatewayRouting, EMBEDDING_MODEL } from "./lib/gateway";
 import {
   generateText,
   embed,
@@ -1844,10 +1844,12 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
 
       let stepText = "";
       try {
+        // Qualified on the way out, so an agent still configured with a bare
+        // OpenAI id keeps working through the gateway.
+        const model = gatewayModelId(agent.model);
         const result = await generateText({
-          // Qualified on the way out, so an agent still configured with a bare
-          // OpenAI id keeps working through the gateway.
-          model: aiGateway()(gatewayModelId(agent.model)),
+          model: aiGateway()(model),
+          providerOptions: gatewayRouting(model),
           instructions: system,
           messages: conversationMessages,
           tools: toolset,
