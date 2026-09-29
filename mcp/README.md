@@ -327,8 +327,8 @@ the candidates.
 `list_email_templates`, `create_email_template`, `update_email_template`,
 `delete_email_template`, `list_notification_alerts`,
 `create_notification_alert`, `update_notification_alert`,
-`delete_notification_alert`, `rotate_alert_url`, `test_notification_alert`,
-`send_notification`, `list_notification_activity`
+`delete_notification_alert`, `rotate_alert_url`, `capture_alert_sample`,
+`test_notification_alert`, `send_notification`, `list_notification_activity`
 
 **Platform administration** (admin sign-in only) — `create_workspace`,
 `issue_workspace_password`, `set_workspace_access`, `set_workspace_status`,

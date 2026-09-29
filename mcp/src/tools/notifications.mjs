@@ -160,6 +160,9 @@ const alertBrief = (rule) => ({
   inboundUrl: rule.inboundUrl,
   lastInboundAt: iso(rule.lastInboundAt),
   sampleFields: rule.samplePaths,
+  sampleCapturedAt: iso(rule.sampleAt),
+  // Waiting for the next call to replace the sample.
+  capturingSample: rule.event === "inbound" ? rule.capturing : undefined,
   sent: rule.sentCount,
   notSent: rule.failedCount,
   lastFiredAt: iso(rule.lastFiredAt),
@@ -574,7 +577,7 @@ export function register(server) {
     {
       title: "List alerts",
       description:
-        "Every alert: what it listens for, what it sends to whom, how many went out, and why the last one failed if it did. Incoming-webhook alerts carry their URL and the fields of the last body it received.",
+        "Every alert: what it listens for, what it sends to whom, how many went out, and why the last one failed if it did. Incoming-webhook alerts carry their URL and the fields of the sample body it captured — the first call, until capture_alert_sample asks for a new one.",
       inputSchema: { ...workspaceArg },
       annotations: { readOnlyHint: true },
     },
@@ -704,11 +707,38 @@ export function register(server) {
   );
 
   server.registerTool(
+    "capture_alert_sample",
+    {
+      title: "Capture a new sample",
+      description:
+        "An incoming-webhook alert maps its fields from the first body its URL received, and keeps it. This makes the next call replace it, so fields the other system has started sending can be mapped; list_notification_alerts shows them once it arrives. cancel: true stops waiting.",
+      inputSchema: {
+        ...workspaceArg,
+        alert: alertArg,
+        cancel: z.boolean().optional().describe("Stop waiting for a new sample"),
+      },
+    },
+    handler(async ({ workspace, alert, cancel }) => {
+      const found = await resolveWorkspace(workspace);
+      const current = await findAlert(found._id, alert);
+      await call.mutation(api.notifications.captureInboundSample, {
+        ruleId: current._id,
+        capture: !cancel,
+      });
+      return ok(
+        cancel
+          ? `${current.name} keeps the sample it has.`
+          : `${current.name} will take the next call to its URL as its new sample.`
+      );
+    })
+  );
+
+  server.registerTool(
     "test_notification_alert",
     {
       title: "Test an alert",
       description:
-        "Send a saved alert once, with made-up details built from the record book's own fields (or the last body an incoming webhook received), to one number or address instead of its recipients. Reports what the provider answered. A WhatsApp test is a real, billed message.",
+        "Send a saved alert once, with made-up details built from the record book's own fields (or the sample an incoming webhook captured), to one number or address instead of its recipients. Reports what the provider answered. A WhatsApp test is a real, billed message.",
       inputSchema: {
         ...workspaceArg,
         alert: alertArg,

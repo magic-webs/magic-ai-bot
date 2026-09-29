@@ -39,6 +39,7 @@ import {
   normaliseEmail,
   parseTemplate,
   placeholderPaths,
+  trimSample,
   type NotificationEvent,
 } from "./lib/notifications";
 
@@ -341,6 +342,11 @@ export const listRules = query({
         recipients: rule.recipients,
         inboundUrl: rule.event === "inbound" ? inboundUrl(rule.inboundKey) : null,
         lastInboundAt: rule.lastInboundAt ?? null,
+        // A sample kept before its time was recorded was the last call's.
+        sampleAt:
+          rule.inboundSampleAt ??
+          (rule.lastInboundPayload ? (rule.lastInboundAt ?? null) : null),
+        capturing: rule.inboundCapture ?? false,
         samplePaths,
         sentCount: rule.sentCount,
         failedCount: rule.failedCount,
@@ -666,6 +672,22 @@ export const rotateInboundKey = mutation({
     const inboundKey = randomKey(28);
     await ctx.db.patch("notificationRules", rule._id, { inboundKey, updatedAt: Date.now() });
     return { inboundUrl: inboundUrl(inboundKey) };
+  },
+});
+
+/**
+ * "Capture new sample": the next call to the URL replaces the body the fields
+ * are mapped from. `capture: false` stops waiting for one.
+ */
+export const captureInboundSample = mutation({
+  args: { ruleId: v.id("notificationRules"), capture: v.boolean() },
+  handler: async (ctx, args) => {
+    const rule = await requireRule(ctx, args.ruleId);
+    if (rule.event !== "inbound") throw new Error("Only incoming webhooks take a sample.");
+    await ctx.db.patch("notificationRules", rule._id, {
+      inboundCapture: args.capture ? true : undefined,
+    });
+    return { success: true };
   },
 });
 
@@ -1072,8 +1094,8 @@ export const noteSyncError = internalMutation({
 });
 
 /**
- * An incoming webhook arrived: keep its body as the mapping sample and queue
- * the send. A mutation rather than the http action scheduling it directly, so
+ * An incoming webhook arrived: keep its body as the mapping sample if one is
+ * wanted, and queue the send. A mutation rather than the http action scheduling it directly, so
  * the sample and the dispatch are one transaction.
  */
 export const acceptInbound = internalMutation({
@@ -1092,10 +1114,18 @@ export const acceptInbound = internalMutation({
       data = {};
     }
 
+    // The first call is the sample, and later ones leave it be until the
+    // owner asks for a new one — a mapping made against it should not lose
+    // its variables because the next call left a field out.
+    const now = Date.now();
+    const sample =
+      args.payload.length <= MAX_SAMPLE ? args.payload : JSON.stringify(trimSample(data));
+    const capture =
+      (!rule.lastInboundPayload || rule.inboundCapture === true) && sample.length <= MAX_SAMPLE;
     await ctx.db.patch("notificationRules", rule._id, {
-      lastInboundAt: Date.now(),
-      ...(args.payload.length <= MAX_SAMPLE
-        ? { lastInboundPayload: args.payload }
+      lastInboundAt: now,
+      ...(capture
+        ? { lastInboundPayload: sample, inboundSampleAt: now, inboundCapture: undefined }
         : {}),
     });
     // Recorded even when switched off, so the fields can be mapped before the

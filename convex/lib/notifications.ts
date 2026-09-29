@@ -291,6 +291,23 @@ export function leafPaths(value: unknown, limit = 60): string[] {
   return out;
 }
 
+/**
+ * A body cut down to what mapping needs, for one too large to keep whole:
+ * every list to its first item, which is all `leafPaths` reads, and every long
+ * text to its start. The shape — and so every path — survives.
+ */
+export function trimSample(value: unknown, depth = 0): unknown {
+  if (depth > 8) return null;
+  if (typeof value === "string") return value.length > 200 ? `${value.slice(0, 200)}…` : value;
+  if (Array.isArray(value)) return value.length > 0 ? [trimSample(value[0], depth + 1)] : [];
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Json).map(([key, child]) => [key, trimSample(child, depth + 1)])
+    );
+  }
+  return value;
+}
+
 /** Writes `value` at a dotted path, for building a context from pairs. */
 export function setPath(target: Json, path: string, value: string): void {
   const parts = path.split(".").filter(Boolean);

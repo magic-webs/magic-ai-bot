@@ -1672,8 +1672,16 @@ export default defineSchema({
      * credential, the same way a channel's key is.
      */
     inboundKey: v.optional(v.string()),
-    /** The last body that URL received, as JSON, so fields can be mapped. */
+    /**
+     * The body the fields are mapped from, as JSON. The first call fills it
+     * and later ones leave it be, so the variable list does not shift under a
+     * mapping whenever a call leaves a field out — until `inboundCapture`.
+     */
     lastInboundPayload: v.optional(v.string()),
+    /** When that sample was taken. */
+    inboundSampleAt: v.optional(v.number()),
+    /** "Capture new sample" was pressed: the next call replaces the sample. */
+    inboundCapture: v.optional(v.boolean()),
     lastInboundAt: v.optional(v.number()),
     channel: v.union(v.literal("whatsapp"), v.literal("email")),
     /** By name and language rather than id: a re-sync replaces the rows. */

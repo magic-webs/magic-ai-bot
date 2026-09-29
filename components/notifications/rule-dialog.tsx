@@ -105,6 +105,7 @@ export function RuleDialog({
   const saveRule = useMutation(api.notifications.saveRule);
   const removeRule = useMutation(api.notifications.removeRule);
   const rotateKey = useMutation(api.notifications.rotateInboundKey);
+  const captureSample = useMutation(api.notifications.captureInboundSample);
   const testRule = useAction(api.notificationsSend.testRule);
   const fields = useFieldInsert();
 
@@ -137,7 +138,9 @@ export function RuleDialog({
   const [search, setSearch] = useState("");
   const [testTo, setTestTo] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState<"save" | "delete" | "test" | "rotate" | null>(null);
+  const [busy, setBusy] = useState<
+    "save" | "delete" | "test" | "rotate" | "capture" | null
+  >(null);
 
   const info = overview.events.find((item) => item.value === event) ?? overview.events[0];
   const isRecord = info.source === "record";
@@ -334,6 +337,18 @@ export function RuleDialog({
     }
   };
 
+  const capture = async (on: boolean) => {
+    if (!ruleId) return;
+    setBusy("capture");
+    try {
+      await captureSample({ ruleId, capture: on });
+    } catch (error) {
+      fail("Could not capture a new sample", error);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // ---------------------------------------------------------------- render
 
   const bookOptions = [
@@ -474,11 +489,44 @@ export function RuleDialog({
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Another system POSTs JSON or a form to this URL, and each call sends
-                    this alert.{" "}
+                    this alert.
                     {saved.lastInboundAt
-                      ? `Last call ${formatDistanceToNow(saved.lastInboundAt, { addSuffix: true })} — its fields are listed under Variables.`
-                      : "No calls yet. Post a sample and its fields appear under Variables."}
+                      ? ` Last call ${formatDistanceToNow(saved.lastInboundAt, { addSuffix: true })}.`
+                      : ""}
                   </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      {saved.capturing ? (
+                        <>
+                          <Spinner /> Waiting for the next call — its fields replace the ones
+                          under Variables.
+                        </>
+                      ) : saved.sampleAt ? (
+                        `Fields captured ${formatDistanceToNow(saved.sampleAt, { addSuffix: true })} · ${saved.samplePaths.length} under Variables.`
+                      ) : (
+                        "No calls yet. Post a sample and its fields appear under Variables."
+                      )}
+                    </p>
+                    {saved.capturing ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy !== null}
+                        onClick={() => void capture(false)}
+                      >
+                        {busy === "capture" ? <Spinner /> : <XIcon />} Cancel
+                      </Button>
+                    ) : saved.sampleAt ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy !== null}
+                        onClick={() => void capture(true)}
+                      >
+                        {busy === "capture" ? <Spinner /> : <PlusIcon />} Capture new sample
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ) : (
                 <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
@@ -815,8 +863,8 @@ export function RuleDialog({
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Sends the saved alert with made-up details
-                  {event === "inbound" && saved?.lastInboundAt
-                    ? " — the last body its URL received —"
+                  {event === "inbound" && saved?.sampleAt
+                    ? " — the sample its URL captured —"
                     : ""}{" "}
                   to one {channel === "whatsapp" ? "number" : "address"}. Save first to test a
                   change.
