@@ -224,33 +224,13 @@ export const CHAT_MODELS = [
     label: "DeepSeek V4.1 Flash — tool-capable, vision, 1M context",
   },
   {
-    id: "deepseek/deepseek-v4-flash",
-    label: "DeepSeek V4 Flash — the previous default, cheapest",
-  },
-  {
-    id: "deepinfra/deepseek-v4-flash",
-    label: "DeepSeek V4 Flash (DeepInfra) — same model, one provider",
-  },
-  {
-    id: "deepseek/deepseek-v4-pro",
-    label: "DeepSeek V4 Pro — stronger reasoning, dearer",
-  },
-  {
     id: "xiaomi/mimo-v2.6-flash",
     label: "MiMo V2.6 Flash — tool-capable, 1M context, cheap",
   },
   {
     id: "inclusionai/ling-3.0-flash-fin",
     label: "Ling 3.0 Flash Fin — finance-tuned, 256K context, free",
-  },
-  {
-    id: "openai/gpt-4.1-mini",
-    label: "gpt-4.1-mini — the previous default",
-  },
-  {
-    id: "openai/gpt-4.1",
-    label: "gpt-4.1 — strongest instruction following",
-  },
+  }
 ] as const;
 
 // The most an anonymous website visitor may send in one message. Generous for a

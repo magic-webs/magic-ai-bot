@@ -69,7 +69,7 @@ export function gatewayModelId(model: string): string {
  * A model not listed is routed however the gateway chooses.
  */
 const PROVIDER_ROUTING: Record<string, string[]> = {
-  "deepseek/deepseek-v4.1-flash": ["morph", "deepseek", "fireworks", "deepinfra"],
+  "deepseek/deepseek-v4.1-flash": ["deepseek", "deepinfra","morph","fireworks"],
 };
 
 /** `providerOptions` for a gateway model id, or undefined when it is unrouted. */
