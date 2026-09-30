@@ -76,3 +76,22 @@ function escapeCell(value: string): string {
 export function toCsv(rows: string[][]): string {
   return rows.map((row) => row.map(escapeCell).join(",")).join("\r\n") + "\r\n";
 }
+
+/** Hands the browser a CSV to save. Client-only. */
+export function downloadCsv(fileName: string, csv: string) {
+  // The BOM is what makes Excel read the file as UTF-8 — without it, a name
+  // like "Zoë" or "₹" opens as mojibake.
+  const blob = new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  // A detached anchor does not reliably start a blob download, so put it in
+  // the document for the duration of the click.
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Revoking synchronously can cancel a download that is still starting.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

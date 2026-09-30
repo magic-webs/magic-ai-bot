@@ -5,8 +5,29 @@ import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { CATEGORY_LABELS } from "@/convex/lib/billing";
+import {
+  metaBody,
+  metaNameFor,
+  templateBlocker,
+  templateProblems,
+} from "@/convex/lib/marketing";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
+import {
+  EVENT_TEMPLATE_BODY,
+  HOURS,
+  STATUS_VARIANT,
+  type EventStatus,
+  dayLabel,
+  formatDate,
+  hourLabel,
+  pad,
+  parts,
+  previewTemplate,
+  templateOptionLabel,
+  templateReady,
+  templateStanding,
+} from "@/components/marketing/format";
 import { useHourBucket } from "@/components/use-now";
 import { AgentAvatar } from "@/components/agent-avatar";
 import { SelectField } from "@/components/select-field";
@@ -51,11 +72,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/skeletons";
+import { EventsTab, TouchDialog } from "@/components/marketing/events";
+import { AddContactsDialog } from "@/components/marketing/add-contacts-dialog";
+import { ExportContactsButton } from "@/components/marketing/export-contacts-button";
 import { toast } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/convex-server";
 import { cn } from "@/lib/utils";
 import {
+  ArrowClockwiseIcon,
   CalendarBlankIcon,
+  CalendarCheckIcon,
   CaretLeftIcon,
   CaretRightIcon,
   GiftIcon,
@@ -65,6 +91,8 @@ import {
   PlusIcon,
   SparkleIcon,
   TrashIcon,
+  UserPlusIcon,
+  UsersIcon,
   WarningCircleIcon,
   WhatsappLogoIcon,
 } from "@phosphor-icons/react";
@@ -83,7 +111,6 @@ import {
 
 type Template = Doc<"marketingTemplates"> & { metaBody: string };
 type Occasion = Doc<"marketingTemplates">["occasion"];
-type EventStatus = Doc<"marketingEvents">["status"];
 type CalendarEvent = Doc<"marketingEvents"> & { templateName: string | null };
 type Festival = { key: string; name: string; date: string };
 
@@ -102,20 +129,10 @@ const TEMPLATE_CATEGORIES: { value: TemplateCategory; label: string }[] = [
 const OCCASIONS: { value: Occasion; label: string }[] = [
   { value: "festival", label: "Festival" },
   { value: "birthday", label: "Birthday" },
+  { value: "event", label: "Event reminder" },
   { value: "offer", label: "Offer" },
   { value: "general", label: "General" },
 ];
-
-const STATUS_VARIANT: Record<
-  EventStatus,
-  "default" | "secondary" | "outline" | "destructive"
-> = {
-  draft: "outline",
-  scheduled: "default",
-  sending: "default",
-  sent: "secondary",
-  failed: "destructive",
-};
 
 /** The chip a greeting gets inside a calendar cell. */
 const STATUS_CHIP: Record<EventStatus, string> = {
@@ -126,31 +143,14 @@ const STATUS_CHIP: Record<EventStatus, string> = {
   failed: "bg-destructive/10 text-destructive",
 };
 
-const HOURS = Array.from({ length: 24 }, (_, hour) => ({
-  value: String(hour),
-  label: hourLabel(hour),
-}));
-
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // ------------------------------------------------------------------- dates
 
-/*
- * Every date on this page is a workspace-local calendar date, "YYYY-MM-DD",
- * and the arithmetic runs on those strings through UTC. The browser's own
- * timezone never enters into it: an owner working from Dubai still sees
- * Diwali on the day their Kolkata customers do.
- */
-
-const pad = (n: number) => String(n).padStart(2, "0");
+// Workspace-local "YYYY-MM-DD" throughout — see components/marketing/format.
 
 function ymd(year: number, month: number, day: number): string {
   return `${year}-${pad(month)}-${pad(day)}`;
-}
-
-function parts(date: string) {
-  const [year, month, day] = date.split("-").map(Number);
-  return { year, month, day };
 }
 
 function localDate(instant: number, timeZone: string): string {
@@ -183,46 +183,12 @@ function monthGrid(year: number, month: number): (string | null)[] {
   return cells;
 }
 
-function formatDate(date: string, options: Intl.DateTimeFormatOptions): string {
-  const { year, month, day } = parts(date);
-  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString(undefined, {
-    ...options,
-    timeZone: "UTC",
-  });
-}
-
 const monthLabel = (year: number, month: number) =>
   formatDate(ymd(year, month, 1), { month: "long", year: "numeric" });
-
-const dayLabel = (date: string) =>
-  formatDate(date, { weekday: "long", day: "numeric", month: "long" });
 
 /** "MM-DD" as "12 Mar". */
 const birthdayLabel = (monthDay: string) =>
   formatDate(`2000-${monthDay}`, { day: "numeric", month: "short" });
-
-function hourLabel(hour: number): string {
-  if (hour === 0) return "12 AM";
-  if (hour === 12) return "12 PM";
-  return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
-}
-
-// --------------------------------------------------------------- templates
-
-const VARIABLE = /\{\{\s*(name|business|event)\s*\}\}/g;
-
-/** The body as it has to be submitted in Meta. Mirrors lib/marketing's. */
-function metaBody(body: string): string {
-  let index = 0;
-  return body.replace(VARIABLE, () => `{{${++index}}}`);
-}
-
-/** The body as one customer would read it. */
-function preview(body: string, business: string, event: string): string {
-  return body.replace(VARIABLE, (_, name: string) =>
-    name === "name" ? "Asha" : name === "business" ? business : event
-  );
-}
 
 function fail(title: string, error: unknown) {
   toast.add({ title, description: errorMessage(error), type: "error" });
@@ -658,7 +624,7 @@ function EventDialog({
                       { value: "none", label: "None yet — keep as draft" },
                       ...templates.map((t) => ({
                         value: t._id as string,
-                        label: t.metaTemplateName ? t.name : `${t.name} (not linked)`,
+                        label: templateOptionLabel(t),
                       })),
                     ]}
                   />
@@ -666,13 +632,21 @@ function EventDialog({
                 {template ? (
                   <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
                     <p className="whitespace-pre-wrap">
-                      {preview(template.body, business, draft.title || "the day")}
+                      {previewTemplate(template.body, {
+                        business,
+                        event: draft.title,
+                        date: formatDate(draft.date, {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                        }),
+                      })}
                     </p>
-                    {!template.metaTemplateName ? (
+                    {!templateReady(template) ? (
                       <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-destructive">
-                        <WarningCircleIcon className="size-3.5" />
-                        Not linked to an approved Meta template yet — link it before the day or
-                        it will fail.
+                        <WarningCircleIcon className="size-3.5 shrink-0" />
+                        {templateBlocker(template)} It will fail on the day unless it is
+                        approved first.
                       </p>
                     ) : null}
                   </div>
@@ -749,19 +723,76 @@ type TemplateDraft = {
 function TemplateDialog({
   draft,
   setDraft,
+  templates,
 }: {
   draft: TemplateDraft | null;
   setDraft: (next: TemplateDraft | null) => void;
+  templates: Template[];
 }) {
   const workspace = useWorkspace();
   const saveTemplate = useMutation(api.marketing.saveTemplate);
   const removeTemplate = useMutation(api.marketing.removeTemplate);
   const draftTemplate = useAction(api.marketingAi.draft);
+  const applyTemplate = useAction(api.marketingTemplates.apply);
   const [busy, setBusy] = useState<string | null>(null);
 
   if (!draft) {
     return <Dialog open={false} />;
   }
+
+  // The stored row, live, for where Meta's review of it stands.
+  const saved = draft.templateId
+    ? templates.find((t) => t._id === draft.templateId)
+    : undefined;
+  const status = saved?.metaStatus;
+  const edited =
+    !!saved &&
+    (draft.body.trim() !== saved.body ||
+      draft.category !== (saved.category ?? "marketing") ||
+      draft.languageCode.trim() !== saved.languageCode);
+  const inReview = status === "PENDING" || status === "IN_APPEAL";
+  // Approved, or linked by hand, and not touched since: nothing to apply.
+  const settled =
+    !!saved?.metaTemplateName && (status === undefined || status === "APPROVED") && !edited;
+  const problems = templateProblems(draft.body);
+
+  const fields = () => ({
+    workspaceId: workspace._id,
+    templateId: draft.templateId,
+    name: draft.name,
+    occasion: draft.occasion,
+    category: draft.category,
+    body: draft.body,
+    metaTemplateName: draft.metaTemplateName,
+    languageCode: draft.languageCode,
+  });
+
+  const saveAndApply = async () => {
+    setBusy("apply");
+    let templateId = draft.templateId;
+    try {
+      templateId = await saveTemplate(fields());
+      const result = await applyTemplate({ templateId });
+      toast.add(
+        result.status === "APPROVED"
+          ? { title: `${draft.name.trim()} is approved`, type: "success" }
+          : {
+              title: `${draft.name.trim()} sent to Meta for review`,
+              description:
+                "It sends once Meta approves it — usually within minutes, sometimes a day.",
+              type: "success",
+            }
+      );
+      setDraft(null);
+    } catch (error) {
+      // Saved even if the apply failed, so a second try edits this template
+      // rather than making another.
+      if (templateId) setDraft({ ...draft, templateId });
+      fail("Could not apply it to Meta", error);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const write = async () => {
     setBusy("write");
@@ -783,16 +814,7 @@ function TemplateDialog({
   const save = async () => {
     setBusy("save");
     try {
-      await saveTemplate({
-        workspaceId: workspace._id,
-        templateId: draft.templateId,
-        name: draft.name,
-        occasion: draft.occasion,
-        category: draft.category,
-        body: draft.body,
-        metaTemplateName: draft.metaTemplateName,
-        languageCode: draft.languageCode,
-      });
+      await saveTemplate(fields());
       toast.add({ title: `${draft.name.trim()} saved`, type: "success" });
       setDraft(null);
     } catch (error) {
@@ -824,12 +846,37 @@ function TemplateDialog({
         <DialogHeader>
           <DialogTitle>{draft.templateId ? "Edit template" : "New template"}</DialogTitle>
           <DialogDescription>
-            Use <code>{"{{name}}"}</code>, <code>{"{{business}}"}</code> and{" "}
-            <code>{"{{event}}"}</code> — each customer gets their own.
+            {draft.occasion === "event" ? (
+              <>
+                Put <code>{"{{message}}"}</code> where each reminder&apos;s own line goes;{" "}
+                <code>{"{{event}}"}</code>, <code>{"{{date}}"}</code> and{" "}
+                <code>{"{{venue}}"}</code> come from the event.
+              </>
+            ) : (
+              <>
+                Use <code>{"{{name}}"}</code>, <code>{"{{business}}"}</code> and{" "}
+                <code>{"{{event}}"}</code> — each customer gets their own.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          {saved?.metaTemplateName ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-3 text-sm">
+              <Badge variant="secondary" className={templateStanding(saved).className}>
+                {templateStanding(saved).label}
+              </Badge>
+              <span className="min-w-0 text-muted-foreground">
+                {templateBlocker(saved) ?? (
+                  <>
+                    Sends as <code className="text-foreground">{saved.metaTemplateName}</code>.
+                  </>
+                )}
+              </span>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr]">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="template-name">Name</Label>
@@ -876,7 +923,11 @@ function TemplateDialog({
               value={draft.body}
               rows={5}
               maxLength={1024}
-              placeholder="Happy {{event}}, {{name}}! Wishing you and your family joy and light. — {{business}}"
+              placeholder={
+                draft.occasion === "event"
+                  ? EVENT_TEMPLATE_BODY
+                  : "Happy {{event}}, {{name}}! Wishing you and your family joy and light. — {{business}}"
+              }
               onChange={(event) => setDraft({ ...draft, body: event.target.value })}
             />
             <p className="text-xs text-muted-foreground">
@@ -888,30 +939,40 @@ function TemplateDialog({
           {numbered ? (
             <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/40 p-3">
               <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Submit this in WhatsApp Manager
+                What Meta reviews
               </p>
               <p className="font-mono text-sm whitespace-pre-wrap select-all">{numbered}</p>
               <p className="text-xs text-muted-foreground">
-                Category <strong>{CATEGORY_LABELS[draft.category]}</strong> — the same
-                category Meta approves it under is what each send is billed at. Keep the
-                numbered variables in this order; they are filled in the same order the
-                names appear above.
+                Category <strong>{CATEGORY_LABELS[draft.category]}</strong> — the category
+                Meta approves it under is what each send is billed at. Applying sends it
+                through your WhatsApp number&apos;s panel, with a sample for each variable.
               </p>
+              {problems.length > 0 ? (
+                <ul className="flex flex-col gap-1 text-xs font-medium text-destructive">
+                  {problems.map((problem) => (
+                    <li key={problem} className="flex items-start gap-1.5">
+                      <WarningCircleIcon className="mt-px size-3.5 shrink-0" />
+                      {problem}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ) : null}
 
           <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="template-meta">Approved name in Meta</Label>
+              <Label htmlFor="template-meta">Name in Meta</Label>
               <Input
                 id="template-meta"
                 value={draft.metaTemplateName}
-                placeholder="diwali_wishes"
+                placeholder={metaNameFor(draft.name || "Diwali wishes")}
                 className="font-mono"
                 onChange={(event) => setDraft({ ...draft, metaTemplateName: event.target.value })}
               />
               <p className="text-xs text-muted-foreground">
-                Empty until Meta approves it. Nothing sends without it.
+                Set when you apply it. Paste one here only for a template approved
+                somewhere else.
               </p>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -936,12 +997,28 @@ function TemplateDialog({
           ) : (
             <span />
           )}
-          <Button
-            onClick={() => void save()}
-            disabled={busy !== null || !draft.name.trim() || !draft.body.trim()}
-          >
-            {busy === "save" ? <Spinner /> : null} Save template
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={settled ? "default" : "outline"}
+              onClick={() => void save()}
+              disabled={busy !== null || !draft.name.trim() || !draft.body.trim()}
+            >
+              {busy === "save" ? <Spinner /> : null} Save template
+            </Button>
+            {inReview ? (
+              <Button disabled>In review with Meta</Button>
+            ) : !settled ? (
+              <Button
+                onClick={() => void saveAndApply()}
+                disabled={
+                  busy !== null || !draft.name.trim() || !draft.body.trim() || problems.length > 0
+                }
+              >
+                {busy === "apply" ? <Spinner /> : <PaperPlaneTiltIcon />}
+                {saved?.metaTemplateId ? "Save and apply the change" : "Save and apply to Meta"}
+              </Button>
+            ) : null}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1105,7 +1182,7 @@ function BirthdaySettings({
               onValueChange={setTemplateId}
               options={templates.map((t) => ({
                 value: t._id as string,
-                label: t.metaTemplateName ? t.name : `${t.name} (not linked)`,
+                label: templateOptionLabel(t),
               }))}
             />
           </div>
@@ -1120,11 +1197,10 @@ function BirthdaySettings({
           </div>
         </div>
 
-        {chosen && !chosen.metaTemplateName ? (
+        {chosen && !templateReady(chosen) ? (
           <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
             <WarningCircleIcon className="size-3.5" />
-            “{chosen.name}” is not linked to an approved Meta template, so the wishes will not
-            send until it is.
+            {templateBlocker(chosen)} The wishes will not send until it is approved.
           </p>
         ) : null}
 
@@ -1167,6 +1243,12 @@ export default function MarketingPage() {
     phone: string;
     birthday: string | null;
   } | null>(null);
+  // An id rather than the reminder itself, so the dialog reads the live row
+  // and shows the desk's line the moment it is written.
+  const [touchId, setTouchId] = useState<Id<"marketingEvents"> | null>(null);
+  // Bumped on every open, and the dialog is keyed on it, so it starts empty.
+  const [adding, setAdding] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
 
   const from = ymd(cursor.year, cursor.month, 1);
   const to = ymd(cursor.year, cursor.month, daysInMonth(cursor.year, cursor.month));
@@ -1184,12 +1266,39 @@ export default function MarketingPage() {
   });
   const contacts = useQuery(
     api.marketing.contacts,
-    tab === "birthdays"
+    tab === "contacts"
       ? { workspaceId: workspace._id, search: search.trim() || undefined }
       : "skip"
   );
+  const campaigns = useQuery(api.marketingCampaigns.list, {
+    workspaceId: workspace._id,
+  });
+  const openCampaign = touchId
+    ? (campaigns ?? []).find((c) => c.touches.some((t) => t._id === touchId))
+    : undefined;
+  const openTouch = openCampaign?.touches.find((t) => t._id === touchId);
   const ensureDesk = useMutation(api.marketing.ensureDesk);
   const [creatingDesk, setCreatingDesk] = useState(false);
+  const checkStatus = useAction(api.marketingTemplates.checkStatus);
+  const [checking, setChecking] = useState(false);
+
+  // The sweep asks Meta every half hour on its own; this is for not waiting.
+  const runStatusCheck = async () => {
+    setChecking(true);
+    try {
+      const { changed } = await checkStatus({ workspaceId: workspace._id });
+      toast.add({
+        title: changed
+          ? `${changed} ${changed === 1 ? "template" : "templates"} updated from Meta`
+          : "No decision from Meta yet",
+        type: changed ? "success" : undefined,
+      });
+    } catch (error) {
+      fail("Could not check with Meta", error);
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const templates = useMemo(() => overview?.templates ?? [], [overview]);
 
@@ -1226,7 +1335,7 @@ export default function MarketingPage() {
 
   /** A linked template for the occasion when there is one, so a new entry is usually ready to save. */
   const defaultTemplate = (occasion: Occasion) =>
-    templates.find((t) => t.occasion === occasion && t.metaTemplateName)?._id ??
+    templates.find((t) => t.occasion === occasion && templateReady(t))?._id ??
     templates.find((t) => t.occasion === occasion)?._id;
 
   const newEvent = (date: string, title = "", presetKey?: string) =>
@@ -1238,7 +1347,12 @@ export default function MarketingPage() {
       templateId: defaultTemplate(presetKey ? "festival" : "offer"),
     });
 
-  const openEvent = (event: CalendarEvent) =>
+  const openEvent = (event: CalendarEvent) => {
+    // A reminder belongs to its event, and is opened as one.
+    if (event.campaignId) {
+      setTouchId(event._id);
+      return;
+    }
     setEventDraft({
       eventId: event._id,
       title: event.title,
@@ -1248,9 +1362,20 @@ export default function MarketingPage() {
       presetKey: event.presetKey,
       saved: event,
     });
+  };
 
   const newFromFestival = (festival: Festival) =>
     newEvent(festival.date, festival.name, festival.key);
+
+  const newEventTemplate = () =>
+    setTemplateDraft({
+      name: "Event reminder",
+      occasion: "event",
+      category: "marketing",
+      body: EVENT_TEMPLATE_BODY,
+      metaTemplateName: "",
+      languageCode: "en",
+    });
 
   const openTemplate = (template?: Template) =>
     setTemplateDraft(
@@ -1274,7 +1399,10 @@ export default function MarketingPage() {
           }
     );
 
-  const unlinked = templates.filter((t) => !t.metaTemplateName).length;
+  const unlinked = templates.filter((t) => !templateReady(t)).length;
+  const inReview = templates.some(
+    (t) => t.metaStatus === "PENDING" || t.metaStatus === "IN_APPEAL"
+  );
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -1282,8 +1410,8 @@ export default function MarketingPage() {
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">Marketing</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Birthday wishes and festival greetings, sent on schedule by the marketing desk as
-            approved WhatsApp templates.
+            Birthday wishes, festival greetings and event reminders, sent on schedule by the
+            marketing desk as approved WhatsApp templates.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1365,22 +1493,28 @@ export default function MarketingPage() {
       <Separator />
 
       <Tabs value={tab} onValueChange={(next) => setTab(String(next))}>
-        <TabsList>
-          <TabsTrigger value="calendar">
-            <CalendarBlankIcon /> Calendar
-          </TabsTrigger>
-          <TabsTrigger value="templates">
-            <MegaphoneIcon /> Templates
-            {unlinked > 0 ? (
-              <Badge variant="outline" className="ml-1">
-                {unlinked} to link
-              </Badge>
-            ) : null}
-          </TabsTrigger>
-          <TabsTrigger value="birthdays">
-            <GiftIcon /> Birthdays
-          </TabsTrigger>
-        </TabsList>
+        {/* Scrolls sideways on a phone rather than clipping the last tab. */}
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <TabsList>
+            <TabsTrigger value="calendar">
+              <CalendarBlankIcon /> Calendar
+            </TabsTrigger>
+            <TabsTrigger value="events">
+              <CalendarCheckIcon /> Events
+            </TabsTrigger>
+            <TabsTrigger value="templates">
+              <MegaphoneIcon /> Templates
+              {unlinked > 0 ? (
+                <Badge variant="outline" className="ml-1">
+                  {unlinked} to apply
+                </Badge>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="contacts">
+              <UsersIcon /> Contacts
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* --------------------------------------------------------- calendar */}
         <TabsContent value="calendar" className="pt-4">
@@ -1478,18 +1612,41 @@ export default function MarketingPage() {
           </div>
         </TabsContent>
 
+        {/* ----------------------------------------------------------- events */}
+        <TabsContent value="events" className="pt-4">
+          <EventsTab
+            campaigns={campaigns}
+            templates={templates}
+            today={today}
+            onOpenTouch={(touch) => setTouchId(touch._id)}
+            onCreateTemplate={newEventTemplate}
+          />
+        </TabsContent>
+
         {/* -------------------------------------------------------- templates */}
         <TabsContent value="templates" className="flex flex-col gap-4 pt-4">
           {unlinked > 0 ? (
             <Alert>
               <WhatsappLogoIcon />
               <AlertTitle>
-                {unlinked === 1 ? "1 template is" : `${unlinked} templates are`} not linked to Meta
+                {unlinked === 1 ? "1 template can't send yet" : `${unlinked} templates can't send yet`}
               </AlertTitle>
-              <AlertDescription>
-                WhatsApp only delivers marketing messages as templates Meta has approved. Open a
-                template, submit the numbered text it shows in WhatsApp Manager, then paste back
-                the name it was approved under. Until then it cannot send.
+              <AlertDescription className="flex flex-col items-start gap-2">
+                <p>
+                  WhatsApp only delivers marketing messages as templates Meta has approved. Open
+                  one and apply it to Meta — it sends once approved, and the approval is picked
+                  up here on its own.
+                </p>
+                {inReview ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={checking}
+                    onClick={() => void runStatusCheck()}
+                  >
+                    {checking ? <Spinner /> : <ArrowClockwiseIcon />} Check status now
+                  </Button>
+                ) : null}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -1531,15 +1688,18 @@ export default function MarketingPage() {
                         {CATEGORY_LABELS[template.category]}
                       </Badge>
                     ) : null}
-                    {template.metaTemplateName ? (
-                      <Badge>linked</Badge>
-                    ) : (
-                      <Badge variant="secondary">not linked</Badge>
-                    )}
+                    <Badge variant="secondary" className={templateStanding(template).className}>
+                      {templateStanding(template).label}
+                    </Badge>
                   </span>
                   <span className="line-clamp-4 text-sm whitespace-pre-wrap text-muted-foreground">
                     {template.body}
                   </span>
+                  {template.metaStatus === "REJECTED" || template.metaStatus === "CHANGED" ? (
+                    <span className="text-xs font-medium text-destructive">
+                      {templateBlocker(template)}
+                    </span>
+                  ) : null}
                   {template.metaTemplateName ? (
                     <span className="mt-auto flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
                       <WhatsappLogoIcon className="size-3.5" />
@@ -1552,8 +1712,8 @@ export default function MarketingPage() {
           )}
         </TabsContent>
 
-        {/* -------------------------------------------------------- birthdays */}
-        <TabsContent value="birthdays" className="flex flex-col gap-4 pt-4">
+        {/* --------------------------------------------------------- contacts */}
+        <TabsContent value="contacts" className="flex flex-col gap-4 pt-4">
           {overview ? (
             <BirthdaySettings
               key={JSON.stringify(overview.settings)}
@@ -1568,17 +1728,29 @@ export default function MarketingPage() {
             <div>
               <h2 className="text-lg font-semibold">Customers</h2>
               <p className="text-sm text-muted-foreground">
-                Agents save a birthday when a customer mentions it. Add the rest here.
+                Everyone here gets your greetings and event reminders. Add people who
+                have not written in yet.
               </p>
             </div>
-            <div className="relative w-full sm:w-72">
-              <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                placeholder="Search name or number"
-                className="pl-8"
-                onChange={(event) => setSearch(event.target.value)}
-              />
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
+                <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  placeholder="Search name or number"
+                  className="pl-8"
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              <ExportContactsButton />
+              <Button
+                onClick={() => {
+                  setAdding((n) => n + 1);
+                  setAddOpen(true);
+                }}
+              >
+                <UserPlusIcon /> Add contacts
+              </Button>
             </div>
           </div>
 
@@ -1648,12 +1820,30 @@ export default function MarketingPage() {
         timezone={timezone}
         business={workspace.name}
       />
-      <TemplateDialog draft={templateDraft} setDraft={setTemplateDraft} />
+      <TemplateDialog
+        draft={templateDraft}
+        setDraft={setTemplateDraft}
+        templates={templates}
+      />
       {/* Keyed on the contact so its field starts from their birthday. */}
       <BirthdayDialog
         key={birthdayContact?._id ?? "none"}
         contact={birthdayContact}
         onClose={() => setBirthdayContact(null)}
+      />
+      {/* Keyed on the reminder, so a draft typed into one never shows on
+          the next. */}
+      <TouchDialog
+        key={`touch:${touchId ?? "none"}`}
+        campaign={openCampaign ?? null}
+        touch={openTouch ?? null}
+        templates={templates}
+        onClose={() => setTouchId(null)}
+      />
+      <AddContactsDialog
+        key={adding}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
       />
     </div>
   );

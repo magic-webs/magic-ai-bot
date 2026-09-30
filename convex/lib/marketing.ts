@@ -105,10 +105,23 @@ export function festivalsBetween(
 // Template variables
 // ---------------------------------------------------------------------------
 
-export const TEMPLATE_VARIABLES = ["name", "business", "event"] as const;
+/**
+ * `date`, `venue` and `message` belong to an event: its day and time, where it
+ * is, and the line the marketing desk writes for each reminder. A festival or
+ * a birthday has no venue and no message, so a template that uses them only
+ * sends for an event that fills them — see `missingVariables`.
+ */
+export const TEMPLATE_VARIABLES = [
+  "name",
+  "business",
+  "event",
+  "date",
+  "venue",
+  "message",
+] as const;
 export type TemplateVariable = (typeof TEMPLATE_VARIABLES)[number];
 
-const VARIABLE = /\{\{\s*(name|business|event)\s*\}\}/g;
+const VARIABLE = /\{\{\s*(name|business|event|date|venue|message)\s*\}\}/g;
 
 /**
  * Fills a template for one contact.
@@ -129,16 +142,211 @@ export function renderTemplate(
   return { text, parameters };
 }
 
+/**
+ * The variables a body uses that have nothing to fill them. Meta refuses a
+ * template send with an empty parameter, so this is checked before sending
+ * rather than discovered once per contact.
+ */
+export function missingVariables(
+  body: string,
+  values: Record<TemplateVariable, string>
+): TemplateVariable[] {
+  const missing = new Set<TemplateVariable>();
+  for (const match of body.matchAll(VARIABLE)) {
+    const name = match[1] as TemplateVariable;
+    if (!values[name]?.trim()) missing.add(name);
+  }
+  return [...missing];
+}
+
+/**
+ * A template parameter as Meta accepts one: no line breaks, no tabs and no
+ * run of more than three spaces. A reminder line the desk wrote across two
+ * lines is joined into one rather than refused.
+ */
+export function asParameter(text: string): string {
+  return text.replace(/\s*[\r\n\t]+\s*/g, " ").replace(/ {4,}/g, "   ").trim();
+}
+
 /** The body as it has to be written in Meta: {{1}}, {{2}}… in order. */
 export function metaBody(body: string): string {
   let index = 0;
   return body.replace(VARIABLE, () => `{{${++index}}}`);
 }
 
+// ---------------------------------------------------------------------------
+// Applying a template to Meta
+// ---------------------------------------------------------------------------
+
+/** Meta's name for a template: lowercase letters, digits and underscores. */
+export function metaNameFor(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 480);
+  return slug || "marketing_message";
+}
+
+/**
+ * The sample Meta reviews each variable with, in order of appearance. Meta
+ * refuses a template with variables and no samples, and reads them to judge
+ * what the message will say — so they are realistic, not "value1".
+ */
+export function exampleValues(body: string, business: string): string[] {
+  const samples: Record<TemplateVariable, string> = {
+    name: "Asha",
+    business: business || "our store",
+    event: "Open studio day",
+    date: "Sat, 8 Nov, 11 am",
+    venue: "our MG Road store",
+    message: "Doors open at eleven, with tea and a first look at the new collection.",
+  };
+  return [...body.matchAll(VARIABLE)].map((match) => samples[match[1] as TemplateVariable]);
+}
+
+/**
+ * What Meta would turn the body down for, caught before it is sent to review
+ * — a rejection takes a round trip and a day of waiting to hear about.
+ */
+export function templateProblems(body: string): string[] {
+  const text = body.trim();
+  const problems: string[] = [];
+  if (!text) problems.push("Write the message first.");
+  if (/^\{\{/.test(text)) problems.push("It cannot start with a variable — open with a word, like “Hi {{name}}”.");
+  if (/\}\}$/.test(text)) problems.push("It cannot end with a variable — close with a word or two after it.");
+  if (/\}\}\s*\{\{/.test(text)) problems.push("Two variables cannot sit side by side — put a word between them.");
+  if (text.length > 1024) problems.push("Keep it under 1,024 characters.");
+  return problems;
+}
+
+/**
+ * Why a template cannot send right now, in words the owner can act on, or
+ * null when it can. The sender and the page read the same answer.
+ */
+export function templateBlocker(template: {
+  name: string;
+  metaTemplateName?: string;
+  metaStatus?: string;
+  metaRejectedReason?: string;
+}): string | null {
+  const name = `“${template.name}”`;
+  if (!template.metaTemplateName) return `${name} has not been applied to Meta yet.`;
+  switch (template.metaStatus) {
+    case undefined:
+    case "APPROVED":
+      return null;
+    case "PENDING":
+    case "IN_APPEAL":
+      return `${name} is still waiting for Meta's approval.`;
+    case "REJECTED":
+      return `Meta rejected ${name}${
+        template.metaRejectedReason ? ` (${template.metaRejectedReason.toLowerCase().replace(/_/g, " ")})` : ""
+      }. Change it and apply it again.`;
+    case "CHANGED":
+      return `${name} was changed after it was applied. Apply the change to Meta first.`;
+    default:
+      return `${name} is ${template.metaStatus.toLowerCase()} in Meta and cannot send.`;
+  }
+}
+
 /** A first name to greet, or a word that reads well in its place. */
 export function greetingName(name: string | undefined): string {
   const first = name?.trim().split(/\s+/)[0];
   return first && /\p{L}/u.test(first) ? first : "there";
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+/**
+ * The reminders an event can send, by how many days before (negative) or
+ * after (positive) its date. Offered as a fixed set rather than any number,
+ * because each one gets its own line from the desk and "4 days before" reads
+ * no differently to a customer from 3.
+ */
+export const EVENT_TOUCHES = [
+  { offset: -7, label: "1 week before" },
+  { offset: -3, label: "3 days before" },
+  { offset: -1, label: "1 day before" },
+  { offset: 0, label: "On the day" },
+  { offset: 1, label: "1 day after" },
+] as const;
+
+export const EVENT_TOUCH_OFFSETS: readonly number[] = EVENT_TOUCHES.map(
+  (touch) => touch.offset
+);
+
+/** What a new event sends unless the owner picks otherwise. */
+export const DEFAULT_EVENT_TOUCHES = [-3, -1, 0, 1];
+
+export function touchLabel(offset: number): string {
+  return (
+    EVENT_TOUCHES.find((touch) => touch.offset === offset)?.label ??
+    (offset < 0 ? `${-offset} days before` : `${offset} days after`)
+  );
+}
+
+/** What each reminder is for, as the desk is briefed on it. */
+export function touchBrief(offset: number): string {
+  if (offset <= -7) {
+    return "An early announcement, a week ahead: tell them it is coming and why it is worth marking in the diary.";
+  }
+  if (offset < -1) {
+    return `A reminder ${-offset} days ahead: build a little anticipation and give them the one reason to come.`;
+  }
+  if (offset === -1) {
+    return "The day before: a short, friendly nudge that it is tomorrow.";
+  }
+  if (offset === 0) {
+    return "The morning of the day: it is today — make it easy to come along.";
+  }
+  return "The day after: thank everyone warmly, whether or not they came, and leave the door open for next time. Do not assume they attended.";
+}
+
+/** "YYYY-MM-DD" moved by whole days. */
+export function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+export function isLocalTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+/**
+ * An event's day, and its time when it has one, the way a customer reads it
+ * in a message: "Sat, 8 Nov, 6:30 pm". Formatted through UTC on purpose — the
+ * date is already the workspace's local one.
+ */
+export function eventDateLabel(
+  date: string,
+  startTime: string | undefined,
+  locale: string
+): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const at = new Date(Date.UTC(year, month - 1, day));
+  const format = (tag: string) =>
+    new Intl.DateTimeFormat(tag, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    }).format(at);
+  let label: string;
+  try {
+    label = format(locale);
+  } catch {
+    label = format("en-IN");
+  }
+  if (!startTime || !isLocalTime(startTime)) return label;
+
+  const [hours, minutes] = startTime.split(":").map(Number);
+  const suffix = hours < 12 ? "am" : "pm";
+  const twelve = hours % 12 === 0 ? 12 : hours % 12;
+  return `${label}, ${twelve}${minutes ? `:${String(minutes).padStart(2, "0")}` : ""} ${suffix}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +476,8 @@ export const MARKETING_DEFAULTS = {
   ].join(" "),
   rules: [
     "Keep a message under 60 words.",
-    "Use {{name}} for the customer's first name and {{business}} for the company name; use {{event}} for the occasion's name when the message is for a festival.",
+    "Use {{name}} for the customer's first name and {{business}} for the company name; use {{event}} for the occasion's name when the message is for a festival or an event.",
+    "For an event's reminders, write the one line that goes into {{message}} from the event's own details — its date, place and offer are only ever the ones you were given.",
     "Match the language and tone of the business.",
   ],
   guardrails: [

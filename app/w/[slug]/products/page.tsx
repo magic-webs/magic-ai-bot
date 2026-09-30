@@ -38,6 +38,7 @@ import {
   sampleProductCsv,
   type ParseResult,
 } from "@/lib/product-csv";
+import { downloadCsv } from "@/lib/csv";
 import {
   Dialog,
   DialogBody,
@@ -399,23 +400,8 @@ function ImportDialog() {
     }
   };
 
-  const downloadSample = () => {
-    const blob = new Blob([sampleProductCsv()], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "catalogue-sample.csv";
-    // A detached anchor does not reliably start a blob download, so put it in
-    // the document for the duration of the click.
-    link.hidden = true;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    // Revoking synchronously can cancel a download that is still starting.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const downloadSample = () =>
+    downloadCsv("catalogue-sample.csv", sampleProductCsv());
 
   const runImport = async () => {
     if (!parsed) return;

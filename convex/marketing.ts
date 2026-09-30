@@ -12,7 +12,9 @@
 //        contact's thread so the Chats screen shows what they were sent
 //
 // Birthdays are the same path with a different audience: every contact whose
-// `birthday` is today's day and month, once a day, at the hour set.
+// `birthday` is today's day and month, once a day, at the hour set. An event's
+// reminders (convex/marketingCampaigns.ts) are calendar entries too, and go
+// out the same way.
 
 import { v } from "convex/values";
 import {
@@ -49,6 +51,7 @@ const occasion = v.union(
   v.literal("birthday"),
   v.literal("festival"),
   v.literal("offer"),
+  v.literal("event"),
   v.literal("general")
 );
 
@@ -72,7 +75,7 @@ async function settingsFor(
 }
 
 /** The number greetings go out from: the workspace's first live WhatsApp channel. */
-async function sendingChannel(
+export async function sendingChannel(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">
 ): Promise<Doc<"channels"> | null> {
@@ -90,7 +93,7 @@ async function sendingChannel(
   );
 }
 
-async function templateInWorkspace(
+export async function templateInWorkspace(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   templateId: Id<"marketingTemplates">
@@ -112,7 +115,7 @@ async function requireEvent(
   return event;
 }
 
-function clampHour(hour: number): number {
+export function clampHour(hour: number): number {
   return Math.min(23, Math.max(0, Math.round(hour)));
 }
 
@@ -393,7 +396,32 @@ export const saveTemplate = mutation({
 
     const now = Date.now();
     if (args.templateId) {
-      await templateInWorkspace(ctx, args.workspaceId, args.templateId);
+      const existing = await templateInWorkspace(ctx, args.workspaceId, args.templateId);
+
+      // Keeping Meta's copy honest. A name typed over by hand links a
+      // different template, so what was tracked for the old one goes. A
+      // change to the text, language or category of one applied from here
+      // means Meta approved something else — it stops sending until the
+      // change is applied too. A new language is a new template in Meta, so
+      // it loses the id an edit would go to.
+      const relinked = metaTemplateName !== existing.metaTemplateName;
+      const reworded =
+        body !== existing.body ||
+        languageCode !== existing.languageCode ||
+        (args.category !== undefined && args.category !== (existing.category ?? "marketing"));
+      const review = relinked
+        ? {
+            metaStatus: undefined,
+            metaTemplateId: undefined,
+            metaRejectedReason: undefined,
+          }
+        : reworded && existing.metaStatus
+          ? {
+              metaStatus: "CHANGED",
+              ...(languageCode !== existing.languageCode ? { metaTemplateId: undefined } : {}),
+            }
+          : {};
+
       await ctx.db.patch("marketingTemplates", args.templateId, {
         name,
         occasion: args.occasion,
@@ -403,6 +431,7 @@ export const saveTemplate = mutation({
         // Left alone when not given, so a caller that predates categories
         // cannot quietly move a utility template back to marketing.
         ...(args.category ? { category: args.category } : {}),
+        ...review,
         updatedAt: now,
       });
       return args.templateId;
@@ -449,6 +478,22 @@ export const removeTemplate = mutation({
           updatedAt: Date.now(),
         });
       }
+    }
+
+    // An event keeps no template it could not save again with: its reminders
+    // went back to draft above, and the event itself is cleared to match.
+    const campaigns = await ctx.db
+      .query("marketingCampaigns")
+      .withIndex("by_workspace_and_date", (q) =>
+        q.eq("workspaceId", template.workspaceId)
+      )
+      .take(500);
+    for (const campaign of campaigns) {
+      if (campaign.templateId !== args.templateId) continue;
+      await ctx.db.patch("marketingCampaigns", campaign._id, {
+        templateId: undefined,
+        updatedAt: Date.now(),
+      });
     }
 
     const settings = await settingsFor(ctx, template.workspaceId);
@@ -513,6 +558,11 @@ export const saveEvent = mutation({
       }
       if (event.status === "sending" || event.status === "sent") {
         throw new Error("This one has already gone out, so it can no longer be changed.");
+      }
+      // Its day, hour and template are the event's, and the next save of the
+      // event would put them back — so they are changed there, not here.
+      if (event.campaignId) {
+        throw new Error("This is one of an event's reminders. Change it from the event.");
       }
       await ctx.db.patch("marketingEvents", args.eventId, {
         ...fields,
@@ -677,6 +727,8 @@ export const claimBirthdays = internalMutation({
 
 type SendContext = {
   workspaceName: string;
+  /** For the event's date as the customer reads it. */
+  locale: string;
   agentId: Id<"agents"> | null;
   template: Doc<"marketingTemplates"> | null;
   channel: {
@@ -709,6 +761,7 @@ async function sendContext(
   const own = template && template.workspaceId === workspaceId ? template : null;
   return {
     workspaceName: workspace.name,
+    locale: workspace.locale,
     agentId: desk?._id ?? null,
     template: own,
     // Read per page, so a campaign that drains the wallet stops at the page
@@ -733,7 +786,12 @@ export const eventContext = internalQuery({
     const event = await ctx.db.get("marketingEvents", args.eventId);
     if (!event) return null;
     const context = await sendContext(ctx, event.workspaceId, event.templateId);
-    return context ? { ...context, event } : null;
+    // A reminder speaks for its event: the name, day and venue in the
+    // template are the event's, not the reminder's own calendar title.
+    const campaign = event.campaignId
+      ? await ctx.db.get("marketingCampaigns", event.campaignId)
+      : null;
+    return context ? { ...context, event, campaign } : null;
   },
 });
 
@@ -841,6 +899,8 @@ export const recordBatch = internalMutation({
         key: args.key,
         status: result.ok ? "sent" : "failed",
         error: result.error,
+        text: result.ok ? result.text : undefined,
+        agentId: args.agentId,
         createdAt: now,
       });
 
@@ -944,6 +1004,175 @@ export const draftContext = internalMutation({
         tagline: workspace.tagline ?? null,
       },
     };
+  },
+});
+
+// ------------------------------------------------- applying a template to Meta
+
+/** The panel the sending number is connected through, as the apply calls need it. */
+function panelOf(channel: Doc<"channels"> | null) {
+  return channel?.whatsapp
+    ? {
+        apiBaseUrl: channel.whatsapp.apiBaseUrl,
+        apiVersion: channel.whatsapp.apiVersion,
+        accessToken: channel.whatsapp.accessToken,
+        wabaId: channel.whatsapp.wabaId ?? null,
+      }
+    : null;
+}
+
+/** One template and where to apply it. Checks the caller may. */
+export const applyContext = internalQuery({
+  args: { templateId: v.id("marketingTemplates") },
+  handler: async (ctx, args) => {
+    const template = await ctx.db.get("marketingTemplates", args.templateId);
+    if (!template) throw new Error("Template not found");
+    await requireWorkspace(ctx, template.workspaceId);
+    const workspace = await ctx.db.get("workspaces", template.workspaceId);
+    return {
+      template,
+      business: workspace?.name ?? "",
+      panel: panelOf(await sendingChannel(ctx, template.workspaceId)),
+    };
+  },
+});
+
+/** Throws unless the caller may work in this workspace. */
+export const assertWorkspace = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return null;
+  },
+});
+
+/**
+ * Every template that goes by a name in Meta, and the panel to ask about
+ * them. No access check: the review sweep runs it with nobody signed in, and
+ * the owner's own check goes through `assertWorkspace` first.
+ */
+export const reviewContext = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const templates = await ctx.db
+      .query("marketingTemplates")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .take(200);
+    return {
+      panel: panelOf(await sendingChannel(ctx, args.workspaceId)),
+      templates: templates
+        .filter((t) => t.metaTemplateName)
+        .map((t) => ({
+          templateId: t._id,
+          metaTemplateName: t.metaTemplateName!,
+          languageCode: t.languageCode,
+          metaStatus: t.metaStatus ?? null,
+        })),
+    };
+  },
+});
+
+const metaCategory = (category: string | undefined) => {
+  const lower = category?.toLowerCase();
+  return lower === "marketing" || lower === "utility" || lower === "authentication"
+    ? lower
+    : undefined;
+};
+
+/** What Meta said when a template was applied. */
+export const recordApplied = internalMutation({
+  args: {
+    templateId: v.id("marketingTemplates"),
+    metaTemplateName: v.string(),
+    metaTemplateId: v.optional(v.string()),
+    status: v.string(),
+    category: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const template = await ctx.db.get("marketingTemplates", args.templateId);
+    if (!template) return null;
+    const category = metaCategory(args.category);
+    const now = Date.now();
+    await ctx.db.patch("marketingTemplates", template._id, {
+      metaTemplateName: args.metaTemplateName,
+      metaTemplateId: args.metaTemplateId ?? template.metaTemplateId,
+      metaStatus: args.status.toUpperCase(),
+      metaRejectedReason: undefined,
+      // Meta may approve it under another category than asked for, and the
+      // one it approves is the one every send is billed at.
+      ...(category ? { category } : {}),
+      appliedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+/** Where Meta's review of each template now stands, from the panel's list. */
+export const recordReviews = internalMutation({
+  args: {
+    rows: v.array(
+      v.object({
+        templateId: v.id("marketingTemplates"),
+        status: v.string(),
+        metaTemplateId: v.optional(v.string()),
+        reason: v.optional(v.string()),
+        category: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    let changed = 0;
+    for (const row of args.rows) {
+      const template = await ctx.db.get("marketingTemplates", row.templateId);
+      if (!template) continue;
+      // An edit not yet applied stays marked as one: Meta's status is for
+      // the text it has, not the text on screen.
+      if (template.metaStatus === "CHANGED") continue;
+      const status = row.status.toUpperCase();
+      const category = metaCategory(row.category);
+      const reason = status === "REJECTED" ? row.reason : undefined;
+      if (
+        template.metaStatus === status &&
+        template.metaRejectedReason === reason &&
+        (!row.metaTemplateId || template.metaTemplateId === row.metaTemplateId) &&
+        (!category || template.category === category)
+      ) {
+        continue;
+      }
+      await ctx.db.patch("marketingTemplates", template._id, {
+        metaStatus: status,
+        metaRejectedReason: reason,
+        ...(row.metaTemplateId ? { metaTemplateId: row.metaTemplateId } : {}),
+        ...(category ? { category } : {}),
+        updatedAt: Date.now(),
+      });
+      changed++;
+    }
+    return { changed };
+  },
+});
+
+/**
+ * Asks after every template still in Meta's review, a workspace at a time.
+ * Run by the cron, so an approval is picked up without anyone checking.
+ */
+export const claimTemplateReviews = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const waiting = await ctx.db
+      .query("marketingTemplates")
+      .withIndex("by_metaStatus", (q) => q.eq("metaStatus", "PENDING"))
+      .take(500);
+    const workspaces = [...new Set(waiting.map((t) => t.workspaceId))];
+    for (const [index, workspaceId] of workspaces.entries()) {
+      await ctx.scheduler.runAfter(
+        index * 1000,
+        internal.marketingTemplates.checkReviews,
+        { workspaceId }
+      );
+    }
+    return { workspaces: workspaces.length };
   },
 });
 

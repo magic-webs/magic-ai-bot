@@ -9,7 +9,18 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildMessage } from "./lib/whatsappSend";
-import { greetingName, renderTemplate } from "./lib/marketing";
+import {
+  asParameter,
+  eventDateLabel,
+  greetingName,
+  missingVariables,
+  renderTemplate,
+  templateBlocker,
+  type TemplateVariable,
+} from "./lib/marketing";
+
+/** Every variable but the customer's own name, which is filled per contact. */
+type SharedValues = Omit<Record<TemplateVariable, string>, "name">;
 
 type Channel = {
   apiBaseUrl: string;
@@ -60,7 +71,7 @@ async function sendPage(
   args: {
     workspaceId: Id<"workspaces">;
     eventId?: Id<"marketingEvents">;
-    eventTitle: string;
+    values: SharedValues;
     key: string;
     monthDay?: string;
     cursor: string | null;
@@ -88,9 +99,8 @@ async function sendPage(
   }> = [];
   for (const contact of page.contacts) {
     const { text, parameters } = renderTemplate(args.context.template.body, {
+      ...args.values,
       name: greetingName(contact.name),
-      business: args.context.workspaceName,
-      event: args.eventTitle,
     });
     const sent = await sendTemplate(
       args.context.channel,
@@ -125,11 +135,52 @@ function blocker(context: {
   walletBlock: string | null;
 }): string | null {
   if (!context.template) return "The template was removed.";
-  if (!context.template.metaTemplateName) {
-    return `"${context.template.name}" is not linked to an approved Meta template yet.`;
-  }
+  // Not applied, still in review, rejected, or edited since it was approved.
+  const unapproved = templateBlocker(context.template);
+  if (unapproved) return unapproved;
   if (!context.channel) return "There is no active WhatsApp channel to send from.";
   return context.walletBlock;
+}
+
+const MESSAGE_VARIABLE = /\{\{\s*message\s*\}\}/;
+
+/**
+ * What a calendar entry fills the template with. A reminder speaks for its
+ * event — the event's name, day, time and venue, and the line the desk wrote
+ * for this reminder — while a plain entry has only its own title and day.
+ */
+function eventValues(context: {
+  workspaceName: string;
+  locale: string;
+  event: Doc<"marketingEvents">;
+  campaign: Doc<"marketingCampaigns"> | null;
+}): SharedValues {
+  const { event, campaign } = context;
+  return {
+    business: context.workspaceName,
+    event: asParameter(campaign?.title ?? event.title),
+    date: eventDateLabel(
+      campaign?.date ?? event.date,
+      campaign?.startTime,
+      context.locale
+    ),
+    venue: asParameter(campaign?.venue ?? ""),
+    message: asParameter(event.message ?? event.note ?? ""),
+  };
+}
+
+/**
+ * Why the template cannot be filled for this send, if it cannot: Meta refuses
+ * an empty parameter, so a {{venue}} with no venue is caught here once rather
+ * than failing for every contact.
+ */
+function unfilled(body: string, values: SharedValues): string | null {
+  const missing = missingVariables(body, { ...values, name: "there" });
+  if (missing.length === 0) return null;
+  const names = missing.map((name) => `{{${name}}}`).join(" and ");
+  return missing.includes("message")
+    ? `The template uses ${names}, and this has no message written for it yet.`
+    : `The template uses ${names}, which this has nothing to fill with.`;
 }
 
 export const runEvent = internalAction({
@@ -138,14 +189,39 @@ export const runEvent = internalAction({
     cursor: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args): Promise<null> => {
-    const context = await ctx.runQuery(internal.marketing.eventContext, {
+    let context = await ctx.runQuery(internal.marketing.eventContext, {
       eventId: args.eventId,
     });
     if (!context) return null;
     // Removed or finished while this was queued.
     if (context.event.status !== "sending") return null;
 
-    const reason = blocker(context);
+    // A reminder whose line the desk has not managed to write yet — the
+    // write on save failed, or it was sent early by hand — gets it now, on
+    // the first page, before anyone is sent a template with a hole in it.
+    const firstPage = (args.cursor ?? null) === null;
+    if (
+      firstPage &&
+      context.event.campaignId &&
+      !context.event.message &&
+      context.template &&
+      MESSAGE_VARIABLE.test(context.template.body)
+    ) {
+      await ctx.runAction(internal.marketingAi.writeTouches, {
+        campaignId: context.event.campaignId,
+        eventIds: [args.eventId],
+        overwrite: false,
+      });
+      context = await ctx.runQuery(internal.marketing.eventContext, {
+        eventId: args.eventId,
+      });
+      if (!context || context.event.status !== "sending") return null;
+    }
+
+    const values = eventValues(context);
+    const reason =
+      blocker(context) ??
+      (context.template ? unfilled(context.template.body, values) : null);
     if (reason || !context.template || !context.channel) {
       await ctx.runMutation(internal.marketing.failEvent, {
         eventId: args.eventId,
@@ -157,7 +233,7 @@ export const runEvent = internalAction({
     const next = await sendPage(ctx, {
       workspaceId: context.event.workspaceId,
       eventId: args.eventId,
-      eventTitle: context.event.title,
+      values,
       key: `event:${args.eventId}`,
       cursor: args.cursor ?? null,
       context: {
@@ -193,7 +269,16 @@ export const runBirthdays = internalAction({
     });
     if (!context) return null;
 
-    const reason = blocker(context);
+    const values: SharedValues = {
+      business: context.workspaceName,
+      event: "your birthday",
+      date: "",
+      venue: "",
+      message: "",
+    };
+    const reason =
+      blocker(context) ??
+      (context.template ? unfilled(context.template.body, values) : null);
     if (reason || !context.template || !context.channel) {
       console.warn("[marketing] birthdays not sent", args.workspaceId, reason);
       return null;
@@ -201,7 +286,7 @@ export const runBirthdays = internalAction({
 
     const next = await sendPage(ctx, {
       workspaceId: args.workspaceId,
-      eventTitle: "your birthday",
+      values,
       key: args.key,
       monthDay: args.monthDay,
       cursor: args.cursor ?? null,

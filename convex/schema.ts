@@ -1825,12 +1825,34 @@ export default defineSchema({
       v.literal("birthday"),
       v.literal("festival"),
       v.literal("offer"),
+      // An event's reminders: carries {{message}}, the line the desk writes
+      // per reminder, and usually {{date}} and {{venue}}.
+      v.literal("event"),
       v.literal("general")
     ),
-    /** The message, with {{name}}, {{business}} and {{event}} variables. */
+    /**
+     * The message, with {{name}}, {{business}} and {{event}} variables — and
+     * {{date}}, {{venue}} and {{message}} for an event's reminders.
+     */
     body: v.string(),
-    /** The name it was approved under in Meta. Absent means it cannot send. */
+    /**
+     * The name it goes by in Meta: set when it is applied through the panel,
+     * or pasted by hand for one approved elsewhere. Absent means it cannot
+     * send.
+     */
     metaTemplateName: v.optional(v.string()),
+    /**
+     * Where Meta's review stands, for a template applied from here:
+     * PENDING, APPROVED, REJECTED, PAUSED, DISABLED — or CHANGED, ours, for
+     * one edited since it was applied, whose approved text no longer matches.
+     * Only APPROVED sends. Absent on a template linked by hand, which was
+     * approved before it was pasted in and sends as it always did.
+     */
+    metaStatus: v.optional(v.string()),
+    /** Meta's id for it, so a change is applied as an edit, not a duplicate. */
+    metaTemplateId: v.optional(v.string()),
+    metaRejectedReason: v.optional(v.string()),
+    appliedAt: v.optional(v.number()),
     /** Meta's language code for the approved template — "en", "hi", "en_US". */
     languageCode: v.string(),
     /**
@@ -1847,7 +1869,10 @@ export default defineSchema({
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_workspace", ["workspaceId"]),
+  })
+    .index("by_workspace", ["workspaceId"])
+    // What the review sweep reads: every template still waiting on Meta.
+    .index("by_metaStatus", ["metaStatus"]),
 
   /**
    * One entry on the calendar: a festival or an event of the workspace's own,
@@ -1869,6 +1894,20 @@ export default defineSchema({
     /** Which preset festival this came from, so it is not suggested twice. */
     presetKey: v.optional(v.string()),
     note: v.optional(v.string()),
+    /**
+     * Set on one of an event's reminders: the event it belongs to, and how
+     * many days before (negative) or after (positive) the event it goes out.
+     * The reminder's date, hour and template follow the event's, and are
+     * rewritten whenever the event is saved.
+     */
+    campaignId: v.optional(v.id("marketingCampaigns")),
+    offsetDays: v.optional(v.number()),
+    /**
+     * The line the marketing desk wrote for this reminder, sent as the
+     * template's {{message}}. Absent until it is written — which happens as
+     * soon as the event is saved, and again at send time if that failed.
+     */
+    message: v.optional(v.string()),
     status: v.union(
       // No template yet, so nothing to send.
       v.literal("draft"),
@@ -1886,7 +1925,35 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workspace_and_date", ["workspaceId", "date"])
-    .index("by_status_and_sendAt", ["status", "sendAt"]),
+    .index("by_status_and_sendAt", ["status", "sendAt"])
+    .index("by_campaignId", ["campaignId"]),
+
+  /**
+   * An event of the business's own — a launch, a workshop, a sale weekend —
+   * with everything the marketing desk needs to talk about it. It sends
+   * nothing itself: saving it lays its reminders on the calendar as
+   * `marketingEvents` rows, a few days before, on the day and after, and the
+   * ordinary sweep sends those.
+   */
+  marketingCampaigns: defineTable({
+    workspaceId: v.id("workspaces"),
+    title: v.string(),
+    /** Local calendar date the event is on, "YYYY-MM-DD". */
+    date: v.string(),
+    /** Local start time, "HH:MM", when it has one. */
+    startTime: v.optional(v.string()),
+    venue: v.optional(v.string()),
+    /** What is happening, for whom, and what to expect — the desk's brief. */
+    details: v.string(),
+    /** An offer, only ever repeated as given. */
+    offer: v.optional(v.string()),
+    link: v.optional(v.string()),
+    templateId: v.optional(v.id("marketingTemplates")),
+    /** Local hour every reminder goes out at, 0–23. */
+    sendHour: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace_and_date", ["workspaceId", "date"]),
 
   /** One per workspace: the standing birthday wish. */
   marketingSettings: defineTable({
@@ -1914,6 +1981,14 @@ export default defineSchema({
     key: v.string(),
     status: v.union(v.literal("sent"), v.literal("failed")),
     error: v.optional(v.string()),
+    /**
+     * The message as the customer read it, and the desk that sent it. Kept so
+     * that when somebody with no conversation yet replies to it, their new
+     * thread opens with what they are replying to. Absent on sends logged
+     * before this was kept.
+     */
+    text: v.optional(v.string()),
+    agentId: v.optional(v.id("agents")),
     createdAt: v.number(),
   })
     .index("by_contact_and_key", ["contactId", "key"])

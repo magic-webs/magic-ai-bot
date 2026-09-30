@@ -50,6 +50,15 @@ crons.interval(
   {}
 );
 
+/* Meta reviews a template in minutes to a day. Half-hourly is soon enough to
+   notice an approval, and the sweep reads nothing when nothing is waiting. */
+crons.interval(
+  "check marketing templates in review",
+  { minutes: 30 },
+  internal.marketing.claimTemplateReviews,
+  {}
+);
+
 // Was written when sessions were added and never scheduled, so expired rows
 // have been accumulating. Nightly is often enough for a thirty-day token.
 crons.daily(

@@ -716,6 +716,41 @@ function richHistoryText(
   }
 }
 
+/** How far back a marketing message still counts as what someone is answering. */
+const SEED_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/** The most of them a new thread opens with. */
+const SEED_LIMIT = 2;
+
+/**
+ * The latest marketing messages delivered to a contact, oldest first, for a
+ * thread opened by their reply. Only sends that kept their text, which is
+ * every one since the log started keeping it.
+ */
+async function marketingSeeds(
+  ctx: QueryCtx,
+  contactId: Id<"contacts">,
+  now: number
+): Promise<Array<{ text: string; agentId?: Id<"agents">; createdAt: number }>> {
+  // One row per occasion a contact was sent — a festival, a birthday, a
+  // reminder — so a year of them is a few dozen rows at most.
+  const sends = await ctx.db
+    .query("marketingSends")
+    .withIndex("by_contact_and_key", (q) => q.eq("contactId", contactId))
+    .take(200);
+  return sends
+    .filter(
+      (row) =>
+        row.status === "sent" && row.text && row.createdAt >= now - SEED_WINDOW_MS
+    )
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(-SEED_LIMIT)
+    .map((row) => ({
+      text: row.text!,
+      agentId: row.agentId,
+      createdAt: row.createdAt,
+    }));
+}
+
 // Upserts the contact, gets-or-creates the conversation, records the inbound
 // message and returns the replay history — all in one transaction so
 // concurrent inbound webhooks can't fork a conversation.
@@ -769,6 +804,16 @@ export const startTurn = internalMutation({
       .unique();
 
     if (!conversation) {
+      // Somebody writing in for the first time may be answering a greeting or
+      // an event reminder the marketing desk sent them. They had no thread for
+      // it to be written into, so the send log is its only record — and the
+      // new thread opens with it, so the inbox shows what they are replying
+      // to and the agent reads it in its history below.
+      const seeds =
+        args.channelType === "whatsapp"
+          ? await marketingSeeds(ctx, contact._id, now)
+          : [];
+
       const conversationId = await ctx.db.insert("conversations", {
         workspaceId: args.workspaceId,
         agentId: args.agentId,
@@ -780,10 +825,21 @@ export const startTurn = internalMutation({
         channelId: args.channelId,
         channelType: args.channelType,
         status: "open",
-        messageCount: 0,
+        messageCount: seeds.length,
         lastMessageAt: now,
         createdAt: now,
       });
+      for (const seed of seeds) {
+        await ctx.db.insert("messages", {
+          workspaceId: args.workspaceId,
+          conversationId,
+          role: "assistant",
+          kind: "text",
+          text: seed.text,
+          agentId: seed.agentId,
+          createdAt: seed.createdAt,
+        });
+      }
       conversation = (await ctx.db.get("conversations", conversationId))!;
     }
 

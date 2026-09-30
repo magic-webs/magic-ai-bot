@@ -28,13 +28,16 @@ import {
   zeptoEndpoint,
   type NotificationChannel,
 } from "./lib/notifications";
+import {
+  channelHeaders,
+  discoverWaba,
+  errorText,
+  listTemplates,
+  providerError,
+  request,
+  type Json,
+} from "./lib/panel";
 
-const TIMEOUT_MS = 15_000;
-/** Pages of templates read per sync, at the most the panel hands back per page. */
-const TEMPLATE_PAGE = 100;
-const MAX_TEMPLATE_PAGES = 20;
-
-type Json = Record<string, unknown>;
 
 type Channel = {
   _id: Id<"channels">;
@@ -103,56 +106,6 @@ type Result = {
 type Delivery = { ok: boolean; messageId?: string; error?: string };
 
 // ------------------------------------------------------------------ transport
-
-function errorText(error: unknown): string {
-  if (error instanceof Error && error.name === "AbortError") {
-    return "The provider did not respond in time.";
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function request(
-  url: string,
-  init: RequestInit
-): Promise<{ status: number; ok: boolean; body: unknown; text: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    const text = await response.text().catch(() => "");
-    let body: unknown = null;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      body = null;
-    }
-    return { status: response.status, ok: response.ok, body, text };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** The most specific message a provider's error body offers. */
-function providerError(status: number, body: unknown, text: string): string {
-  const root = (body ?? {}) as Json;
-  const error = (root.error ?? root.data ?? root) as Json;
-  const details = Array.isArray(error.details) ? (error.details[0] as Json) : null;
-  const message =
-    (details?.message as string | undefined) ??
-    ((error.error_data as Json | undefined)?.details as string | undefined) ??
-    (error.message as string | undefined) ??
-    (root.message as string | undefined);
-  return `HTTP ${status}: ${(typeof message === "string" && message) || text.slice(0, 300) || "no response body"}`;
-}
-
-function channelHeaders(channel: { accessToken: string }): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${channel.accessToken}`,
-    // The panel's WABA management endpoints read the same token from API-KEY.
-    "API-KEY": channel.accessToken,
-  };
-}
 
 async function postWhatsApp(channel: Channel, body: Json): Promise<Delivery> {
   const url = `${channel.apiBaseUrl.replace(/\/$/, "")}/${channel.apiVersion}/${channel.phoneNumberId}/messages`;
@@ -701,80 +654,6 @@ export const sendTestEmail = action({
 
 // ---------------------------------------------------------------------- sync
 
-/** A template list's rows, whichever envelope the panel wraps them in. */
-function rowsOf(body: unknown): Json[] {
-  if (Array.isArray(body)) return body as Json[];
-  const root = (body ?? {}) as Json;
-  for (const key of ["data", "templates", "message_templates", "results"]) {
-    const value = root[key];
-    if (Array.isArray(value)) return value as Json[];
-    if (value && typeof value === "object") {
-      const nested = rowsOf(value);
-      if (nested.length) return nested;
-    }
-  }
-  return [];
-}
-
-function templateRow(row: Json) {
-  const name = typeof row.name === "string" ? row.name.trim() : "";
-  if (!name) return null;
-  const language =
-    typeof row.language === "string"
-      ? row.language
-      : typeof (row.language as Json | undefined)?.code === "string"
-        ? String((row.language as Json).code)
-        : "en";
-  return {
-    providerId: row.id !== undefined ? String(row.id) : undefined,
-    name,
-    language,
-    category: String(row.category ?? "UTILITY").toUpperCase(),
-    status: String(row.status ?? "UNKNOWN").toUpperCase(),
-    components: JSON.stringify(row.components ?? []),
-  };
-}
-
-/**
- * The business account id, when the channel was saved without one.
- *
- * The panel's "Fetch Channel Information" answers for the token alone, and
- * somewhere in it is the WABA — under a name that differs by panel, so the
- * likely ones are all tried.
- */
-async function discoverWaba(config: {
-  apiBaseUrl: string;
-  apiVersion: string;
-  accessToken: string;
-}): Promise<string | null> {
-  try {
-    const response = await request(
-      `${config.apiBaseUrl.replace(/\/$/, "")}/${config.apiVersion}/info`,
-      { method: "GET", headers: channelHeaders(config) }
-    );
-    if (!response.ok) return null;
-    const search = (node: unknown, depth: number): string | null => {
-      if (!node || typeof node !== "object" || depth > 4) return null;
-      for (const [key, value] of Object.entries(node as Json)) {
-        if (
-          /^(waba_?id|whatsapp_business_account_id|business_account_id)$/i.test(key) &&
-          (typeof value === "string" || typeof value === "number")
-        ) {
-          return String(value);
-        }
-      }
-      for (const value of Object.values(node as Json)) {
-        const hit = search(value, depth + 1);
-        if (hit) return hit;
-      }
-      return null;
-    };
-    return search(response.body, 0);
-  } catch {
-    return null;
-  }
-}
-
 /** Pulls every template the panel holds for the sending number's account. */
 export const syncWhatsAppTemplates = action({
   args: { workspaceId: v.id("workspaces") },
@@ -801,57 +680,19 @@ export const syncWhatsAppTemplates = action({
       );
     }
 
-    const base = `${config.apiBaseUrl.replace(/\/$/, "")}/${config.apiVersion}/${wabaId}/message_templates`;
-    const rows = new Map<string, NonNullable<ReturnType<typeof templateRow>>>();
-    let offset = 0;
-    let after: string | undefined;
+    const listed = await listTemplates(config, wabaId);
+    if (!listed.ok) return await fail(listed.error);
 
-    for (let page = 0; page < MAX_TEMPLATE_PAGES; page++) {
-      const url = new URL(base);
-      url.searchParams.set("limit", String(TEMPLATE_PAGE));
-      // The panel pages by offset; Meta itself by cursor. Both are sent, and
-      // whichever the far end understands is the one it reads.
-      url.searchParams.set("offset", String(offset));
-      if (after) url.searchParams.set("after", after);
-
-      let response;
-      try {
-        response = await request(url.toString(), {
-          method: "GET",
-          headers: channelHeaders(config),
-        });
-      } catch (error) {
-        return await fail(`Could not reach the WhatsApp panel: ${errorText(error)}`);
-      }
-      if (!response.ok) {
-        return await fail(
-          `The panel refused the template list — ${providerError(response.status, response.body, response.text)}`
-        );
-      }
-
-      const found = rowsOf(response.body);
-      let added = 0;
-      for (const raw of found) {
-        const row = templateRow(raw);
-        if (!row) continue;
-        const key = `${row.name}|${row.language}`;
-        if (!rows.has(key)) added++;
-        rows.set(key, row);
-      }
-
-      const paging = ((response.body ?? {}) as Json).paging as Json | undefined;
-      const cursor = (paging?.cursors as Json | undefined)?.after;
-      after = paging?.next && typeof cursor === "string" ? cursor : undefined;
-      offset += found.length;
-      // Stop on a short page, or a page that added nothing new — a panel
-      // ignoring both offset and cursor would otherwise return page one
-      // twenty times.
-      if (found.length < TEMPLATE_PAGE || added === 0) {
-        if (!after || added === 0) break;
-      }
-    }
-
-    const templates = [...rows.values()];
+    // The panel's rejection reason is the marketing desk's concern, not the
+    // alerts', so the synced copy keeps the fields it always had.
+    const templates = listed.templates.map((row) => ({
+      providerId: row.providerId,
+      name: row.name,
+      language: row.language,
+      category: row.category,
+      status: row.status,
+      components: row.components,
+    }));
     await ctx.runMutation(internal.notifications.replaceTemplates, {
       workspaceId: args.workspaceId,
       channelId: config.channelId,

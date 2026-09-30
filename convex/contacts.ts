@@ -1,7 +1,149 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { query, mutation } from "./_generated/server";
 import { requireContact, requireWorkspace } from "./lib/auth";
 import { normaliseBirthday } from "./lib/marketing";
+import { normaliseEmail, normalisePhone } from "./lib/notifications";
+
+/** The most people one paste may add. */
+const MAX_ADD = 500;
+
+/**
+ * WhatsApp contacts typed in or pasted on the Marketing page, so greetings
+ * and event reminders reach people who have not written in yet.
+ *
+ * Stored exactly as the inbound webhook would store them — the number as
+ * digits, country code first — so when one of them replies, their message
+ * finds this contact rather than creating a second one beside it.
+ *
+ * Someone already on file is not duplicated: their name, birthday, email and
+ * company are filled in only where they were empty.
+ */
+export const addMany = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** Put in front of a number typed without one, e.g. "91". */
+    countryCode: v.optional(v.string()),
+    contacts: v.array(
+      v.object({
+        name: v.optional(v.string()),
+        phone: v.string(),
+        birthday: v.optional(v.string()),
+        email: v.optional(v.string()),
+        company: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    if (args.contacts.length === 0) throw new Error("Add at least one number.");
+    if (args.contacts.length > MAX_ADD) {
+      throw new Error(`Add at most ${MAX_ADD} people at a time.`);
+    }
+
+    const now = Date.now();
+    let added = 0;
+    let updated = 0;
+    const invalid: string[] = [];
+    const seen = new Set<string>();
+
+    for (const row of args.contacts) {
+      const digits = normalisePhone(row.phone, args.countryCode);
+      if (!digits) {
+        invalid.push(row.phone.trim() || "(empty)");
+        continue;
+      }
+      if (seen.has(digits)) continue;
+      seen.add(digits);
+
+      const name = row.name?.trim() || undefined;
+      const birthday = row.birthday?.trim()
+        ? (normaliseBirthday(row.birthday) ?? undefined)
+        : undefined;
+      // Dropped rather than refused when it is not an address: the number is
+      // what the import is for.
+      const email = row.email?.trim() ? (normaliseEmail(row.email) ?? undefined) : undefined;
+      const company = row.company?.trim() || undefined;
+
+      const existing = await ctx.db
+        .query("contacts")
+        .withIndex("by_workspace_external", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("externalId", digits)
+        )
+        .unique();
+      if (existing) {
+        const patch: {
+          name?: string;
+          birthday?: string;
+          email?: string;
+          company?: string;
+        } = {};
+        if (!existing.name && name) patch.name = name;
+        if (!existing.birthday && birthday) patch.birthday = birthday;
+        if (!existing.email && email) patch.email = email;
+        if (!existing.company && company) patch.company = company;
+        if (Object.keys(patch).length > 0) {
+          await ctx.db.patch("contacts", existing._id, patch);
+        }
+        updated++;
+        continue;
+      }
+
+      await ctx.db.insert("contacts", {
+        workspaceId: args.workspaceId,
+        externalId: digits,
+        channelType: "whatsapp",
+        name,
+        phone: digits,
+        birthday,
+        email,
+        company,
+        attributes: [],
+        // Required, and there is no "never" to put: the day they were added
+        // is the closest thing to when the business last heard of them.
+        lastSeenAt: now,
+        createdAt: now,
+      });
+      added++;
+    }
+
+    return { added, updated, invalid };
+  },
+});
+
+/**
+ * One page of the WhatsApp contacts, for the CSV export. Paged rather than
+ * read whole, so a workspace with tens of thousands of people downloads in a
+ * handful of calls instead of failing one oversized read; the page walks them
+ * until `isDone`.
+ */
+export const exportPage = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const result = await ctx.db
+      .query("contacts")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .paginate(args.paginationOpts);
+    return {
+      ...result,
+      page: result.page
+        .filter((contact) => contact.channelType === "whatsapp")
+        .map((contact) => ({
+          name: contact.name ?? null,
+          // The number messages actually go to, which `phone` — editable on
+          // the Contacts page — need not be.
+          phone: contact.externalId,
+          birthday: contact.birthday ?? null,
+          email: contact.email ?? null,
+          company: contact.company ?? null,
+        })),
+    };
+  },
+});
 
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
