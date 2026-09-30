@@ -41,14 +41,12 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import {
   Empty,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
@@ -151,10 +149,6 @@ export function WalletTab() {
             <WalletIcon />
           </EmptyMedia>
           <EmptyTitle>The wallet isn&apos;t switched on yet</EmptyTitle>
-          <EmptyDescription>
-            Nothing is taken off a balance for now. What each WhatsApp message
-            costs is still counted under Message usage.
-          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -212,10 +206,6 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Wallet balance</CardTitle>
-        <CardDescription>
-          WhatsApp messages are paid from here as they go out, at the rate for
-          their conversation type.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
@@ -344,9 +334,6 @@ function TopUpCard({ data }: { data: Summary }) {
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Top up</CardTitle>
-        <CardDescription>
-          The amount is credited to the wallet, with GST on top.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
@@ -589,10 +576,6 @@ function AutoRechargeCard({ data }: { data: Summary }) {
           <LightningIcon className="size-4 text-muted-foreground" />
           Auto-recharge
         </CardTitle>
-        <CardDescription>
-          When the balance drops below the line, the wallet tops itself up from
-          a saved UPI Autopay mandate or card.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -611,12 +594,6 @@ function AutoRechargeCard({ data }: { data: Summary }) {
               onChange={(event) => setThreshold(event.target.value)}
               className="tabular-nums"
             />
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              The dashboard warns below this, and auto-recharge fires. The bank
-              debits a recharge 1–1.5 days after its pre-debit notice, so set it
-              to cover at least two days of messages
-              {twoDays > 0 ? ` — about ${inr(twoDays)} at last week's pace` : ""}.
-            </p>
             {lineShort ? (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 That is less than two days of last week&apos;s spend, so
@@ -721,13 +698,6 @@ function AutoRechargeCard({ data }: { data: Summary }) {
           </div>
         ) : (
           <div className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
-            <p className="text-sm text-muted-foreground">
-              Setting it up takes a ₹1 authorisation with UPI Autopay or a
-              card, which is credited to your wallet. After that each recharge
-              is debited on its own, with a notice from your bank first. A UPI
-              mandate can show as awaiting confirmation for a while after you
-              approve it.
-            </p>
             {!data.profileReady ? (
               <Alert>
                 <WarningIcon />
@@ -849,7 +819,6 @@ const KIND_LABEL: Record<Doc<"walletTransactions">["kind"], string> = {
 
 function WalletHistory() {
   const workspace = useWorkspace();
-  const base = `/w/${workspace.slug}`;
   const { results, status, loadMore } = usePaginatedQuery(
     api.wallet.transactions,
     { workspaceId: workspace._id },
@@ -860,17 +829,6 @@ function WalletHistory() {
     <Card>
       <CardHeader>
         <CardTitle>Wallet history</CardTitle>
-        <CardDescription>
-          Money into the wallet, and any corrections we&apos;ve made, newest
-          first. What each message took off it is itemised under{" "}
-          <Link
-            href={`${base}/billing?tab=usage`}
-            className="underline underline-offset-3 hover:text-foreground"
-          >
-            Message usage
-          </Link>
-          .
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {status === "LoadingFirstPage" ? (
@@ -884,9 +842,6 @@ function WalletHistory() {
                 <WalletIcon />
               </EmptyMedia>
               <EmptyTitle>Nothing has gone into the wallet yet</EmptyTitle>
-              <EmptyDescription>
-                A row appears here for every top-up and auto-recharge.
-              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (

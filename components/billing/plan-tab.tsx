@@ -19,6 +19,8 @@ import { useHourBucket } from "@/components/use-now";
 import { CheckoutClosed, openCheckout } from "@/components/billing/checkout";
 import {
   AccessBadge,
+  IncludedAgents,
+  PlanFeatures,
   StrikePrice,
   daysFrom,
   formatDay,
@@ -50,7 +52,6 @@ import {
 } from "@/components/ui/card";
 import {
   Empty,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
@@ -71,7 +72,6 @@ import { toast } from "@/components/ui/toast";
 import {
   ArrowClockwiseIcon,
   ArrowRightIcon,
-  CheckIcon,
   FloppyDiskIcon,
   MinusIcon,
   PlusIcon,
@@ -149,10 +149,6 @@ export function PlanTab() {
             <ReceiptIcon />
           </EmptyMedia>
           <EmptyTitle>Plans aren&apos;t switched on for this platform yet</EmptyTitle>
-          <EmptyDescription>
-            There is nothing to pay for the platform itself right now. Message
-            usage is still counted under Message usage.
-          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -344,12 +340,9 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
           {plan ? `${plan.name} plan` : "No plan yet"}
           <AccessBadge access={access} />
         </CardTitle>
-        <CardDescription>
-          {access.reason}
-          {access.state === "grace" || access.state === "locked"
-            ? " Your agents keep answering customers whatever happens here."
-            : null}
-        </CardDescription>
+        {access.state === "grace" || access.state === "locked" ? (
+          <CardDescription>{access.reason}</CardDescription>
+        ) : null}
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
@@ -392,11 +385,7 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
           </dl>
         ) : null}
 
-        {manual ? (
-          <p className="text-sm text-muted-foreground">
-            Billed by arrangement with us, not through Razorpay autopay.
-          </p>
-        ) : monthly ? (
+        {!manual && monthly ? (
           <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-3">
             <p className="text-xs tracking-wide text-muted-foreground uppercase">
               {charging ? "What you pay each month" : "What this plan comes to each month"}
@@ -418,11 +407,6 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
                 {inr(monthly.total)}
               </span>
             </div>
-            {!charging ? (
-              <p className="text-xs text-muted-foreground">
-                At today&apos;s prices. Nothing is charged until you subscribe.
-              </p>
-            ) : null}
           </div>
         ) : null}
 
@@ -539,10 +523,6 @@ function SeatsCard({ data }: { data: Enabled }) {
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Agents on your plan</CardTitle>
-        <CardDescription>
-          Custom agents count while they are live, and human agents while they
-          have a login. Extra agents are one pool, for either kind.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {seats && plan ? (
@@ -611,12 +591,6 @@ function SeatsCard({ data }: { data: Enabled }) {
             There is no plan to measure against yet.
           </p>
         )}
-
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          The front desk, the follow-up desk and the marketing agent come with
-          every plan and never count. A draft or paused agent takes no seat. A
-          human agent&apos;s login opens the whole dashboard.
-        </p>
       </CardContent>
       <CardFooter className="flex flex-wrap justify-end gap-2">
         <Button
@@ -701,6 +675,7 @@ function PlanPicker({ data }: { data: Enabled }) {
     settings: data.pricing,
     account: data.accountPricing,
   });
+  const seat = { priceMicros: summary.seatMicros, listMicros: summary.seatListMicros };
 
   const same =
     live !== null && live.planId === chosen._id && live.extraAgents === extras;
@@ -756,77 +731,73 @@ function PlanPicker({ data }: { data: Enabled }) {
     <Card>
       <CardHeader>
         <CardTitle>{live ? "Change your plan" : "Choose a plan"}</CardTitle>
-        <CardDescription>
-          Each plan is a monthly fee, plus any extra agents you add, plus GST —
-          paid by Razorpay autopay on a card, UPI Autopay or an e-mandate.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <div
           role="radiogroup"
           aria-label="Plans"
-          className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
         >
           {plans.map((plan) => {
             const selected = plan._id === chosen._id;
             const isCurrent = live !== null && plan._id === current?._id;
             return (
-              <button
+              // The plan's name is the radio, stretched over the whole card,
+              // so the agents box can sit above it and open on its own.
+              <div
                 key={plan._id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => pick(plan)}
                 className={cn(
-                  "flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 text-left transition-colors outline-none hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50",
-                  selected && "border-primary ring-1 ring-primary"
+                  "relative flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5 transition-colors hover:bg-muted/30 has-[[role=radio]:focus-visible]:ring-3 has-[[role=radio]:focus-visible]:ring-ring/50",
+                  selected &&
+                    "border-primary bg-primary/5 ring-1 ring-primary hover:bg-primary/5"
                 )}
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-heading text-base font-semibold">
-                    {plan.name}
-                  </span>
-                  {plan.highlighted ? <Badge>Most popular</Badge> : null}
-                  {isCurrent ? <Badge variant="outline">Current</Badge> : null}
-                  {plan.status === "hidden" ? (
-                    <Badge variant="secondary">No longer on sale</Badge>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => pick(plan)}
+                      className="cursor-pointer text-left font-heading text-lg font-semibold outline-none after:absolute after:inset-0 after:rounded-xl"
+                    >
+                      {plan.name}
+                    </button>
+                    {plan.highlighted ? <Badge>Most popular</Badge> : null}
+                    {isCurrent ? <Badge variant="outline">Current</Badge> : null}
+                    {plan.status === "hidden" ? (
+                      <Badge variant="secondary">No longer on sale</Badge>
+                    ) : null}
+                  </div>
+                  <p className="flex flex-wrap items-baseline gap-x-1.5">
+                    <StrikePrice
+                      priceMicros={plan.priceMicros}
+                      listMicros={plan.listPriceMicros}
+                      className="font-heading text-3xl font-semibold tracking-tight tabular-nums"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      / month + GST
+                    </span>
+                  </p>
+                  {plan.description ? (
+                    <p className="text-sm text-muted-foreground">
+                      {plan.description}
+                    </p>
                   ) : null}
                 </div>
-                <p className="flex flex-wrap items-baseline gap-x-1.5">
-                  <StrikePrice
-                    priceMicros={plan.priceMicros}
-                    listMicros={plan.listPriceMicros}
-                    className="font-heading text-2xl font-semibold"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    / month + GST
-                  </span>
-                </p>
-                {plan.description ? (
-                  <p className="text-sm text-muted-foreground">
-                    {plan.description}
-                  </p>
-                ) : null}
-                <p className="text-sm font-medium">
-                  {plan.includedAiAgents} custom{" "}
-                  {plan.includedAiAgents === 1 ? "agent" : "agents"} ·{" "}
-                  {plan.includedHumanAgents} human{" "}
-                  {plan.includedHumanAgents === 1 ? "agent" : "agents"} included
-                </p>
+                <IncludedAgents
+                  plan={plan}
+                  seat={seat}
+                  selected={selected}
+                  className="relative z-10"
+                />
                 {plan.features.length > 0 ? (
-                  <ul className="flex flex-col gap-1.5">
-                    {plan.features.map((feature) => (
-                      <li
-                        key={feature}
-                        className="flex items-start gap-2 text-xs text-muted-foreground"
-                      >
-                        <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <PlanFeatures
+                    features={plan.features}
+                    className={selected ? undefined : "text-muted-foreground"}
+                  />
                 ) : null}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -873,8 +844,7 @@ function PlanPicker({ data }: { data: Enabled }) {
                 listMicros={summary.seatListMicros}
                 className="font-medium text-foreground"
               />{" "}
-              each a month + GST, on top of what {chosen.name} includes. Each
-              one can be a custom agent or a human agent.
+              each a month + GST
             </p>
             {needed > 0 ? (
               <p className="text-xs text-muted-foreground">
@@ -957,19 +927,8 @@ function PlanPicker({ data }: { data: Enabled }) {
                   out.
                 </p>
               ) : startsLater ? (
-                <p>
-                  You won&apos;t be charged until {formatDay(startsLater)},
-                  when {live ? "the month you've paid for" : "your free trial"}{" "}
-                  ends. Razorpay authorises the autopay with ₹5, which is
-                  refunded. The new limits apply as soon as it&apos;s
-                  authorised.
-                </p>
-              ) : (
-                <p>
-                  The first month is charged when you authorise the autopay,
-                  and the new limits apply straight away.
-                </p>
-              )}
+                <p>You won&apos;t be charged until {formatDay(startsLater)}.</p>
+              ) : null}
               {summary.totalMicros > APPROVAL_LIMIT_MICROS ? (
                 <p>
                   At over ₹15,000 a month, card and UPI Autopay debits need
@@ -1060,10 +1019,6 @@ function BillingDetails({
     <Card>
       <CardHeader>
         <CardTitle>Billing details</CardTitle>
-        <CardDescription>
-          Who the tax invoice is made out to. Razorpay needs the email and the
-          phone number to set up wallet auto-recharge.
-        </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
         {field("billingName", "Legal name", { autoComplete: "organization" })}
@@ -1160,9 +1115,6 @@ function PaymentHistory() {
     <Card>
       <CardHeader>
         <CardTitle>Payment history</CardTitle>
-        <CardDescription>
-          Every payment for the plan and the wallet, newest first.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {status === "LoadingFirstPage" ? (
@@ -1176,10 +1128,6 @@ function PaymentHistory() {
                 <ReceiptIcon />
               </EmptyMedia>
               <EmptyTitle>No payments yet</EmptyTitle>
-              <EmptyDescription>
-                Each month of the plan and each wallet top-up shows here, with
-                the GST on it.
-              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (

@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
-  CATEGORY_HINTS,
   CATEGORY_LABELS,
   MESSAGE_CATEGORIES,
   SOURCE_LABELS,
@@ -27,13 +26,11 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import {
   Empty,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
@@ -151,12 +148,7 @@ export function BillingPanel() {
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="max-w-xl text-sm text-muted-foreground">
-          Every WhatsApp message your agents, your team and your campaigns
-          send, charged at your rate for the kind of message it is. Web chat
-          messages are not billed.
-        </p>
+      <div className="flex flex-wrap items-end justify-end gap-3">
         <div className="flex items-center gap-2">
           <span className="text-xs tracking-wide text-muted-foreground uppercase">
             Period
@@ -241,17 +233,8 @@ export function BillingPanel() {
 
       {/* ----------------------------------------------- by category */}
       <Card>
-        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle>By conversation type</CardTitle>
-            <CardDescription>
-              {data.rates
-                ? data.rates.scope === "workspace"
-                  ? `Your rates, per message, in ${data.currency}.`
-                  : `Standard platform rates, per message, in ${data.currency}.`
-                : "What each kind of message has consumed."}
-            </CardDescription>
-          </div>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+          <CardTitle>By conversation type</CardTitle>
           {editRates}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -301,9 +284,6 @@ export function BillingPanel() {
                     {row.messages.toLocaleString()}{" "}
                     {row.messages === 1 ? "message" : "messages"}
                   </p>
-                  <p className="text-xs leading-snug text-muted-foreground">
-                    {CATEGORY_HINTS[row.category]}
-                  </p>
                 </div>
               );
             })}
@@ -315,9 +295,6 @@ export function BillingPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Spend per day</CardTitle>
-          <CardDescription>
-            {money(data.totals.amountMicros)} over {data.windowDays} days.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <ActivityChart
@@ -364,13 +341,8 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-        <div>
-          <CardTitle>Every message</CardTitle>
-          <CardDescription>
-            Newest first, each at the rate it was sent at.
-          </CardDescription>
-        </div>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+        <CardTitle>Every message</CardTitle>
         {/* Scrolls sideways rather than wrapping on a phone: five chips on
             one line is the control, and a wrapped second row reads as two. */}
         <div className="-mx-1 max-w-full overflow-x-auto px-1">
@@ -408,11 +380,6 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
                   ? "No billed messages yet"
                   : `No ${CATEGORY_LABELS[filter].toLowerCase()} messages yet`}
               </EmptyTitle>
-              <EmptyDescription>
-                A row appears here for every WhatsApp message that goes out —
-                an agent&apos;s reply, one of yours from the inbox, a
-                follow-up or a campaign greeting.
-              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (

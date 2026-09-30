@@ -37,10 +37,6 @@ export default function BillingPage() {
         <h1 className="font-heading text-2xl font-semibold tracking-tight">
           Billing
         </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Your plan and what it costs each month, the wallet WhatsApp messages
-          are paid from, and what each message consumed.
-        </p>
       </header>
 
       <Tabs

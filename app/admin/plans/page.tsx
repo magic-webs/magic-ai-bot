@@ -9,6 +9,8 @@ import { toMicros } from "@/convex/lib/billing";
 import { DEFAULT_PLANS, DEFAULT_SETTINGS, withGst } from "@/convex/lib/plans";
 import { SelectField } from "@/components/select-field";
 import {
+  IncludedAgents,
+  PlanFeatures,
   StrikePrice,
   formatDay,
   inr,
@@ -62,14 +64,11 @@ import { cn } from "@/lib/utils";
 import {
   CaretLeftIcon,
   CaretRightIcon,
-  CheckIcon,
   EyeSlashIcon,
   PencilSimpleIcon,
   PlusIcon,
   PowerIcon,
-  RobotIcon,
   TrashIcon,
-  UserIcon,
 } from "@phosphor-icons/react";
 
 type Catalogue = FunctionReturnType<typeof api.plans.adminCatalogue>;
@@ -765,6 +764,7 @@ function PlanForm({
 
 function PlanCard({
   plan,
+  seat,
   first,
   last,
   isTrialPlan,
@@ -773,6 +773,7 @@ function PlanCard({
   onMove,
 }: {
   plan: PlanRow;
+  seat: { priceMicros: number; listMicros: number };
   first: boolean;
   last: boolean;
   isTrialPlan: boolean;
@@ -823,25 +824,9 @@ function PlanCard({
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-3">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <span className="flex items-center gap-1.5 rounded-md border px-2 py-1.5">
-            <RobotIcon className="size-4 shrink-0 text-muted-foreground" />
-            {count(plan.includedAiAgents, "custom agent")}
-          </span>
-          <span className="flex items-center gap-1.5 rounded-md border px-2 py-1.5">
-            <UserIcon className="size-4 shrink-0 text-muted-foreground" />
-            {count(plan.includedHumanAgents, "human agent")}
-          </span>
-        </div>
+        <IncludedAgents plan={plan} seat={seat} />
         {plan.features.length > 0 ? (
-          <ul className="flex flex-col gap-1.5 text-sm">
-            {plan.features.map((feature, index) => (
-              <li key={index} className="flex gap-2">
-                <CheckIcon className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <span>{feature}</span>
-              </li>
-            ))}
-          </ul>
+          <PlanFeatures features={plan.features} />
         ) : (
           <p className="text-xs text-muted-foreground italic">No features listed.</p>
         )}
@@ -1030,6 +1015,10 @@ export default function AdminPlansPage() {
                   <PlanCard
                     key={plan._id}
                     plan={plan}
+                    seat={{
+                      priceMicros: settings.extraAgentPriceMicros,
+                      listMicros: settings.extraAgentListMicros,
+                    }}
                     first={index === 0}
                     last={index === plans.length - 1}
                     isTrialPlan={plan._id === trialPlanId}
