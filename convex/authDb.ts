@@ -9,12 +9,16 @@ import {
   internalQuery,
   internalMutation,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   getPrincipal,
+  parseSubject,
+  principalKey,
   requireAdmin,
   requireOwner,
+  requireSignedIn,
   requireWorkspace,
 } from "./lib/auth";
 import { assertSeat } from "./lib/account";
@@ -25,6 +29,83 @@ const roleValidator = v.union(
   v.literal("workspace"),
   v.literal("member")
 );
+
+const sourceValidator = v.union(
+  v.literal("web"),
+  v.literal("app"),
+  v.literal("mcp")
+);
+
+/** Who a session or a half-done sign-in belongs to, as stored on both. */
+const principalFields = {
+  role: roleValidator,
+  adminId: v.optional(v.id("admins")),
+  workspaceId: v.optional(v.id("workspaces")),
+  memberId: v.optional(v.id("teamMembers")),
+};
+
+type PrincipalRow = {
+  role: "admin" | "workspace" | "member";
+  adminId?: Id<"admins">;
+  workspaceId?: Id<"workspaces">;
+  memberId?: Id<"teamMembers">;
+};
+
+/** Every session a login has — of any source, ended or not. */
+async function sessionsOf(
+  ctx: QueryCtx | MutationCtx,
+  row: PrincipalRow
+): Promise<Doc<"authSessions">[]> {
+  if (row.role === "admin" && row.adminId) {
+    return await ctx.db
+      .query("authSessions")
+      .withIndex("by_admin", (q) => q.eq("adminId", row.adminId))
+      .collect();
+  }
+  if (row.role === "member" && row.memberId) {
+    return await ctx.db
+      .query("authSessions")
+      .withIndex("by_member", (q) => q.eq("memberId", row.memberId))
+      .collect();
+  }
+  if (row.role === "workspace" && row.workspaceId) {
+    // The index carries the workspace's human agents too.
+    const rows = await ctx.db
+      .query("authSessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
+      .collect();
+    return rows.filter((session) => session.role === "workspace");
+  }
+  return [];
+}
+
+/** Open on the web or in the app: what a new sign-in has to take over from. */
+function isInteractiveLive(session: Doc<"authSessions">, now: number): boolean {
+  return (
+    session.endedAt === undefined &&
+    session.expiresAt > now &&
+    session.source !== "mcp"
+  );
+}
+
+async function factorFor(ctx: QueryCtx | MutationCtx, principal: string) {
+  return await ctx.db
+    .query("twoFactor")
+    .withIndex("by_principal", (q) => q.eq("principal", principal))
+    .unique();
+}
+
+/**
+ * Turns a login's authenticator off. Called wherever its password is reset by
+ * someone else — the admin for a company, the company for a human agent, the
+ * deploy script for an admin — because that reset is the way back in for
+ * somebody who has lost their phone, and it would not be one if the code were
+ * still asked for.
+ */
+async function dropFactor(ctx: MutationCtx, principal: string): Promise<void> {
+  const factor = await factorFor(ctx, principal);
+  if (factor) await ctx.db.delete("twoFactor", factor._id);
+}
 
 // ---------------------------------------------------------------------------
 // Public reads
@@ -77,6 +158,56 @@ export const me = query({
 });
 
 /**
+ * Whether the session this token was minted for is still open. Web and app
+ * clients subscribe to it and sign themselves out the moment it ends, which
+ * is how the device a sign-in replaced finds out — and why it says so rather
+ * than failing every query on the page. Never throws.
+ */
+export const mySession = query({
+  args: {},
+  handler: async (
+    ctx
+  ): Promise<
+    { ended: false } | { ended: true; reason: "replaced" | null } | null
+  > => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    const parsed = parseSubject(identity.subject);
+    // A token that does not name its session cannot be checked here; it is
+    // checked when it comes up for renewal instead.
+    if (!parsed?.sessionId) return { ended: false };
+
+    const sessionId = ctx.db.normalizeId("authSessions", parsed.sessionId);
+    const session = sessionId
+      ? await ctx.db.get("authSessions", sessionId)
+      : null;
+    if (!session) return { ended: true, reason: null };
+    if (session.endedAt !== undefined) {
+      return { ended: true, reason: session.endedReason ?? null };
+    }
+    return { ended: false };
+  },
+});
+
+/** The caller's own authenticator, for its settings card. Never the secret. */
+export const twoFactorStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const principal = await getPrincipal(ctx);
+    if (!principal) return null;
+    const factor = await factorFor(ctx, principalKey(principal));
+    if (!factor || factor.status !== "active") {
+      return { enabled: false, enabledAt: null, recoveryCodesLeft: 0 };
+    }
+    return {
+      enabled: true,
+      enabledAt: factor.enabledAt ?? null,
+      recoveryCodesLeft: factor.recoveryCodeHashes.length,
+    };
+  },
+});
+
+/**
  * Access state for one workspace. The password itself is never returned — it
  * is shown once, at generation time, and only hashed thereafter.
  */
@@ -94,6 +225,7 @@ export const workspaceAccess = query({
       .query("authSessions")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
+    const factor = await factorFor(ctx, `workspace|${args.workspaceId}`);
 
     const now = Date.now();
     return {
@@ -103,7 +235,10 @@ export const workspaceAccess = query({
       issuedAt: credential?.issuedAt ?? null,
       updatedAt: credential?.updatedAt ?? null,
       lastLoginAt: credential?.lastLoginAt ?? null,
-      activeSessions: sessions.filter((s) => s.expiresAt > now).length,
+      // People signed in, not connector calls: each MCP request signs in
+      // afresh, so counting those would count requests.
+      activeSessions: sessions.filter((s) => isInteractiveLive(s, now)).length,
+      twoFactor: factor?.status === "active",
     };
   },
 });
@@ -115,21 +250,34 @@ export const accessSummary = query({
     await requireAdmin(ctx);
 
     const credentials = await ctx.db.query("workspaceCredentials").collect();
+    const protectedLogins = await activeFactorKeys(ctx);
     return credentials.map((credential) => ({
       workspaceId: credential.workspaceId,
       status: credential.status,
       mustChangePassword: credential.mustChangePassword,
       lastLoginAt: credential.lastLoginAt ?? null,
       issuedAt: credential.issuedAt,
+      twoFactor: protectedLogins.has(`workspace|${credential.workspaceId}`),
     }));
   },
 });
+
+/** Every login with an authenticator switched on, for the admin tables. */
+async function activeFactorKeys(ctx: QueryCtx): Promise<Set<string>> {
+  const factors = await ctx.db.query("twoFactor").collect();
+  return new Set(
+    factors
+      .filter((factor) => factor.status === "active")
+      .map((factor) => factor.principal)
+  );
+}
 
 export const listAdmins = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const admins = await ctx.db.query("admins").collect();
+    const protectedLogins = await activeFactorKeys(ctx);
     return admins.map((admin) => ({
       _id: admin._id,
       email: admin.email,
@@ -137,6 +285,7 @@ export const listAdmins = query({
       createdAt: admin.createdAt,
       lastLoginAt: admin.lastLoginAt ?? null,
       passwordHint: maskSecret(admin.passwordHash),
+      twoFactor: protectedLogins.has(`admin|${admin._id}`),
     }));
   },
 });
@@ -521,6 +670,8 @@ export const upsertAdminPassword = internalMutation({
       passwordHash: args.passwordHash,
       ...(args.name ? { name: args.name } : {}),
     });
+    // This script is the recovery path, so it has to get past a lost phone.
+    await dropFactor(ctx, `admin|${existing._id}`);
 
     const sessions = await ctx.db
       .query("authSessions")
@@ -568,6 +719,7 @@ export const upsertWorkspaceCredential = internalMutation({
         updatedAt: now,
       });
     }
+    await dropFactor(ctx, `workspace|${args.workspaceId}`);
 
     if (args.revokeSessions) {
       const sessions = await ctx.db
@@ -606,17 +758,77 @@ export const setCredentialStatus = internalMutation({
   },
 });
 
+/**
+ * Opens a session, keeping to one web or app session per login.
+ *
+ * `exclusive` refuses when the login already has one open and says where, so
+ * the person can be asked before anybody is signed out. `replace` is the
+ * answer yes: it ends the open one, marked so its device can say why, and
+ * takes its place in the same transaction — two people agreeing at once still
+ * leaves exactly one of them signed in. `shared` is for MCP sessions, which
+ * neither count nor get replaced.
+ *
+ * `challengeId` is the half-done sign-in this finishes, consumed here rather
+ * than by a second call so it cannot be spent twice.
+ */
 export const createSession = internalMutation({
   args: {
     tokenHash: v.string(),
-    role: roleValidator,
-    adminId: v.optional(v.id("admins")),
-    workspaceId: v.optional(v.id("workspaces")),
-    memberId: v.optional(v.id("teamMembers")),
+    ...principalFields,
     expiresAt: v.number(),
+    // Absent for a client from before sources were recorded.
+    source: v.optional(sourceValidator),
+    device: v.optional(v.string()),
+    mode: v.union(
+      v.literal("exclusive"),
+      v.literal("replace"),
+      v.literal("shared")
+    ),
+    challengeId: v.optional(v.id("authChallenges")),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        activeSession: { device: string | null; lastUsedAt: number };
+      }
+  > => {
     const now = Date.now();
+
+    const challenge = args.challengeId
+      ? await ctx.db.get("authChallenges", args.challengeId)
+      : null;
+    if (args.challengeId && (!challenge || challenge.expiresAt < now)) {
+      throw new Error("This sign-in has expired. Sign in again.");
+    }
+
+    if (args.mode !== "shared") {
+      const live = (await sessionsOf(ctx, args)).filter((session) =>
+        isInteractiveLive(session, now)
+      );
+      if (live.length > 0 && args.mode === "exclusive") {
+        // Left in place: the same challenge goes on to ask about this one.
+        const latest = live.reduce((a, b) => (b.lastUsedAt > a.lastUsedAt ? b : a));
+        return {
+          ok: false,
+          activeSession: {
+            device: latest.device ?? null,
+            lastUsedAt: latest.lastUsedAt,
+          },
+        };
+      }
+      for (const session of live) {
+        await ctx.db.patch("authSessions", session._id, {
+          endedAt: now,
+          endedReason: "replaced",
+        });
+      }
+    }
+
+    if (challenge) await ctx.db.delete("authChallenges", challenge._id);
 
     if (args.role === "member" && args.memberId) {
       const login = await ctx.db
@@ -641,7 +853,7 @@ export const createSession = internalMutation({
       }
     }
 
-    return await ctx.db.insert("authSessions", {
+    await ctx.db.insert("authSessions", {
       tokenHash: args.tokenHash,
       role: args.role,
       adminId: args.adminId,
@@ -650,7 +862,215 @@ export const createSession = internalMutation({
       createdAt: now,
       expiresAt: args.expiresAt,
       lastUsedAt: now,
+      source: args.source,
+      device: args.device,
     });
+    return { ok: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Half-done sign-ins. See `authChallenges` in the schema.
+// ---------------------------------------------------------------------------
+
+export const createChallenge = internalMutation({
+  args: {
+    tokenHash: v.string(),
+    stage: v.union(v.literal("twoFactor"), v.literal("replace")),
+    ...principalFields,
+    source: sourceValidator,
+    device: v.optional(v.string()),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("authChallenges", { ...args, createdAt: Date.now() });
+    return null;
+  },
+});
+
+export const challengeByHash = internalQuery({
+  args: { tokenHash: v.string() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("authChallenges")
+      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique(),
+});
+
+/** The code was right; what is left is asking about the open session. */
+export const advanceChallenge = internalMutation({
+  args: { challengeId: v.id("authChallenges") },
+  handler: async (ctx, args) => {
+    const challenge = await ctx.db.get("authChallenges", args.challengeId);
+    if (challenge) {
+      await ctx.db.patch("authChallenges", challenge._id, { stage: "replace" });
+    }
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Authenticator apps. The codes are checked in convex/auth.ts, which has the
+// HMAC; everything here that decides whether a code counts runs in one
+// transaction, so a code cannot be used twice by two requests racing.
+// ---------------------------------------------------------------------------
+
+/** Every fifth wrong code in a row locks the login, doubling each time. */
+const FAILS_PER_LOCK = 5;
+const FIRST_LOCK_MS = 15 * 60 * 1000;
+const LONGEST_LOCK_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Who is calling, for an action about their own authenticator: the key it is
+ * stored under, and the account name the authenticator app shows beside it.
+ */
+export const callerPrincipal = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const principal = await requireSignedIn(ctx);
+    let account: string = principal.label;
+    if (principal.role === "admin") {
+      account = (await ctx.db.get("admins", principal.adminId))?.email ?? account;
+    } else if (principal.role === "workspace") {
+      account =
+        (await ctx.db.get("workspaces", principal.workspaceId))?.slug ?? account;
+    } else {
+      const login = await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_member", (q) => q.eq("memberId", principal.memberId))
+        .unique();
+      account = login?.username ?? account;
+    }
+    return { key: principalKey(principal), account };
+  },
+});
+
+export const twoFactorForPrincipal = internalQuery({
+  args: { principal: v.string() },
+  handler: async (ctx, args) => {
+    const factor = await factorFor(ctx, args.principal);
+    return factor?.status === "active" ? { active: true } : null;
+  },
+});
+
+/**
+ * Counts an attempt before the code is checked, not after, so a burst of
+ * guesses sent in parallel is held to the same limit as one at a time. A
+ * right code clears the count again (see `acceptCode`).
+ */
+export const beginCodeAttempt = internalMutation({
+  args: { principal: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<
+    | { kind: "missing" }
+    | { kind: "locked"; until: number }
+    | {
+        kind: "ready";
+        secret: string;
+        status: "pending" | "active";
+        lastUsedStep: number | null;
+        recoveryCodeHashes: string[];
+      }
+  > => {
+    const factor = await factorFor(ctx, args.principal);
+    if (!factor) return { kind: "missing" };
+
+    const now = Date.now();
+    if (factor.lockedUntil !== undefined && factor.lockedUntil > now) {
+      return { kind: "locked", until: factor.lockedUntil };
+    }
+
+    const failedAttempts = factor.failedAttempts + 1;
+    const locks = failedAttempts / FAILS_PER_LOCK;
+    await ctx.db.patch("twoFactor", factor._id, {
+      failedAttempts,
+      lockedUntil: Number.isInteger(locks)
+        ? now + Math.min(FIRST_LOCK_MS * 2 ** (locks - 1), LONGEST_LOCK_MS)
+        : factor.lockedUntil,
+    });
+
+    return {
+      kind: "ready",
+      secret: factor.secret,
+      status: factor.status,
+      lastUsedStep: factor.lastUsedStep ?? null,
+      recoveryCodeHashes: factor.recoveryCodeHashes,
+    };
+  },
+});
+
+/**
+ * A code checked out; records it, unless it was already spent. Returns false
+ * for a replayed step or a recovery code used a moment ago by another request.
+ * With `activate`, this is the first code from a new authenticator, and turns
+ * it on with the recovery codes generated for it.
+ */
+export const acceptCode = internalMutation({
+  args: {
+    principal: v.string(),
+    step: v.optional(v.number()),
+    recoveryHash: v.optional(v.string()),
+    activate: v.optional(v.object({ recoveryCodeHashes: v.array(v.string()) })),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    const factor = await factorFor(ctx, args.principal);
+    if (!factor) return false;
+    if (args.activate && factor.status !== "pending") return false;
+    if (
+      args.step !== undefined &&
+      factor.lastUsedStep !== undefined &&
+      args.step <= factor.lastUsedStep
+    ) {
+      return false;
+    }
+
+    let recoveryCodeHashes = factor.recoveryCodeHashes;
+    if (args.recoveryHash !== undefined) {
+      if (!recoveryCodeHashes.includes(args.recoveryHash)) return false;
+      recoveryCodeHashes = recoveryCodeHashes.filter(
+        (hash) => hash !== args.recoveryHash
+      );
+    }
+
+    await ctx.db.patch("twoFactor", factor._id, {
+      failedAttempts: 0,
+      lockedUntil: undefined,
+      lastUsedStep: args.step ?? factor.lastUsedStep,
+      recoveryCodeHashes: args.activate?.recoveryCodeHashes ?? recoveryCodeHashes,
+      ...(args.activate ? { status: "active" as const, enabledAt: Date.now() } : {}),
+    });
+    return true;
+  },
+});
+
+/** A new secret waiting for its first code. Replaces an unfinished setup. */
+export const putPendingFactor = internalMutation({
+  args: { principal: v.string(), secret: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await factorFor(ctx, args.principal);
+    if (existing?.status === "active") {
+      throw new Error("Two-factor authentication is already on for this login.");
+    }
+    if (existing) await ctx.db.delete("twoFactor", existing._id);
+    await ctx.db.insert("twoFactor", {
+      principal: args.principal,
+      secret: args.secret,
+      status: "pending",
+      recoveryCodeHashes: [],
+      failedAttempts: 0,
+      createdAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const removeFactor = internalMutation({
+  args: { principal: v.string() },
+  handler: async (ctx, args) => {
+    await dropFactor(ctx, args.principal);
+    return null;
   },
 });
 
@@ -691,6 +1111,12 @@ export const deleteExpiredSessions = internalMutation({
       if (session.expiresAt < now) {
         await ctx.db.delete(session._id);
         removed++;
+      }
+    }
+    // Sign-ins abandoned at the code or the "sign out the other one?" step.
+    for (const challenge of await ctx.db.query("authChallenges").collect()) {
+      if (challenge.expiresAt < now) {
+        await ctx.db.delete("authChallenges", challenge._id);
       }
     }
     return { removed };
@@ -736,13 +1162,17 @@ export const memberLogins = query({
       .query("memberCredentials")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
-    return logins.map((login) => ({
-      memberId: login.memberId,
-      username: login.username,
-      status: login.status,
-      issuedAt: login.issuedAt,
-      lastLoginAt: login.lastLoginAt ?? null,
-    }));
+    return await Promise.all(
+      logins.map(async (login) => ({
+        memberId: login.memberId,
+        username: login.username,
+        status: login.status,
+        issuedAt: login.issuedAt,
+        lastLoginAt: login.lastLoginAt ?? null,
+        twoFactor:
+          (await factorFor(ctx, `member|${login.memberId}`))?.status === "active",
+      }))
+    );
   },
 });
 
@@ -805,6 +1235,83 @@ export const memberSignInState = internalQuery({
   },
 });
 
+/**
+ * Whether a principal may still be signed in, and what the signed-in
+ * response says about them. Sign-in calls it after the password is right,
+ * and again after the code, since a person can be switched off in between.
+ */
+export const principalProfile = internalQuery({
+  args: principalFields,
+  handler: async (
+    ctx,
+    args
+  ): Promise<
+    | {
+        ok: true;
+        label: string;
+        workspaceSlug: string | null;
+        mustChangePassword: boolean;
+      }
+    | { ok: false; error: string }
+  > => {
+    const generic = { ok: false as const, error: "Incorrect username or password." };
+    const archived = { ok: false as const, error: "This workspace has been archived." };
+
+    if (args.role === "admin") {
+      const admin = args.adminId ? await ctx.db.get("admins", args.adminId) : null;
+      if (!admin) return generic;
+      return {
+        ok: true,
+        label: admin.name?.trim() || admin.email,
+        workspaceSlug: null,
+        mustChangePassword: false,
+      };
+    }
+
+    if (args.role === "member") {
+      const member = args.memberId
+        ? await ctx.db.get("teamMembers", args.memberId)
+        : null;
+      if (!member || member.status === "inactive") return generic;
+      const login = await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_member", (q) => q.eq("memberId", member._id))
+        .unique();
+      if (login?.status !== "active") return generic;
+      const workspace = await ctx.db.get("workspaces", member.workspaceId);
+      const companyLogin = await ctx.db
+        .query("workspaceCredentials")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+        .unique();
+      if (!workspace || companyLogin?.status !== "active") return generic;
+      if (workspace.status === "archived") return archived;
+      return {
+        ok: true,
+        label: member.name,
+        workspaceSlug: workspace.slug,
+        mustChangePassword: false,
+      };
+    }
+
+    const workspace = args.workspaceId
+      ? await ctx.db.get("workspaces", args.workspaceId)
+      : null;
+    if (!workspace) return generic;
+    const credential = await ctx.db
+      .query("workspaceCredentials")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .unique();
+    if (credential?.status !== "active") return generic;
+    if (workspace.status === "archived") return archived;
+    return {
+      ok: true,
+      label: workspace.name,
+      workspaceSlug: workspace.slug,
+      mustChangePassword: credential.mustChangePassword,
+    };
+  },
+});
+
 async function dropMemberSessions(
   ctx: MutationCtx,
   memberId: Id<"teamMembers">
@@ -850,8 +1357,10 @@ export const upsertMemberCredential = internalMutation({
         status: "active",
         updatedAt: now,
       });
-      // A reset must end whatever the old password signed in.
+      // A reset must end whatever the old password signed in — and is how
+      // somebody who lost their authenticator gets back in.
       await dropMemberSessions(ctx, args.memberId);
+      await dropFactor(ctx, `member|${args.memberId}`);
       return { username: existing.username };
     }
 
@@ -908,5 +1417,6 @@ export async function removeMemberLogin(
     .unique();
   if (login) await ctx.db.delete(login._id);
   await dropMemberSessions(ctx, memberId);
+  await dropFactor(ctx, `member|${memberId}`);
   return Boolean(login);
 }

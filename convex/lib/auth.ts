@@ -36,15 +36,30 @@ export class AuthError extends Error {
   }
 }
 
-// `sub` is "admin|<id>", "workspace|<id>" or "member|<id>".
-function parseSubject(
-  subject: string
-): { role: "admin" | "workspace" | "member"; id: string } | null {
-  const [role, id] = subject.split("|");
+/**
+ * `sub` is "admin|<id>", "workspace|<id>" or "member|<id>", followed by
+ * "|<sessionId>" for a web or app session. The session is only named for
+ * those two because their clients watch for it ending (see `mySession` in
+ * convex/authDb.ts) and sign out cleanly; an older client, or the MCP server,
+ * finds out when its next token is refused instead.
+ */
+export function parseSubject(subject: string): {
+  role: "admin" | "workspace" | "member";
+  id: string;
+  sessionId: string | null;
+} | null {
+  const [role, id, sessionId] = subject.split("|");
   if ((role !== "admin" && role !== "workspace" && role !== "member") || !id) {
     return null;
   }
-  return { role, id };
+  return { role, id, sessionId: sessionId || null };
+}
+
+/** The key a login's authenticator is stored under — its subject, unsessioned. */
+export function principalKey(principal: Principal): string {
+  if (principal.role === "admin") return `admin|${principal.adminId}`;
+  if (principal.role === "member") return `member|${principal.memberId}`;
+  return `workspace|${principal.workspaceId}`;
 }
 
 export async function getPrincipal(ctx: Ctx): Promise<Principal | null> {
@@ -53,6 +68,14 @@ export async function getPrincipal(ctx: Ctx): Promise<Principal | null> {
 
   const parsed = parseSubject(identity.subject);
   if (!parsed) return null;
+
+  // Signed in somewhere else since, or signed out: the token is still
+  // unexpired, but the session it was minted for is over.
+  if (parsed.sessionId) {
+    const sessionId = ctx.db.normalizeId("authSessions", parsed.sessionId);
+    const session = sessionId ? await ctx.db.get("authSessions", sessionId) : null;
+    if (!session || session.endedAt !== undefined) return null;
+  }
 
   if (parsed.role === "admin") {
     const adminId = ctx.db.normalizeId("admins", parsed.id);

@@ -518,6 +518,44 @@ and verifies them through its own JWKS:
 Because the durable credential stays in an httpOnly cookie and only short-lived
 JWTs reach JavaScript, an XSS bug cannot steal a lasting session.
 
+### One session per login
+
+Every login — admin, company or human agent — can be open in **one place at a
+time**, across the web and the mobile app together. When the password is right
+but the login is already open elsewhere, `auth.login` answers `sessionActive`
+with the device and when it was last used, and signs nobody in. The person then
+chooses to sign that device out (`auth.continueLogin` with `replace: true`),
+which ends the old session and opens the new one in a single transaction.
+
+The session that was replaced is marked `endedReason: "replaced"` rather than
+deleted, and web and app tokens carry its id, so it stops working on the very
+next request. Both clients subscribe to `authDb.mySession` and swap the page for
+"signed in on another device" the moment it ends.
+
+MCP sessions — connector URLs, and the MCP server's own sign-in (`client:
+"mcp"`) — are exempt: every MCP request signs in afresh, and would otherwise sign
+the person out of their browser. An app build from before this change still
+installed on someone's phone is refused with a sentence telling it to update,
+since it cannot show the extra step.
+
+### Two-factor authentication
+
+Any login can add an authenticator app (TOTP, RFC 6238 — six digits, 30
+seconds, HMAC-SHA1, which every authenticator defaults to) from **Settings →
+Access** in its workspace, or from **Access** in the admin console. With it on,
+`auth.login` answers `twoFactor` instead of signing in, and `auth.continueLogin`
+takes the code. Setting it up issues ten one-time recovery codes, stored hashed.
+
+- Secrets live in their own `twoFactor` table, keyed `role|id`, and never reach
+  a browser.
+- A code is spent once used, and codes are counted *before* they are checked,
+  so parallel guesses share one limit: every fifth wrong code in a row locks the
+  login, for 15 minutes and doubling each time up to a day.
+- Whoever can reset a login's password can also clear its authenticator, and
+  does by resetting it: the admin for a company, the company for a human agent,
+  and `npm run provision:admin` for an administrator. That is the way back in
+  for somebody who loses their phone and their recovery codes.
+
 ### Where authorization is enforced
 
 Inside Convex, not in the UI. `convex/lib/auth.ts` exposes `requireAdmin`,
@@ -603,7 +641,6 @@ ingestion status update live without polling.
 - **Rate limiting on sign-in.** Failed attempts are not throttled. Before
   exposing this to the internet, add the `@convex-dev/rate-limiter` component to
   `auth.login`.
-- **Two-factor authentication** for administrators.
 - **Media into the knowledge base from WhatsApp.** Inbound images and documents
   get a polite "send it as text" reply. Voice notes *are* transcribed.
 - **Scanned/image-only PDFs.** There is no OCR in the ingestion path; text is

@@ -271,6 +271,7 @@ export function WorkspaceAccessCard({
         {access.mustChangePassword ? (
           <Badge variant="outline">must change on first sign-in</Badge>
         ) : null}
+        {access.twoFactor ? <Badge variant="outline">two-factor on</Badge> : null}
         {access.activeSessions > 0 ? (
           <Badge variant="ghost">
             {access.activeSessions} open session
@@ -318,7 +319,11 @@ export function WorkspaceAccessCard({
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     {access.hasPassword
-                      ? "The existing password stops working immediately and any open sessions are signed out. The new password is shown once."
+                      ? `The existing password stops working immediately and any open sessions are signed out.${
+                          access.twoFactor
+                            ? " Two-factor authentication is turned off too, so a company that lost its phone can get back in and set it up again."
+                            : ""
+                        } The new password is shown once.`
                       : "A strong password is generated and shown once. Send it to the company along with the workspace ID."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>

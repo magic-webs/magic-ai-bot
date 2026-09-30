@@ -107,11 +107,28 @@ async function signIn() {
       ? identity.session
       : identity.kind === "token"
         ? await convex().action(api.auth.mcpLogin, { token: identity.token })
-        : await convex().action(api.auth.login, {
-            username: identity.username,
-            password: identity.password,
-          });
+        : await passwordLogin(identity);
   st.access = null;
+}
+
+/**
+ * Signs in as `mcp`, so the server neither signs the person out of their
+ * browser nor is refused for being open elsewhere. A login with two-factor on
+ * cannot be signed in with a password alone; the server has no one to type
+ * the code, so it says so rather than stalling.
+ */
+async function passwordLogin(identity) {
+  const result = await convex().action(api.auth.login, {
+    username: identity.username,
+    password: identity.password,
+    client: "mcp",
+  });
+  if (result.status !== "signedIn") {
+    throw new Error(
+      `${identity.username} needs a second step to sign in, which the MCP server cannot complete. Use a connector token instead.`
+    );
+  }
+  return result;
 }
 
 export async function authorize() {

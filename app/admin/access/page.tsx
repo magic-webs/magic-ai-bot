@@ -44,6 +44,7 @@ import {
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "@/components/ui/toast";
 import { WorkspaceAccessDialog } from "@/components/workspace-access";
+import { TwoFactorCard } from "@/components/two-factor-card";
 import {
   CopyIcon,
   KeyIcon,
@@ -249,9 +250,14 @@ export default function AdminAccessPage() {
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
           Every password is stored hashed and shown exactly once, at the moment
           it is issued. Revoking a workspace signs out its open sessions
-          immediately.
+          immediately. Each login can be open in one place at a time, and
+          issuing a new password also turns off its two-factor authentication.
         </p>
       </header>
+
+      {/* Your own, as the administrator signed in. shrink-0 for the same
+          reason as the cards below. */}
+      <TwoFactorCard className="shrink-0" />
 
       {/* shrink-0, or this page does not scroll. `Card` carries
           `overflow-hidden`, and a flex item whose overflow is not `visible`
@@ -327,6 +333,9 @@ export default function AdminAccessPage() {
                             {row?.mustChangePassword ? (
                               <Badge variant="outline">must change</Badge>
                             ) : null}
+                            {row?.twoFactor ? (
+                              <Badge variant="outline">2FA</Badge>
+                            ) : null}
                             {workspace.status === "archived" ? (
                               <Badge variant="secondary">archived</Badge>
                             ) : null}
@@ -391,7 +400,12 @@ export default function AdminAccessPage() {
                   {admins.map((admin) => (
                     <TableRow key={admin._id}>
                       <TableCell className="font-medium">
-                        {admin.email}
+                        <span className="flex items-center gap-1.5">
+                          {admin.email}
+                          {admin.twoFactor ? (
+                            <Badge variant="outline">2FA</Badge>
+                          ) : null}
+                        </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {admin.name ?? "—"}

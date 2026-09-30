@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { api } from "@/convex/_generated/api";
 import { convexServerClient } from "@/lib/convex-server";
 import { SESSION_COOKIE } from "@/lib/session";
+import { sessionEndReason } from "@/lib/session-reason";
 
 /** Who the current cookie belongs to. Drives the app shell and route guards. */
 export async function GET() {
@@ -12,11 +13,15 @@ export async function GET() {
   }
 
   try {
-    const minted = await convexServerClient().action(api.auth.mintAccessToken, {
+    const convex = convexServerClient();
+    const minted = await convex.action(api.auth.mintAccessToken, {
       sessionToken,
     });
     if (!minted) {
-      const response = NextResponse.json({ session: null }, { status: 200 });
+      const response = NextResponse.json(
+        { session: null, reason: await sessionEndReason(convex, sessionToken) },
+        { status: 200 }
+      );
       response.cookies.delete(SESSION_COOKIE);
       return response;
     }

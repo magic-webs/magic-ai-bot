@@ -1,5 +1,6 @@
 "use node";
 
+import { createHmac } from "node:crypto";
 import { v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
@@ -11,6 +12,8 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const ACCESS_TOKEN_TTL_S = 30 * 60; // 30 minutes
 const JWT_AUDIENCE = "magic-ai-bot";
 const JWT_KID = "magic-ai-bot-1";
+/** How long a sign-in waits at the code, or at "sign out the other one?". */
+const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Password hashing
@@ -171,6 +174,181 @@ async function signAccessToken(subject: string, ttlSeconds: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Authenticator codes: TOTP, RFC 6238 — HMAC-SHA1, six digits, 30 seconds.
+// The settings every authenticator app defaults to, so none has to be told.
+// ---------------------------------------------------------------------------
+
+const TOTP_ISSUER = "Magic Agent";
+const TOTP_STEP_S = 30;
+const TOTP_DIGITS = 6;
+/** One step either side, for a phone clock that has drifted. */
+const TOTP_WINDOW = 1;
+const RECOVERY_CODE_COUNT = 10;
+/** Lower case only and no look-alikes: these get written down on paper. */
+const RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+
+const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32Encode(bytes: Uint8Array): string {
+  let out = "";
+  let bits = 0;
+  let value = 0;
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+    value &= (1 << bits) - 1;
+  }
+  if (bits > 0) out += BASE32[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(input: string): Uint8Array {
+  const out: number[] = [];
+  let bits = 0;
+  let value = 0;
+  for (const char of input.replace(/=+$/, "").toUpperCase()) {
+    const index = BASE32.indexOf(char);
+    if (index < 0) throw new Error("Invalid base32 secret.");
+    value = (value << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+      value &= (1 << bits) - 1;
+    }
+  }
+  return Uint8Array.from(out);
+}
+
+/** RFC 4226's HOTP for one counter value. */
+function hotp(key: Uint8Array, counter: number): string {
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(counter));
+  const digest = createHmac("sha1", key).update(message).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary =
+    ((digest[offset] & 0x7f) << 24) |
+    (digest[offset + 1] << 16) |
+    (digest[offset + 2] << 8) |
+    digest[offset + 3];
+  return String(binary % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, "0");
+}
+
+/**
+ * The time step a code belongs to, or null. Steps at or before the last one
+ * accepted are skipped, so a code seen over someone's shoulder is spent.
+ */
+function matchingStep(
+  secret: string,
+  code: string,
+  lastUsedStep: number | null
+): number | null {
+  const key = base32Decode(secret);
+  const now = Math.floor(Date.now() / 1000 / TOTP_STEP_S);
+  for (let step = now - TOTP_WINDOW; step <= now + TOTP_WINDOW; step++) {
+    if (lastUsedStep !== null && step <= lastUsedStep) continue;
+    if (timingSafeEqual(hotp(key, step), code)) return step;
+  }
+  return null;
+}
+
+function otpauthUri(secret: string, account: string): string {
+  const issuer = encodeURIComponent(TOTP_ISSUER);
+  const params = new URLSearchParams({
+    secret,
+    issuer: TOTP_ISSUER,
+    algorithm: "SHA1",
+    digits: String(TOTP_DIGITS),
+    period: String(TOTP_STEP_S),
+  });
+  return `otpauth://totp/${issuer}:${encodeURIComponent(account)}?${params}`;
+}
+
+/** Shown as `abcde-fghjk`; stored hashed without the dash. */
+function generateRecoveryCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  const chars = Array.from(
+    bytes,
+    (byte) => RECOVERY_ALPHABET[byte % RECOVERY_ALPHABET.length]
+  ).join("");
+  return `${chars.slice(0, 5)}-${chars.slice(5)}`;
+}
+
+function normalizeRecoveryCode(code: string): string {
+  return code.replace(/[\s-]/g, "").toLowerCase();
+}
+
+function untilText(timestamp: number): string {
+  const minutes = Math.max(1, Math.ceil((timestamp - Date.now()) / 60_000));
+  if (minutes < 90) return `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `in ${Math.ceil(minutes / 60)} hours`;
+}
+
+/**
+ * Checks a six-digit code — or, once the authenticator is on, a recovery
+ * code — against a login's authenticator, and throws unless it counts.
+ *
+ * `expect` is which state the authenticator must be in: `pending` while it is
+ * being set up, where the first good code turns it on with `activate`'s
+ * recovery codes; `active` for everything after.
+ */
+async function checkCode(
+  ctx: ActionCtx,
+  principal: string,
+  rawCode: string,
+  expect: "pending" | "active",
+  activate?: { recoveryCodeHashes: string[] }
+): Promise<void> {
+  const attempt = await ctx.runMutation(internal.authDb.beginCodeAttempt, {
+    principal,
+  });
+  if (attempt.kind === "locked") {
+    throw new Error(
+      `Too many incorrect codes. Try again ${untilText(attempt.until)}.`
+    );
+  }
+  if (attempt.kind === "missing" || attempt.status !== expect) {
+    throw new Error(
+      expect === "pending"
+        ? "Start the setup again — this one is no longer waiting for a code."
+        : "Two-factor authentication is not on for this login."
+    );
+  }
+
+  const digits = rawCode.replace(/\s/g, "");
+  let accepted = false;
+  if (/^\d{6}$/.test(digits)) {
+    const step = matchingStep(attempt.secret, digits, attempt.lastUsedStep);
+    if (step !== null) {
+      accepted = await ctx.runMutation(internal.authDb.acceptCode, {
+        principal,
+        step,
+        activate,
+      });
+    }
+  } else if (expect === "active") {
+    const recovery = normalizeRecoveryCode(rawCode);
+    if (recovery.length === 10) {
+      const recoveryHash = await sha256Hex(recovery);
+      if (attempt.recoveryCodeHashes.includes(recoveryHash)) {
+        accepted = await ctx.runMutation(internal.authDb.acceptCode, {
+          principal,
+          recoveryHash,
+        });
+      }
+    }
+  }
+
+  if (!accepted) {
+    throw new Error("That code is not right. Check your authenticator app and try again.");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // First-run setup
 // ---------------------------------------------------------------------------
 
@@ -208,7 +386,7 @@ export const setupFirstAdmin = action({
       }
     );
 
-    return await issueSession(ctx, { role: "admin", adminId });
+    return await issueSession(ctx, { role: "admin", adminId }, "web");
   },
 });
 
@@ -289,32 +467,196 @@ export const createAdmin = action({
 // Login / logout
 // ---------------------------------------------------------------------------
 
-async function issueSession(
-  ctx: ActionCtx,
-  principal:
-    | { role: "admin"; adminId: Id<"admins"> }
-    | { role: "workspace"; workspaceId: Id<"workspaces"> }
-    | {
-        role: "member";
-        memberId: Id<"teamMembers">;
-        workspaceId: Id<"workspaces">;
-      }
-): Promise<{ sessionToken: string; expiresAt: number }> {
-  const sessionToken = randomToken(32);
-  const expiresAt = Date.now() + SESSION_TTL_MS;
+type LoginPrincipal =
+  | { role: "admin"; adminId: Id<"admins"> }
+  | { role: "workspace"; workspaceId: Id<"workspaces"> }
+  | {
+      role: "member";
+      memberId: Id<"teamMembers">;
+      workspaceId: Id<"workspaces">;
+    };
 
-  await ctx.runMutation(internal.authDb.createSession, {
-    tokenHash: await sha256Hex(sessionToken),
+/**
+ * Where a sign-in comes from. `web` and `app` hold one session per login
+ * between them; `mcp` is exempt (see `authSessions.source`). Left undefined
+ * by a client from before any of this — an app build still installed on
+ * someone's phone — which is then told in words rather than handed a step it
+ * does not know how to show.
+ */
+type Source = "web" | "app" | "mcp";
+
+type Profile = {
+  role: "admin" | "workspace" | "member";
+  label: string;
+  workspaceSlug: string | null;
+  mustChangePassword: boolean;
+};
+
+type SignedIn = Profile & {
+  status: "signedIn";
+  sessionToken: string;
+  expiresAt: number;
+};
+
+type ActiveSession = { device: string | null; lastUsedAt: number };
+
+/**
+ * What a sign-in step comes back with: signed in, or one more thing to ask.
+ * The challenge token goes back to `continueLogin` to answer it.
+ */
+type LoginOutcome =
+  | SignedIn
+  | { status: "twoFactor"; challenge: string; expiresAt: number }
+  | {
+      status: "sessionActive";
+      challenge: string;
+      expiresAt: number;
+      activeSession: ActiveSession;
+    };
+
+function principalFields(principal: LoginPrincipal) {
+  return {
     role: principal.role,
     adminId: principal.role === "admin" ? principal.adminId : undefined,
     workspaceId:
       principal.role === "admin" ? undefined : principal.workspaceId,
     memberId: principal.role === "member" ? principal.memberId : undefined,
+  };
+}
+
+/** The "role|id" an authenticator is stored under. See `principalKey`. */
+function keyOf(principal: LoginPrincipal): string {
+  if (principal.role === "admin") return `admin|${principal.adminId}`;
+  if (principal.role === "member") return `member|${principal.memberId}`;
+  return `workspace|${principal.workspaceId}`;
+}
+
+function cleanDevice(device: string | undefined): string | undefined {
+  return device?.replace(/\s+/g, " ").trim().slice(0, 80) || undefined;
+}
+
+/**
+ * Opens a session, or reports the one already open (see `createSession` for
+ * the modes).
+ */
+async function openSession(
+  ctx: ActionCtx,
+  principal: LoginPrincipal,
+  options: {
+    source: Source | undefined;
+    device?: string;
+    mode: "exclusive" | "replace" | "shared";
+    challengeId?: Id<"authChallenges">;
+  }
+): Promise<
+  | { ok: true; sessionToken: string; expiresAt: number }
+  | { ok: false; activeSession: ActiveSession }
+> {
+  const sessionToken = randomToken(32);
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+
+  const result = await ctx.runMutation(internal.authDb.createSession, {
+    tokenHash: await sha256Hex(sessionToken),
+    ...principalFields(principal),
+    expiresAt,
+    source: options.source,
+    device: options.device,
+    mode: options.mode,
+    challengeId: options.challengeId,
+  });
+  if (!result.ok) return result;
+  return { ok: true, sessionToken, expiresAt };
+}
+
+/** A session that never displaces another: MCP, and first-run setup. */
+async function issueSession(
+  ctx: ActionCtx,
+  principal: LoginPrincipal,
+  source: Source
+): Promise<{ sessionToken: string; expiresAt: number }> {
+  const opened = await openSession(ctx, principal, { source, mode: "shared" });
+  if (!opened.ok) throw new Error("Could not open a session.");
+  return { sessionToken: opened.sessionToken, expiresAt: opened.expiresAt };
+}
+
+async function createChallenge(
+  ctx: ActionCtx,
+  principal: LoginPrincipal,
+  stage: "twoFactor" | "replace",
+  source: Source,
+  device: string | undefined
+): Promise<{ challenge: string; expiresAt: number }> {
+  const challenge = randomToken(32);
+  const expiresAt = Date.now() + CHALLENGE_TTL_MS;
+  await ctx.runMutation(internal.authDb.createChallenge, {
+    tokenHash: await sha256Hex(challenge),
+    stage,
+    ...principalFields(principal),
+    source,
+    device,
     expiresAt,
   });
-
-  return { sessionToken, expiresAt };
+  return { challenge, expiresAt };
 }
+
+/**
+ * The last step of every sign-in, once the password and any code are right:
+ * open the session, unless the login already has one open elsewhere — then
+ * ask first. MCP never asks, and never displaces anyone.
+ */
+async function finishSignIn(
+  ctx: ActionCtx,
+  principal: LoginPrincipal,
+  profile: Profile,
+  source: Source | undefined,
+  device: string | undefined,
+  challenge?: { id: Id<"authChallenges">; token: string; expiresAt: number }
+): Promise<LoginOutcome> {
+  const opened = await openSession(ctx, principal, {
+    source,
+    device,
+    mode: source === "mcp" ? "shared" : "exclusive",
+    challengeId: challenge?.id,
+  });
+  if (opened.ok) {
+    return {
+      status: "signedIn",
+      sessionToken: opened.sessionToken,
+      expiresAt: opened.expiresAt,
+      ...profile,
+    };
+  }
+
+  if (!source) {
+    throw new Error(
+      "This login is already signed in on another device. Sign out there first, or update the app to switch devices."
+    );
+  }
+
+  // Asked on the same challenge when there is one — the code step is done,
+  // and the person should not have to type it again.
+  if (challenge) {
+    await ctx.runMutation(internal.authDb.advanceChallenge, {
+      challengeId: challenge.id,
+    });
+    return {
+      status: "sessionActive",
+      challenge: challenge.token,
+      expiresAt: challenge.expiresAt,
+      activeSession: opened.activeSession,
+    };
+  }
+  const fresh = await createChallenge(ctx, principal, "replace", source, device);
+  return {
+    status: "sessionActive",
+    ...fresh,
+    activeSession: opened.activeSession,
+  };
+}
+
+const sourceValidator = v.optional(
+  v.union(v.literal("web"), v.literal("app"), v.literal("mcp"))
+);
 
 /**
  * One sign-in for every kind of principal.
@@ -325,20 +667,22 @@ async function issueSession(
  * `<workspace-id>.<name>` — so the three namespaces cannot collide. The caller
  * is told which area to open rather than being asked to choose a role up
  * front.
+ *
+ * A right password does not always sign in straight away. A login with an
+ * authenticator comes back `twoFactor`, and one already open on another
+ * device comes back `sessionActive` — either way with a challenge that
+ * `continueLogin` finishes. The web and the app pass `client` and show those
+ * steps; without it, they are refused in words instead.
  */
 export const login = action({
-  args: { username: v.string(), password: v.string() },
-  handler: async (
-    ctx,
-    args
-  ): Promise<{
-    sessionToken: string;
-    expiresAt: number;
-    role: "admin" | "workspace" | "member";
-    label: string;
-    workspaceSlug: string | null;
-    mustChangePassword: boolean;
-  }> => {
+  args: {
+    username: v.string(),
+    password: v.string(),
+    client: sourceValidator,
+    /** "Chrome on Windows", "Pixel 8" — shown to the next sign-in. */
+    device: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<LoginOutcome> => {
     const identifier = args.username.trim().toLowerCase();
     const generic = "Incorrect username or password.";
 
@@ -376,63 +720,161 @@ export const login = action({
     const ok = await verifyPassword(args.password, stored ?? unmatchableHash());
     if (!ok || !stored) throw new Error(generic);
 
-    if (admin) {
-      const session = await issueSession(ctx, {
-        role: "admin",
-        adminId: admin._id,
-      });
-      return {
-        ...session,
-        role: "admin",
-        label: admin.name?.trim() || admin.email,
-        workspaceSlug: null,
-        mustChangePassword: false,
-      };
-    }
+    // Only reachable with a matching, active credential of one of the three.
+    const principal: LoginPrincipal | null = admin
+      ? { role: "admin", adminId: admin._id }
+      : memberLogin
+        ? {
+            role: "member",
+            memberId: memberLogin.memberId,
+            workspaceId: memberLogin.workspaceId,
+          }
+        : workspace && credential
+          ? { role: "workspace", workspaceId: workspace._id }
+          : null;
+    if (!principal) throw new Error(generic);
 
-    if (memberLogin) {
-      // Checked after the password, like the archived workspace below, so a
-      // stranger learns nothing about which people exist.
-      const state = await ctx.runQuery(internal.authDb.memberSignInState, {
-        memberId: memberLogin.memberId,
-      });
-      if (!state || state.member.status === "inactive" || !state.companyActive) {
-        throw new Error(generic);
+    // Checked after the password, so a stranger learns nothing about which
+    // people exist or which workspaces are archived.
+    const profile = await profileOf(ctx, principal);
+    const source = args.client;
+    const device = cleanDevice(args.device);
+
+    const protectedLogin = await ctx.runQuery(
+      internal.authDb.twoFactorForPrincipal,
+      { principal: keyOf(principal) }
+    );
+    if (protectedLogin) {
+      if (!source) {
+        throw new Error(
+          "Two-factor authentication is on for this login. Update the app to sign in."
+        );
       }
-      if (state.workspace.status === "archived") {
-        throw new Error("This workspace has been archived.");
+      if (source === "mcp") {
+        throw new Error(
+          "Two-factor authentication is on for this login, so the MCP server cannot sign in with its password. Use a connector URL from the dashboard instead."
+        );
       }
-      const session = await issueSession(ctx, {
-        role: "member",
-        memberId: state.member._id,
-        workspaceId: state.workspace._id,
-      });
-      return {
-        ...session,
-        role: "member",
-        label: state.member.name,
-        workspaceSlug: state.workspace.slug,
-        mustChangePassword: false,
-      };
+      const challenge = await createChallenge(
+        ctx,
+        principal,
+        "twoFactor",
+        source,
+        device
+      );
+      return { status: "twoFactor", ...challenge };
     }
 
-    // Only reachable with a matching, active workspace credential.
-    if (!workspace || !credential) throw new Error(generic);
-    if (workspace.status === "archived") {
-      throw new Error("This workspace has been archived.");
+    return await finishSignIn(ctx, principal, profile, source, device);
+  },
+});
+
+/**
+ * Who a principal is, for the signed-in response — re-checked, since a
+ * sign-in can sit at the code for minutes and a person can be switched off
+ * in the meantime.
+ */
+async function profileOf(
+  ctx: ActionCtx,
+  principal: LoginPrincipal
+): Promise<Profile> {
+  const found = await ctx.runQuery(
+    internal.authDb.principalProfile,
+    principalFields(principal)
+  );
+  if (!found.ok) throw new Error(found.error);
+  return {
+    role: principal.role,
+    label: found.label,
+    workspaceSlug: found.workspaceSlug,
+    mustChangePassword: found.mustChangePassword,
+  };
+}
+
+/**
+ * The rest of a sign-in `login` could not finish in one go: the code from the
+ * authenticator app (or a recovery code), then — if the login is open on
+ * another device — the person's go-ahead to sign that one out, as `replace`.
+ */
+export const continueLogin = action({
+  args: {
+    challenge: v.string(),
+    code: v.optional(v.string()),
+    replace: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<LoginOutcome> => {
+    const token = args.challenge.trim();
+    const found: Doc<"authChallenges"> | null = await ctx.runQuery(
+      internal.authDb.challengeByHash,
+      { tokenHash: await sha256Hex(token) }
+    );
+    if (!found || found.expiresAt < Date.now()) {
+      throw new Error("This sign-in has expired. Sign in again.");
     }
 
-    const session = await issueSession(ctx, {
-      role: "workspace",
-      workspaceId: workspace._id,
+    const principal: LoginPrincipal | null =
+      found.role === "admin" && found.adminId
+        ? { role: "admin", adminId: found.adminId }
+        : found.role === "member" && found.memberId && found.workspaceId
+          ? {
+              role: "member",
+              memberId: found.memberId,
+              workspaceId: found.workspaceId,
+            }
+          : found.role === "workspace" && found.workspaceId
+            ? { role: "workspace", workspaceId: found.workspaceId }
+            : null;
+    if (!principal) throw new Error("This sign-in has expired. Sign in again.");
+
+    const profile = await profileOf(ctx, principal);
+    const challenge = { id: found._id, token, expiresAt: found.expiresAt };
+
+    if (found.stage === "twoFactor") {
+      if (!args.code?.trim()) {
+        throw new Error("Enter the code from your authenticator app.");
+      }
+      await checkCode(ctx, keyOf(principal), args.code, "active");
+      return await finishSignIn(
+        ctx,
+        principal,
+        profile,
+        found.source,
+        found.device,
+        challenge
+      );
+    }
+
+    if (!args.replace) {
+      throw new Error("Sign out the other session to continue.");
+    }
+    const opened = await openSession(ctx, principal, {
+      source: found.source,
+      device: found.device,
+      mode: "replace",
+      challengeId: found._id,
     });
+    if (!opened.ok) throw new Error("Could not open a session.");
     return {
-      ...session,
-      role: "workspace",
-      label: workspace.name,
-      workspaceSlug: workspace.slug,
-      mustChangePassword: credential.mustChangePassword,
+      status: "signedIn",
+      sessionToken: opened.sessionToken,
+      expiresAt: opened.expiresAt,
+      ...profile,
     };
+  },
+});
+
+/**
+ * Why a session stopped working, for the device it was on. Only "replaced"
+ * has a reason worth telling: another sign-in took its place.
+ */
+export const endedReason = action({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args): Promise<"replaced" | null> => {
+    const session: Doc<"authSessions"> | null = await ctx.runQuery(
+      internal.authDb.sessionByHash,
+      { tokenHash: await sha256Hex(args.sessionToken) }
+    );
+    return session?.endedReason ?? null;
   },
 });
 
@@ -466,7 +908,14 @@ export const mintAccessToken = action({
       internal.authDb.sessionByHash,
       { tokenHash: await sha256Hex(args.sessionToken) }
     );
-    if (!session || session.expiresAt < Date.now()) return null;
+    if (
+      !session ||
+      session.expiresAt < Date.now() ||
+      // Replaced by a sign-in on another device.
+      session.endedAt !== undefined
+    ) {
+      return null;
+    }
 
     let subject: string;
     let workspaceSlug: string | null = null;
@@ -509,6 +958,14 @@ export const mintAccessToken = action({
     await ctx.runMutation(internal.authDb.touchSession, {
       sessionId: session._id,
     });
+
+    // Web and app tokens name their session, so ending it — a sign-in
+    // elsewhere — locks them out on the next request instead of the next
+    // renewal. Those two clients watch for it and sign out cleanly; see
+    // `parseSubject` in convex/lib/auth.ts for why the others do not.
+    if (session.source === "web" || session.source === "app") {
+      subject = `${subject}|${session._id}`;
+    }
 
     const signed = await signAccessToken(subject, ACCESS_TOKEN_TTL_S);
     return {
@@ -690,10 +1147,11 @@ export const mcpLogin = action({
       await ctx.runMutation(internal.authDb.touchAdminMcpToken, {
         tokenId: asAdmin.tokenId,
       });
-      const session = await issueSession(ctx, {
-        role: "admin",
-        adminId: asAdmin.adminId,
-      });
+      const session = await issueSession(
+        ctx,
+        { role: "admin", adminId: asAdmin.adminId },
+        "mcp"
+      );
       return {
         ...session,
         role: "admin",
@@ -732,10 +1190,11 @@ export const mcpLogin = action({
       tokenId: found.tokenId,
     });
 
-    const session = await issueSession(ctx, {
-      role: "workspace",
-      workspaceId: workspace._id,
-    });
+    const session = await issueSession(
+      ctx,
+      { role: "workspace", workspaceId: workspace._id },
+      "mcp"
+    );
     return {
       ...session,
       role: "workspace",
@@ -865,6 +1324,78 @@ export const issueMemberLogin = action({
 
     // Returned once. Only the hash is kept.
     return { username, password };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Two-factor authentication, set up by each login for itself.
+//
+// Turned off again with a code, or by whoever can reset the password: the
+// admin for a company, the company for its human agents, and the
+// provision-admin script for an administrator. That reset is the way back in
+// for somebody who has lost their phone and their recovery codes.
+// ---------------------------------------------------------------------------
+
+/**
+ * A new secret for the caller's authenticator app, as a key and as the
+ * otpauth:// URI a QR code carries. Nothing is protected by it until
+ * `confirmTwoFactorSetup` sees a code from it.
+ */
+export const beginTwoFactorSetup = action({
+  args: {},
+  handler: async (ctx): Promise<{ secret: string; uri: string }> => {
+    const caller: { key: string; account: string } = await ctx.runQuery(
+      internal.authDb.callerPrincipal,
+      {}
+    );
+    // 160 bits, the size RFC 4226 recommends for HMAC-SHA1.
+    const secret = base32Encode(crypto.getRandomValues(new Uint8Array(20)));
+    await ctx.runMutation(internal.authDb.putPendingFactor, {
+      principal: caller.key,
+      secret,
+    });
+    return { secret, uri: otpauthUri(secret, caller.account) };
+  },
+});
+
+/**
+ * The first code from the new authenticator, which turns it on. Returns the
+ * recovery codes — once, like a password: only their hashes are kept.
+ */
+export const confirmTwoFactorSetup = action({
+  args: { code: v.string() },
+  handler: async (ctx, args): Promise<{ recoveryCodes: string[] }> => {
+    const caller: { key: string; account: string } = await ctx.runQuery(
+      internal.authDb.callerPrincipal,
+      {}
+    );
+    const recoveryCodes = Array.from(
+      { length: RECOVERY_CODE_COUNT },
+      generateRecoveryCode
+    );
+    const recoveryCodeHashes = await Promise.all(
+      recoveryCodes.map((code) => sha256Hex(normalizeRecoveryCode(code)))
+    );
+    await checkCode(ctx, caller.key, args.code, "pending", {
+      recoveryCodeHashes,
+    });
+    return { recoveryCodes };
+  },
+});
+
+/** Turns it off, with a current code or a recovery code as proof. */
+export const disableTwoFactor = action({
+  args: { code: v.string() },
+  handler: async (ctx, args): Promise<{ success: true }> => {
+    const caller: { key: string; account: string } = await ctx.runQuery(
+      internal.authDb.callerPrincipal,
+      {}
+    );
+    await checkCode(ctx, caller.key, args.code, "active");
+    await ctx.runMutation(internal.authDb.removeFactor, {
+      principal: caller.key,
+    });
+    return { success: true };
   },
 });
 

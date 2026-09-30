@@ -7,6 +7,8 @@ import {
 } from "convex/react";
 import { Toaster } from "@/components/ui/toast";
 import { AppearanceSync } from "@/components/appearance";
+import { reportSessionEnd } from "@/components/session-end";
+import type { SessionEndReason } from "@/lib/session";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -38,7 +40,11 @@ function useCookieAuth() {
         const response = await fetch("/api/auth/session", {
           cache: "no-store",
         });
-        const data = (await response.json()) as { session: unknown | null };
+        const data = (await response.json()) as {
+          session: unknown | null;
+          reason?: SessionEndReason | null;
+        };
+        if (!data.session) reportSessionEnd(data.reason ?? null);
         if (active) setIsAuthenticated(Boolean(data.session));
       } catch {
         if (active) setIsAuthenticated(false);
@@ -61,6 +67,10 @@ function useCookieAuth() {
           headers: forceRefreshToken ? { "Cache-Control": "no-cache" } : undefined,
         });
         if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as {
+            reason?: SessionEndReason | null;
+          };
+          reportSessionEnd(data.reason ?? null);
           setIsAuthenticated(false);
           return null;
         }

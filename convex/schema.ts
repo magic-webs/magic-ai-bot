@@ -112,7 +112,9 @@ export default defineSchema({
   //
   // Passwords are PBKDF2-SHA256 (see convex/auth.ts). Sessions are opaque
   // tokens held in an httpOnly cookie and exchanged for short-lived JWTs that
-  // Convex verifies through its own JWKS, so revocation is immediate.
+  // Convex verifies through its own JWKS, so revocation is immediate. Each
+  // login holds one web or app session at a time, and may add an
+  // authenticator app as a second factor.
   // -------------------------------------------------------------------------
   admins: defineTable({
     email: v.string(),
@@ -153,11 +155,74 @@ export default defineSchema({
     createdAt: v.number(),
     expiresAt: v.number(),
     lastUsedAt: v.number(),
+    /**
+     * Where it was signed in. A login holds one web or app session at a time;
+     * `mcp` sessions — a connector, or the MCP server's own sign-in — are
+     * exempt, because every MCP request signs in afresh and would otherwise
+     * sign the person out of their browser. Absent on sessions from before
+     * this was recorded, which count as interactive.
+     */
+    source: v.optional(
+      v.union(v.literal("web"), v.literal("app"), v.literal("mcp"))
+    ),
+    /** "Chrome on Windows", "Pixel 8" — shown to whoever signs in next. */
+    device: v.optional(v.string()),
+    /**
+     * Set when a sign-in elsewhere took this session's place. Kept rather than
+     * deleted so the device it was on can say why it was signed out; purged
+     * with the rest once `expiresAt` passes.
+     */
+    endedAt: v.optional(v.number()),
+    endedReason: v.optional(v.literal("replaced")),
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_workspace", ["workspaceId"])
     .index("by_admin", ["adminId"])
     .index("by_member", ["memberId"]),
+
+  /**
+   * A sign-in that is half done: the password was right, and it is waiting on
+   * an authenticator code, or on the person agreeing to sign out the session
+   * this login already has open. Short-lived, and only the hash of the token
+   * the client holds is kept.
+   */
+  authChallenges: defineTable({
+    tokenHash: v.string(),
+    stage: v.union(v.literal("twoFactor"), v.literal("replace")),
+    role: v.union(v.literal("admin"), v.literal("workspace"), v.literal("member")),
+    adminId: v.optional(v.id("admins")),
+    workspaceId: v.optional(v.id("workspaces")),
+    memberId: v.optional(v.id("teamMembers")),
+    source: v.union(v.literal("web"), v.literal("app"), v.literal("mcp")),
+    device: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_tokenHash", ["tokenHash"]),
+
+  /**
+   * An authenticator app (TOTP, RFC 6238) on one login.
+   *
+   * Keyed by the same "role|id" string as the access token's subject, so one
+   * table serves administrators, company logins and human agents alike. Its
+   * own table, like the credential tables, because nothing here may reach a
+   * browser: the secret is what the authenticator app holds.
+   */
+  twoFactor: defineTable({
+    principal: v.string(),
+    /** Base32, as it goes into the otpauth:// URI. */
+    secret: v.string(),
+    /** Pending between showing the QR code and the first code confirming it. */
+    status: v.union(v.literal("pending"), v.literal("active")),
+    /** sha256 of each unused recovery code. One-time: spent codes are removed. */
+    recoveryCodeHashes: v.array(v.string()),
+    /** The last 30-second step a code was accepted for, so none is used twice. */
+    lastUsedStep: v.optional(v.number()),
+    /** Consecutive wrong codes. Every fifth locks the login, for longer each time. */
+    failedAttempts: v.number(),
+    lockedUntil: v.optional(v.number()),
+    createdAt: v.number(),
+    enabledAt: v.optional(v.number()),
+  }).index("by_principal", ["principal"]),
 
   // -------------------------------------------------------------------------
   // Workspace — the tenant. One company / project. Everything else hangs off it.

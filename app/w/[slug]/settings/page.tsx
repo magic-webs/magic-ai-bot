@@ -6,6 +6,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceAccessCard } from "@/components/workspace-access";
+import { TwoFactorCard } from "@/components/two-factor-card";
 import { McpConnectorCard } from "@/components/mcp-connector-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,13 +188,15 @@ export default function WorkspaceSettingsPage() {
             <TabsTrigger value="danger">Danger zone</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="access">
+          <TabsContent value="access" className="flex flex-col gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Workspace access</CardTitle>
                 <CardDescription>
                   How the company signs in to this workspace. Passwords are generated
-                  by an administrator, shown once, and stored hashed.
+                  by an administrator, shown once, and stored hashed. A login can be
+                  open in one place at a time — signing in somewhere new signs the
+                  old place out.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -203,6 +206,9 @@ export default function WorkspaceSettingsPage() {
                 />
               </CardContent>
             </Card>
+
+            {/* The signed-in login's own: the company's, or a human agent's. */}
+            <TwoFactorCard />
           </TabsContent>
 
           <TabsContent value="webhook">

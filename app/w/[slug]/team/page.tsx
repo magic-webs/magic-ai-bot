@@ -105,6 +105,8 @@ type DeskLogin = {
   status: "active" | "revoked";
   issuedAt: number;
   lastLoginAt: number | null;
+  /** They have set up an authenticator app on it. */
+  twoFactor: boolean;
 };
 
 const STATUSES = [
@@ -813,6 +815,7 @@ function MemberMenu({
                   {login.lastLoginAt
                     ? `Signed in ${relative(login.lastLoginAt)}`
                     : "Not signed in yet"}
+                  {login.twoFactor ? " · two-factor on" : ""}
                 </span>
               ) : null}
             </DropdownMenuLabel>
@@ -859,7 +862,11 @@ function MemberMenu({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmingLogin === "reset"
-                ? "The current password stops working and they are signed out everywhere. The new one is shown once; the username stays the same."
+                ? `The current password stops working and they are signed out everywhere.${
+                    login?.twoFactor
+                      ? " Their two-factor authentication is turned off too, so they can get back in if they lost their phone, and set it up again."
+                      : ""
+                  } The new one is shown once; the username stays the same.`
                 : "They are signed out straight away and cannot sign in again until you generate a new login. It frees their human-agent seat on your plan."}
             </AlertDialogDescription>
           </AlertDialogHeader>
