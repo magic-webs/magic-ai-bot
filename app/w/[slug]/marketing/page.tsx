@@ -75,6 +75,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { EventsTab, TouchDialog } from "@/components/marketing/events";
 import { AddContactsDialog } from "@/components/marketing/add-contacts-dialog";
 import { ExportContactsButton } from "@/components/marketing/export-contacts-button";
+import { TestSendButton } from "@/components/marketing/test-send";
 import { toast } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/convex-server";
 import { cn } from "@/lib/utils";
@@ -655,7 +656,7 @@ function EventDialog({
             </div>
 
             <DialogFooter className="sm:justify-between">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {draft.eventId ? (
                   <Button
                     variant="ghost"
@@ -677,6 +678,20 @@ function EventDialog({
                   >
                     {busy === "send" ? <Spinner /> : <PaperPlaneTiltIcon />} Send now
                   </Button>
+                ) : null}
+                {draft.eventId && saved?.templateId ? (
+                  <TestSendButton
+                    eventId={draft.eventId}
+                    disabledReason={
+                      draft.title.trim() !== saved.title ||
+                      draft.templateId !== saved.templateId ||
+                      draft.date !== saved.date
+                        ? "Save the change first — the test sends what is saved."
+                        : template
+                          ? templateBlocker(template)
+                          : null
+                    }
+                  />
                 ) : null}
               </div>
               <Button
@@ -998,6 +1013,16 @@ function TemplateDialog({
             <span />
           )}
           <div className="flex flex-wrap gap-2">
+            {saved ? (
+              <TestSendButton
+                templateId={saved._id}
+                disabledReason={
+                  edited
+                    ? "Save the change first — the test sends what Meta approved."
+                    : templateBlocker(saved)
+                }
+              />
+            ) : null}
             <Button
               variant={settled ? "default" : "outline"}
               onClick={() => void save()}

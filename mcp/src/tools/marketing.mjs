@@ -619,6 +619,42 @@ export function register(server) {
   );
 
   server.registerTool(
+    "send_marketing_test",
+    {
+      title: "Send a marketing test",
+      description:
+        "Send one greeting, event reminder or template to a single WhatsApp number, exactly as a customer would get it — to check it before everyone does. A reminder with no line yet gets one written first. A real template message, billed at its rate, but not counted as a send of the entry, so that number still gets the real one. It shows in that contact's chat when the number is a contact's; a number nobody has on file is not made a contact. Needs a template Meta has approved.",
+      inputSchema: {
+        ...workspaceArg,
+        to: z
+          .string()
+          .describe("WhatsApp number. Without a country code the workspace's default is added (+91 unless set)."),
+        entryId: z
+          .string()
+          .optional()
+          .describe("A greeting or reminder, from list_marketing_calendar or list_marketing_events"),
+        template: z
+          .string()
+          .optional()
+          .describe("Or a template name or id on its own, sent with sample values"),
+      },
+      annotations: { openWorldHint: true },
+    },
+    handler(async ({ workspace, to, entryId, template }) => {
+      if (!entryId && !template) throw new Error("Pass entryId or template.");
+      const found = await resolveWorkspace(workspace);
+      const templateId =
+        template && !entryId ? (await findMarketingTemplate(found._id, template))._id : undefined;
+      const result = await call.action(api.marketingSend.sendTest, {
+        to,
+        eventId: entryId,
+        templateId,
+      });
+      return ok({ sentTo: `+${result.to}`, text: result.text });
+    })
+  );
+
+  server.registerTool(
     "delete_calendar_entry",
     {
       title: "Delete a calendar entry",

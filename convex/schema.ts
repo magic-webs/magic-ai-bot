@@ -594,6 +594,15 @@ export default defineSchema({
     followUpCount: v.optional(v.number()),
     lastFollowUpAt: v.optional(v.number()),
 
+    /**
+     * Opened by the marketing desk to hold a greeting or reminder it sent,
+     * and not answered yet. Such a thread is a message sent, not a
+     * conversation had: the follow-up desk leaves it alone and the dashboard
+     * does not count it. Cleared by the customer's first reply, from which
+     * point it is an ordinary conversation. Absent on every other thread.
+     */
+    marketingOnly: v.optional(v.boolean()),
+
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
@@ -603,7 +612,8 @@ export default defineSchema({
     // own range rather than a filter over the latest threads, so an escalation
     // older than the newest few hundred conversations still shows up.
     .index("by_workspace_status", ["workspaceId", "status"])
-    // The sweep reads the oldest activity first, workspace by workspace.
+    // One workspace's threads by when they last moved. The follow-up sweep
+    // read this once; it now reads by_marketingOnly_and_lastMessageAt below.
     .index("by_workspace_lastMessageAt", ["workspaceId", "lastMessageAt"])
     .index("by_workspace_stage", ["workspaceId", "leadStageId"])
     // Held threads, oldest hold first. Across workspaces on purpose: the
@@ -611,7 +621,12 @@ export default defineSchema({
     // zero skips every row that is not held, which is nearly all of them.
     .index("by_humanHandlingAt", ["humanHandlingAt"])
     // Holds by when they end, soonest first — what the handback sweep reads.
-    .index("by_humanHandlingUntil", ["humanHandlingUntil"]),
+    .index("by_humanHandlingUntil", ["humanHandlingUntil"])
+    // What the follow-up desk's sweep reads: real conversations (no
+    // `marketingOnly`) by when they last moved, so it can take the most
+    // recently quiet ones across the deployment in one range — however many
+    // threads a campaign has opened.
+    .index("by_marketingOnly_and_lastMessageAt", ["marketingOnly", "lastMessageAt"]),
 
   messages: defineTable({
     workspaceId: v.id("workspaces"),

@@ -190,19 +190,39 @@ export function metaNameFor(name: string): string {
 }
 
 /**
- * The sample Meta reviews each variable with, in order of appearance. Meta
- * refuses a template with variables and no samples, and reads them to judge
- * what the message will say — so they are realistic, not "value1".
+ * A realistic value for every variable — for Meta's review, and for a test
+ * send of a template with no event behind it. The occasion is the one the
+ * template is for, so a festival greeting's sample reads "Happy Diwali", not
+ * "Happy Open studio day".
  */
-export function exampleValues(body: string, business: string): string[] {
-  const samples: Record<TemplateVariable, string> = {
+export function sampleValues(
+  business: string,
+  occasion?: string
+): Record<TemplateVariable, string> {
+  return {
     name: "Asha",
     business: business || "our store",
-    event: "Open studio day",
+    event:
+      occasion === "festival"
+        ? "Diwali"
+        : occasion === "birthday"
+          ? "your birthday"
+          : occasion === "offer"
+            ? "our festive sale"
+            : "Open studio day",
     date: "Sat, 8 Nov, 11 am",
     venue: "our MG Road store",
     message: "Doors open at eleven, with tea and a first look at the new collection.",
   };
+}
+
+/**
+ * The sample Meta reviews each variable with, in order of appearance. Meta
+ * refuses a template with variables and no samples, and reads them to judge
+ * what the message will say — so they are realistic, not "value1".
+ */
+export function exampleValues(body: string, business: string, occasion?: string): string[] {
+  const samples = sampleValues(business, occasion);
   return [...body.matchAll(VARIABLE)].map((match) => samples[match[1] as TemplateVariable]);
 }
 

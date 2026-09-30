@@ -194,8 +194,8 @@ export function AddContactsDialog({
         <DialogHeader>
           <DialogTitle>Add contacts</DialogTitle>
           <DialogDescription>
-            They get your greetings and event reminders on WhatsApp. When one of them
-            replies, the conversation shows in the inbox.
+            They get your greetings and event reminders on WhatsApp, and each one shows
+            in their chat in the inbox — so a reply carries on from it.
           </DialogDescription>
         </DialogHeader>
 

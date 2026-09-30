@@ -805,10 +805,11 @@ export const startTurn = internalMutation({
 
     if (!conversation) {
       // Somebody writing in for the first time may be answering a greeting or
-      // an event reminder the marketing desk sent them. They had no thread for
-      // it to be written into, so the send log is its only record — and the
-      // new thread opens with it, so the inbox shows what they are replying
-      // to and the agent reads it in its history below.
+      // an event reminder the marketing desk sent them. The desk opens a
+      // thread for every message it sends now, so this only finds sends from
+      // before it did, when the send log was their only record — and the new
+      // thread opens with them, so the inbox shows what they are replying to
+      // and the agent reads it in its history below.
       const seeds =
         args.channelType === "whatsapp"
           ? await marketingSeeds(ctx, contact._id, now)
@@ -895,6 +896,9 @@ export const startTurn = internalMutation({
       lastMessagePreview: args.text.slice(0, 140),
       lastMessageRole: "user",
       channelId: conversation.channelId ?? args.channelId,
+      // A thread the marketing desk opened becomes a real conversation the
+      // moment the customer answers it.
+      ...(conversation.marketingOnly ? { marketingOnly: undefined } : {}),
     });
 
     return {
@@ -1145,6 +1149,7 @@ export const recordCustomerEvent = internalMutation({
       lastMessageAt: now,
       lastMessagePreview: args.text.slice(0, 140),
       lastMessageRole: "user",
+      ...(conversation.marketingOnly ? { marketingOnly: undefined } : {}),
     });
     return { success: true };
   },

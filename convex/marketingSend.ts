@@ -5,7 +5,7 @@
 // per contact. The payload itself comes from the same builder the engine uses.
 
 import { v } from "convex/values";
-import { internalAction, type ActionCtx } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildMessage } from "./lib/whatsappSend";
@@ -15,6 +15,7 @@ import {
   greetingName,
   missingVariables,
   renderTemplate,
+  sampleValues,
   templateBlocker,
   type TemplateVariable,
 } from "./lib/marketing";
@@ -78,6 +79,8 @@ async function sendPage(
     context: {
       workspaceName: string;
       agentId: Id<"agents"> | null;
+      channelId: Id<"channels"> | null;
+      entryAgentId: Id<"agents"> | null;
       template: Doc<"marketingTemplates">;
       channel: Channel;
     };
@@ -117,6 +120,8 @@ async function sendPage(
     eventId: args.eventId,
     key: args.key,
     agentId: args.context.agentId ?? undefined,
+    channelId: args.context.channelId ?? undefined,
+    entryAgentId: args.context.entryAgentId ?? undefined,
     // Billed at what Meta approved the template as. A template saved before
     // it had a category was a greeting, and greetings are marketing.
     category: args.context.template.category ?? "marketing",
@@ -239,6 +244,8 @@ export const runEvent = internalAction({
       context: {
         workspaceName: context.workspaceName,
         agentId: context.agentId,
+        channelId: context.channelId,
+        entryAgentId: context.entryAgentId,
         template: context.template,
         channel: context.channel,
       },
@@ -293,6 +300,8 @@ export const runBirthdays = internalAction({
       context: {
         workspaceName: context.workspaceName,
         agentId: context.agentId,
+        channelId: context.channelId,
+        entryAgentId: context.entryAgentId,
         template: context.template,
         channel: context.channel,
       },
@@ -305,5 +314,87 @@ export const runBirthdays = internalAction({
       });
     }
     return null;
+  },
+});
+
+/**
+ * Sends one greeting, reminder or template to one number, to see it as a
+ * customer will before everyone does.
+ *
+ * The same message the real send makes — same checks, same variables, the
+ * reminder's line written first if it has none — to that number alone. It is
+ * a real template message, so it is billed; it is not logged as a send of the
+ * entry, so the number still gets the real one.
+ */
+export const sendTest = action({
+  args: {
+    to: v.string(),
+    countryCode: v.optional(v.string()),
+    eventId: v.optional(v.id("marketingEvents")),
+    templateId: v.optional(v.id("marketingTemplates")),
+  },
+  handler: async (ctx, args): Promise<{ to: string; text: string }> => {
+    if (!args.eventId && !args.templateId) {
+      throw new Error("Say what to test: a calendar entry or a template.");
+    }
+    let context = await ctx.runQuery(internal.marketing.testContext, args);
+
+    if (
+      context.event?.campaignId &&
+      !context.event.message &&
+      context.template &&
+      MESSAGE_VARIABLE.test(context.template.body)
+    ) {
+      await ctx.runAction(internal.marketingAi.writeTouches, {
+        campaignId: context.event.campaignId,
+        eventIds: [context.event._id],
+        overwrite: false,
+      });
+      context = await ctx.runQuery(internal.marketing.testContext, args);
+    }
+
+    if (!context.to) {
+      throw new Error(
+        "That is not a WhatsApp number. Write it with its country code, or the way you would dial it."
+      );
+    }
+    const template = context.template;
+    // A template on its own has no event behind it, so its blanks get the
+    // same samples Meta reviewed it with.
+    const samples = sampleValues(context.workspaceName, template?.occasion);
+    const values: SharedValues = context.event
+      ? eventValues({ ...context, event: context.event })
+      : {
+          business: samples.business,
+          event: samples.event,
+          date: samples.date,
+          venue: samples.venue,
+          message: samples.message,
+        };
+    const reason =
+      blocker(context) ?? (template ? unfilled(template.body, values) : null);
+    if (reason || !template || !context.channel) {
+      throw new Error(reason ?? "Nothing to send.");
+    }
+
+    const { text, parameters } = renderTemplate(template.body, {
+      ...values,
+      name: greetingName(context.contactName ?? undefined),
+    });
+    const sent = await sendTemplate(context.channel, context.to, template, parameters, text);
+    if (!sent.ok) throw new Error(`WhatsApp did not accept it — ${sent.error}`);
+
+    await ctx.runMutation(internal.marketing.recordTest, {
+      workspaceId: context.workspaceId,
+      to: context.to,
+      category: template.category ?? "marketing",
+      text,
+      templateName: template.metaTemplateName,
+      contactId: context.contactId ?? undefined,
+      agentId: context.agentId ?? undefined,
+      channelId: context.channelId ?? undefined,
+      entryAgentId: context.entryAgentId ?? undefined,
+    });
+    return { to: context.to, text };
   },
 });

@@ -18,6 +18,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { useHourBucket } from "@/components/use-now";
 import { SelectField } from "@/components/select-field";
 import { TableSkeleton } from "@/components/skeletons";
+import { TestSendButton } from "@/components/marketing/test-send";
 import {
   HOURS,
   STATUS_VARIANT,
@@ -820,6 +821,16 @@ export function TouchDialog({
               {busy === "remove" ? <Spinner /> : <TrashIcon />} Skip this one
             </Button>
             <div className="flex flex-wrap gap-2">
+              <TestSendButton
+                eventId={touch._id}
+                disabledReason={
+                  changed
+                    ? "Save the change first — the test sends what is saved."
+                    : template
+                      ? templateBlocker(template)
+                      : "The event has no template yet."
+                }
+              />
               {touch.templateId ? (
                 <Button
                   variant="outline"

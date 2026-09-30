@@ -336,7 +336,8 @@ the candidates.
 `delete_marketing_template`, `list_marketing_events`, `save_marketing_event`,
 `set_event_reminder_message`, `rewrite_event_reminders`,
 `delete_marketing_event`, `list_marketing_calendar`, `schedule_greeting`,
-`send_calendar_entry_now`, `delete_calendar_entry`, `update_birthday_wishes`,
+`send_calendar_entry_now`, `send_marketing_test`, `delete_calendar_entry`,
+`update_birthday_wishes`,
 `add_marketing_contacts`, `export_contacts`
 
 **Platform administration** (admin sign-in only) — `create_workspace`,
@@ -388,7 +389,7 @@ dashboard gives.
   desk writes each one's line at once; `list_marketing_events` shows them, and
   each reminder's `entryId` works with `send_calendar_entry_now` and
   `delete_calendar_entry`. Sends go to every WhatsApp contact and are real,
-  billed messages. `add_marketing_contacts` wants `consent: true`; to import a
+  billed messages — `send_marketing_test` sends one to a single number first. `add_marketing_contacts` wants `consent: true`; to import a
   CSV, read it and pass its rows.
 - **`issue_workspace_password`** returns the password once and keeps only the
   hash. There is no way to read it back, only to issue a new one — which also

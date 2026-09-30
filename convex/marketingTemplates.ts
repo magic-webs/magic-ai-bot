@@ -60,7 +60,7 @@ export const apply = action({
     if (problems.length > 0) throw new Error(problems[0]);
 
     const text = metaBody(template.body);
-    const samples = exampleValues(template.body, business);
+    const samples = exampleValues(template.body, business, template.occasion);
     const body: Json = {
       type: "BODY",
       text,

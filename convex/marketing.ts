@@ -29,6 +29,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
 import { charge } from "./lib/charge";
+import { normalisePhone } from "./lib/notifications";
 import { templateBlock } from "./lib/wallet";
 import { ensureMarketingDesk } from "./agents";
 import {
@@ -730,6 +731,13 @@ type SendContext = {
   /** For the event's date as the customer reads it. */
   locale: string;
   agentId: Id<"agents"> | null;
+  /**
+   * The sending number, and the agent it points at: the conversation key an
+   * inbound reply is filed under, so a message written there is the thread
+   * the customer's answer lands in.
+   */
+  channelId: Id<"channels"> | null;
+  entryAgentId: Id<"agents"> | null;
   template: Doc<"marketingTemplates"> | null;
   channel: {
     apiBaseUrl: string;
@@ -763,6 +771,8 @@ async function sendContext(
     workspaceName: workspace.name,
     locale: workspace.locale,
     agentId: desk?._id ?? null,
+    channelId: channel?._id ?? null,
+    entryAgentId: channel?.agentId ?? null,
     template: own,
     // Read per page, so a campaign that drains the wallet stops at the page
     // it ran out on rather than sending the rest on credit.
@@ -860,9 +870,90 @@ export const audiencePage = internalQuery({
 });
 
 /**
+ * The thread a marketing message to this contact is written into: the one
+ * their reply would land in — keyed on the agent the sending number points
+ * at, as the inbound webhook keys it — found, or opened here.
+ *
+ * One opened here is `marketingOnly` until they answer: a message sent, not a
+ * conversation had, which the follow-up desk and the dashboard leave alone.
+ */
+async function marketingThread(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    contactId: Id<"contacts">;
+    entryAgentId?: Id<"agents">;
+    channelId?: Id<"channels">;
+    now: number;
+  }
+): Promise<Doc<"conversations"> | null> {
+  if (!args.entryAgentId) {
+    // No sending number to key on — only a send that started before its
+    // channel was removed. The contact's latest thread, as it always was.
+    const threads = await ctx.db
+      .query("conversations")
+      .withIndex("by_contact_agent", (q) => q.eq("contactId", args.contactId))
+      .take(20);
+    return threads.reduce<Doc<"conversations"> | null>(
+      (best, row) => (!best || row.lastMessageAt > best.lastMessageAt ? row : best),
+      null
+    );
+  }
+
+  const entryAgentId = args.entryAgentId;
+  const existing = await ctx.db
+    .query("conversations")
+    .withIndex("by_contact_agent", (q) =>
+      q.eq("contactId", args.contactId).eq("agentId", entryAgentId)
+    )
+    .unique();
+  if (existing) return existing;
+
+  const conversationId = await ctx.db.insert("conversations", {
+    workspaceId: args.workspaceId,
+    agentId: entryAgentId,
+    activeAgentId: entryAgentId,
+    handoffCount: 0,
+    contactId: args.contactId,
+    channelId: args.channelId,
+    channelType: "whatsapp",
+    status: "open",
+    messageCount: 0,
+    lastMessageAt: args.now,
+    marketingOnly: true,
+    createdAt: args.now,
+  });
+  return await ctx.db.get("conversations", conversationId);
+}
+
+/** Writes one delivered marketing message into a thread, as the desk's. */
+async function writeMarketingMessage(
+  ctx: MutationCtx,
+  thread: Doc<"conversations">,
+  args: { text: string; agentId?: Id<"agents">; now: number }
+) {
+  await ctx.db.insert("messages", {
+    workspaceId: thread.workspaceId,
+    conversationId: thread._id,
+    role: "assistant",
+    kind: "text",
+    text: args.text,
+    agentId: args.agentId,
+    createdAt: args.now,
+  });
+  await ctx.db.patch("conversations", thread._id, {
+    messageCount: thread.messageCount + 1,
+    lastMessageAt: args.now,
+    lastMessagePreview: args.text.slice(0, 140),
+    lastMessageRole: "assistant",
+  });
+}
+
+/**
  * Logs a batch of sends and puts each delivered greeting in the contact's
- * thread, so the Chats screen shows what they were sent and the agent sees it
- * in history when they reply to it.
+ * conversation — opening one for somebody who has never written — so the
+ * inbox shows what they were sent and the agent reads it in history when they
+ * reply.
  */
 export const recordBatch = internalMutation({
   args: {
@@ -870,6 +961,9 @@ export const recordBatch = internalMutation({
     eventId: v.optional(v.id("marketingEvents")),
     key: v.string(),
     agentId: v.optional(v.id("agents")),
+    /** The sending number and the agent it points at: the thread's key. */
+    channelId: v.optional(v.id("channels")),
+    entryAgentId: v.optional(v.id("agents")),
     /** What each delivered send is billed as. */
     category: v.optional(templateCategory),
     templateName: v.optional(v.string()),
@@ -911,17 +1005,13 @@ export const recordBatch = internalMutation({
       }
       sent++;
 
-      // A contact can have one conversation per agent; the latest one is the
-      // thread a person means. Someone with no thread yet has nothing to
-      // write into, and the send log is the record.
-      const threads = await ctx.db
-        .query("conversations")
-        .withIndex("by_contact_agent", (q) => q.eq("contactId", result.contactId))
-        .take(20);
-      const thread = threads.reduce<Doc<"conversations"> | null>(
-        (best, row) => (!best || row.lastMessageAt > best.lastMessageAt ? row : best),
-        null
-      );
+      const thread = await marketingThread(ctx, {
+        workspaceId: args.workspaceId,
+        contactId: result.contactId,
+        entryAgentId: args.entryAgentId,
+        channelId: args.channelId,
+        now,
+      });
 
       // Charged whether or not there is a thread to write it into: the
       // customer received a template either way, and that is what is billed.
@@ -937,21 +1027,10 @@ export const recordBatch = internalMutation({
         });
       }
       if (!thread) continue;
-
-      await ctx.db.insert("messages", {
-        workspaceId: args.workspaceId,
-        conversationId: thread._id,
-        role: "assistant",
-        kind: "text",
+      await writeMarketingMessage(ctx, thread, {
         text: result.text,
         agentId: args.agentId,
-        createdAt: now,
-      });
-      await ctx.db.patch("conversations", thread._id, {
-        messageCount: thread.messageCount + 1,
-        lastMessageAt: now,
-        lastMessagePreview: result.text.slice(0, 140),
-        lastMessageRole: "assistant",
+        now,
       });
     }
 
@@ -1004,6 +1083,117 @@ export const draftContext = internalMutation({
         tagline: workspace.tagline ?? null,
       },
     };
+  },
+});
+
+// ------------------------------------------------------------- test sends
+
+/**
+ * Everything a test send needs: a calendar entry (greeting or reminder) or a
+ * bare template, where it goes out from, and the number it goes to —
+ * normalised the way a contact's is, with the contact's own name when the
+ * number is one on file. Checks the caller may.
+ */
+export const testContext = internalQuery({
+  args: {
+    eventId: v.optional(v.id("marketingEvents")),
+    templateId: v.optional(v.id("marketingTemplates")),
+    to: v.string(),
+    countryCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const event = args.eventId ? await ctx.db.get("marketingEvents", args.eventId) : null;
+    if (args.eventId && !event) throw new Error("Calendar entry not found");
+    const templateId = event ? event.templateId : args.templateId;
+    if (!templateId) throw new Error("Pick a template first.");
+    const template = await ctx.db.get("marketingTemplates", templateId);
+    const workspaceId = event?.workspaceId ?? template?.workspaceId;
+    if (!workspaceId) throw new Error("Template not found");
+    await requireWorkspace(ctx, workspaceId);
+
+    const context = await sendContext(ctx, workspaceId, templateId);
+    if (!context) throw new Error("Workspace not found");
+    const campaign = event?.campaignId
+      ? await ctx.db.get("marketingCampaigns", event.campaignId)
+      : null;
+
+    const settings = await ctx.db
+      .query("notificationSettings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    const to = normalisePhone(
+      args.to,
+      args.countryCode?.trim() || settings?.defaultCountryCode || "91"
+    );
+    const contact = to
+      ? await ctx.db
+          .query("contacts")
+          .withIndex("by_workspace_external", (q) =>
+            q.eq("workspaceId", workspaceId).eq("externalId", to)
+          )
+          .unique()
+      : null;
+
+    return {
+      ...context,
+      workspaceId,
+      event,
+      campaign,
+      to,
+      contactId: contact?._id ?? null,
+      contactName: contact?.name ?? null,
+    };
+  },
+});
+
+/**
+ * Bills a test send, and puts it in the chat when the number is a contact's.
+ *
+ * It is a real template message, so it is charged like one — but it is not
+ * logged as a send of the entry, so the number still gets the real one when
+ * it goes out. A number nobody has on file gets no contact made for it: one
+ * would put the tester on every campaign's audience.
+ */
+export const recordTest = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    to: v.string(),
+    category: templateCategory,
+    text: v.string(),
+    templateName: v.optional(v.string()),
+    contactId: v.optional(v.id("contacts")),
+    agentId: v.optional(v.id("agents")),
+    channelId: v.optional(v.id("channels")),
+    entryAgentId: v.optional(v.id("agents")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const thread = args.contactId
+      ? await marketingThread(ctx, {
+          workspaceId: args.workspaceId,
+          contactId: args.contactId,
+          entryAgentId: args.entryAgentId,
+          channelId: args.channelId,
+          now,
+        })
+      : null;
+    await charge(ctx, {
+      workspaceId: args.workspaceId,
+      conversationId: thread?._id,
+      to: args.to,
+      category: args.category,
+      source: "campaign",
+      preview: `Test · ${args.text}`,
+      templateName: args.templateName,
+    });
+    if (thread) {
+      await writeMarketingMessage(ctx, thread, {
+        text: args.text,
+        agentId: args.agentId,
+        now,
+      });
+    }
+    return null;
   },
 });
 

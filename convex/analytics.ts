@@ -38,7 +38,7 @@ export const dashboard = query({
     const windowStart = todayStart - (days - 1) * DAY_MS;
     const previousStart = windowStart - days * DAY_MS;
 
-    const [conversations, orders, tools, messages] = await Promise.all([
+    const [allConversations, orders, tools, messages] = await Promise.all([
       ctx.db
         .query("conversations")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -56,6 +56,11 @@ export const dashboard = query({
         .order("desc")
         .take(MESSAGE_SCAN_CAP),
     ]);
+
+    // A thread the marketing desk opened, that the customer has not answered,
+    // is a message sent rather than a conversation had — counting them would
+    // turn one campaign into thousands of "conversations".
+    const conversations = allConversations.filter((row) => !row.marketingOnly);
 
     // --- daily series -----------------------------------------------------
     const buckets = new Map<
