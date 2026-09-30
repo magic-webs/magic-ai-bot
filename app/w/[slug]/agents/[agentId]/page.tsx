@@ -11,6 +11,7 @@ import { recordToolNames } from "@/convex/lib/records";
 import { INTEGRATIONS } from "@/convex/lib/integrations";
 import { APPS } from "@/convex/lib/apps";
 import { useWorkspace } from "@/components/workspace-provider";
+import { AgentAvatar, type AgentGender } from "@/components/agent-avatar";
 import {
   GoogleCalendarIcon,
   GoogleDriveIcon,
@@ -30,6 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Slider } from "@/components/ui/slider";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SelectField } from "@/components/select-field";
 import { useChatModelOptions } from "@/components/use-chat-models";
 import { useSession } from "@/components/use-session";
@@ -111,6 +113,8 @@ const TONE_AVOID_SUGGESTIONS = [
 type Draft = {
   name: string;
   botName: string;
+  /** Absent on an agent saved before the field existed, until one is picked. */
+  gender: AgentGender | undefined;
   role: string;
   routingDescription: string;
   acceptsHandoff: boolean;
@@ -197,6 +201,7 @@ export default function AgentConfigPage({
     setDraft({
       name: agent.name,
       botName: agent.botName,
+      gender: agent.gender,
       role: agent.role,
       routingDescription: agent.routingDescription ?? "",
       // Absent means "yes": every agent is a handoff target unless it has been
@@ -263,6 +268,7 @@ export default function AgentConfigPage({
         agentId: typedAgentId,
         name: draft.name,
         botName: draft.botName,
+        gender: draft.gender,
         role: draft.role,
         routingDescription: draft.routingDescription || undefined,
         acceptsHandoff: draft.acceptsHandoff,
@@ -481,6 +487,37 @@ export default function AgentConfigPage({
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                {/* The face beside the choice, so a change shows as it is
+                    made rather than after a save and a trip to the roster. */}
+                <div className="flex items-center gap-4">
+                  <AgentAvatar
+                    name={draft.botName || draft.name}
+                    gender={draft.gender}
+                    greeter={isRouter}
+                    size={56}
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <Label id="f-gender">Gender</Label>
+                    <ToggleGroup
+                      aria-labelledby="f-gender"
+                      value={draft.gender ? [draft.gender] : []}
+                      onValueChange={(value) => {
+                        const next = value[0] as AgentGender | undefined;
+                        if (next) set("gender", next);
+                      }}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <ToggleGroupItem value="female">Female</ToggleGroupItem>
+                      <ToggleGroupItem value="male">Male</ToggleGroupItem>
+                    </ToggleGroup>
+                    <p className="text-xs text-muted-foreground">
+                      Sets the agent&apos;s face and the voice of its spoken
+                      replies.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="f-name">Internal name</Label>
