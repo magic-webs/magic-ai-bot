@@ -342,8 +342,69 @@ is only readable by internal functions.
 
 ### Billing
 
-Every WhatsApp message the platform sends is charged to its workspace at a
-per-message rate for its **conversation type** — Meta's four categories:
+A company pays for two things, kept apart because they are priced apart:
+
+| | What it is | How it is paid |
+| --- | --- | --- |
+| **Platform fee** | A monthly plan, plus any extra agents bought on top | Razorpay Subscriptions — card, UPI Autopay or e-mandate |
+| **Wallet** | Prepaid credit every WhatsApp message is drawn from | Top-ups through Razorpay Checkout, and auto-recharge from a saved mandate |
+
+Everything is in INR, with GST added on top at the rate the administrator
+sets (18% by default).
+
+#### Plans
+
+Administrators edit the catalogue on **/admin/plans**. Switching billing on
+seeds three plans — Starter at ₹4,999 a month, Growth and Scale — and every
+one of them includes the front desk, the follow-up desk and the marketing
+desk. What differs is how many **custom agents** (live specialists) and
+**human agents** (people with a login of their own) a plan includes.
+
+An **extra agent** is one more of either, from a single pool: an account on
+Starter with two extras can run three custom agents and one person, or one
+custom agent and three people. Its list price (₹2,499) is shown struck through
+beside its price (₹999); both are the administrator's to change, and so is a
+per-account discount off the plan and a per-account extra-agent price, set on
+**/admin/subscriptions**.
+
+Limits are enforced where a seat is taken: making an agent live
+(`agents.update` to `active`) and issuing a human agent's login
+(`authDb.upsertMemberCredential`). A draft or paused agent holds no seat.
+Administrators are let through, and an account they take over its limit
+shows as over on its Billing page.
+
+#### Subscriptions
+
+A Razorpay plan has a fixed amount, and prices here are not fixed — a
+discount, a number of extras — so `razorpay.startSubscription` makes a
+Razorpay plan per distinct price and remembers it (`razorpayPlans`). The
+subscription starts charging where the account is already paid up to: the end
+of its trial, or of the month it is leaving. Razorpay authorises a future
+start with ₹5 and refunds it.
+
+Razorpay can only edit a subscription authorised with a card, so a plan
+change is a new subscription rather than an edit: when it is authorised it
+becomes the account's, its limits apply at once, and the one it replaced is
+cancelled — its month was already paid, and the new one charges from where
+that month ends. Cancelling runs to the end of a paid month; a subscription
+that has not charged yet (one authorised during a trial) ends at once.
+
+The dashboard is open while a plan is active, during a trial, and through a
+grace period (3 days by default) after a failed renewal. Past that it
+**locks**: every page but Billing shows a renewal screen. Only the dashboard —
+agents keep answering customers. `convex/lib/plans.ts` holds the rule
+(`accessOf`), and React imports it so the banner and the lock agree with the
+server. Until an administrator switches billing on nothing is enforced at
+all, and switching it on starts every existing workspace's trial from that
+moment rather than from when the workspace was made.
+
+An administrator can also bill an account **by arrangement** — invoiced
+offline, or given away — which bypasses Razorpay, optionally up to a date.
+
+#### The wallet
+
+Every sent WhatsApp message is charged to its workspace at a per-message rate
+for its **conversation type** — Meta's four categories:
 
 | Category | What is billed as it |
 | --- | --- |
@@ -353,20 +414,56 @@ per-message rate for its **conversation type** — Meta's four categories:
 | Authentication | Templates approved as authentication |
 
 Rates are set by an administrator on **/admin/billing**: one platform default,
-plus an optional rate card per account in that account's own currency. Each
-sent message writes one `billingEvents` row with its amount fixed at send time
-(`convex/lib/billing.ts`, `charge`), so repricing an account changes the next
-message, never the ledger. Amounts are integer millionths of the currency, for
-the reason usage rows are nano-USD.
+plus an optional rate card per account. Each sent message writes one
+`billingEvents` row with its amount fixed at send time and takes the same
+amount off the wallet in the same transaction (`convex/lib/charge.ts`), so
+the balance and the ledger cannot disagree. Amounts are integer millionths
+of the currency, for the reason usage rows are nano-USD. Only a rate card in
+the wallet's currency (INR) is taken off the wallet; the billing pages warn
+when an account's rates are in anything else.
 
-A message is charged only after WhatsApp accepted it. Web chat messages are not
-billed. With no rate card anywhere a message is still recorded — at zero,
-marked unrated — so the count is right and the gap is visible.
+A **service** reply always goes out, even if it takes the balance below zero
+— a customer who wrote in is never left unanswered for want of credit.
+**Templates** are what the business starts, so a campaign or an alert whose
+template the balance cannot cover is held back, and its log says why
+(`templateBlock` in `convex/lib/wallet.ts`).
 
-Each workspace reads its own consumption at **/w/&lt;slug&gt;/billing**: spend by
-category, per day, and a per-message ledger. This is separate from
-`usageEvents` and the **Tokens & cost** page, which are what the platform pays
-the model provider.
+A top-up is its amount plus GST; the amount is what is credited. Below the
+account's low-balance line the dashboard warns, a push goes to the app once
+per dip, and — when auto-recharge is on — the saved mandate is charged
+(`razorpay.chargeMandate`). Setting that up is a ₹1 authorisation with UPI
+Autopay or a card, credited to the wallet, which leaves an "as presented"
+mandate capped at ₹15,000 a debit (above that every debit needs the
+customer's approval). **Auto-recharge is not instant**: the bank sends a
+pre-debit notice and takes the money 25–36 hours later, so the line should
+cover at least two days of spend.
+
+Each workspace reads all of this at **/w/&lt;slug&gt;/billing**: its plan and
+seats, its wallet and top-ups, and the per-message ledger. This is separate
+from `usageEvents` and the **Tokens & cost** page, which are what the
+platform pays the model provider.
+
+#### Razorpay setup
+
+```bash
+npx convex env set RAZORPAY_KEY_ID      rzp_live_...   # or rzp_test_... to try it out
+npx convex env set RAZORPAY_KEY_SECRET  <secret>
+npx convex env set RAZORPAY_WEBHOOK_SECRET <a secret you choose>
+```
+
+Then in the Razorpay dashboard, **Settings → Webhooks → Add**:
+
+```
+https://<deployment>.convex.site/razorpay/webhook
+```
+
+with the same secret, and these events: every `subscription.*`,
+`payment.captured`, `payment.failed`, `order.paid`, `token.confirmed`,
+`token.rejected`, `token.cancelled`, `token.paused`. Checkout's own callback
+settles a payment the moment it succeeds; renewals, failed retries and a UPI
+mandate the bank confirms later only ever arrive by webhook, so billing does
+not work without it. Subscriptions and recurring payments must be enabled on
+the Razorpay account. **/admin/plans** shows which of the three are set.
 
 ### Outbound webhooks
 
@@ -379,12 +476,17 @@ with a **Send test event** button.
 
 ## Authentication
 
-Two kinds of principal:
+Three kinds of principal:
 
 | Role | Username is | Can see |
 | --- | --- | --- |
 | **admin** | their email address | every workspace, and who has access to each |
 | **workspace** | the workspace ID | only its own workspace |
+| **member** | `<workspace-id>.<name>` | its workspace's whole dashboard — but not its password, other people's logins, MCP tokens or the subscription |
+
+A **member** is a human agent the company gave a login from its Team page.
+Each one takes a human-agent seat on the plan. What only the company itself
+may do is behind `requireOwner` rather than `requireWorkspace`.
 
 There is **one** sign-in form: username and password, no role picker. An email
 always contains `@` and a workspace ID never does, so `auth.login` resolves the
@@ -462,8 +564,15 @@ convex/
   ingest.ts           extract → chunk → embed
   workspaces.ts agents.ts knowledge.ts products.ts orders.ts
   channels.ts tools.ts conversations.ts webhooks.ts
+  plans.ts            the plan catalogue and billing terms (admin)
+  subscriptions.ts    an account's plan, seats and standing
+  wallet.ts           balance, top-ups, auto-recharge preferences
+  razorpay.ts         every call to Razorpay
+  razorpayEvents.ts   what Razorpay reports, applied (webhook + Checkout)
   lib/
-    auth.ts           requireAdmin / requireWorkspace / per-document guards
+    auth.ts           requireAdmin / requireWorkspace / requireOwner / per-document guards
+    plans.ts          pricing, GST, seats, dashboard access (pure)
+    charge.ts         one sent message → ledger row + wallet debit
     prompt.ts         configuration → system prompt (pure)
     shared.ts         builtin tool catalogue, slugs, masking (pure)
     toolSchema.ts     declarative parameters → JSON Schema, templating (pure)
