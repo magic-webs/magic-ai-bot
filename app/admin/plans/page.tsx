@@ -14,7 +14,6 @@ import {
   inr,
   rupeesOf,
 } from "@/components/billing/plan-bits";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +63,6 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   CheckIcon,
-  CopyIcon,
   EyeSlashIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -72,50 +70,11 @@ import {
   RobotIcon,
   TrashIcon,
   UserIcon,
-  WarningIcon,
 } from "@phosphor-icons/react";
 
 type Catalogue = FunctionReturnType<typeof api.plans.adminCatalogue>;
 type PlanRow = Catalogue["plans"][number];
 type Settings = Doc<"billingSettings">;
-
-// The webhook is served by the Convex deployment, not the Next app — the same
-// fallback the channels page uses when only the cloud URL is configured.
-const CONVEX_SITE =
-  process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??
-  process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site") ??
-  "";
-
-/**
- * What convex/razorpayEvents.ts acts on. Razorpay's webhook form is a list of
- * checkboxes, so they are spelled out one by one rather than as
- * `subscription.*`, which is not something that form accepts.
- */
-const WEBHOOK_EVENTS = [
-  "subscription.authenticated",
-  "subscription.activated",
-  "subscription.charged",
-  "subscription.pending",
-  "subscription.halted",
-  "subscription.cancelled",
-  "subscription.completed",
-  "subscription.paused",
-  "subscription.resumed",
-  "subscription.updated",
-  "payment.captured",
-  "payment.failed",
-  "order.paid",
-  "token.confirmed",
-  "token.rejected",
-  "token.cancelled",
-  "token.paused",
-];
-
-const ENV_VARS = [
-  "RAZORPAY_KEY_ID",
-  "RAZORPAY_KEY_SECRET",
-  "RAZORPAY_WEBHOOK_SECRET",
-];
 
 function fail(title: string, error: unknown) {
   toast.add({
@@ -123,19 +82,6 @@ function fail(title: string, error: unknown) {
     description: error instanceof Error ? error.message : String(error),
     type: "error",
   });
-}
-
-async function copy(text: string, what: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.add({ title: `${what} copied`, type: "success" });
-  } catch {
-    toast.add({
-      title: "Copy failed",
-      description: "Select the text and copy it manually.",
-      type: "error",
-    });
-  }
 }
 
 /** A typed number, or NaN for an empty box — `Number("")` is 0, not blank. */
@@ -259,131 +205,6 @@ function EnableBilling() {
         </Button>
       </EmptyContent>
     </Empty>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Payments — whether Razorpay can take money, and how to wire it
-// ---------------------------------------------------------------------------
-
-function Status({
-  label,
-  ok,
-  children,
-}: {
-  label: string;
-  ok: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <Badge
-        variant="secondary"
-        className={
-          ok
-            ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600/20 ring-inset dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/25"
-            : "bg-destructive/10 text-destructive"
-        }
-      >
-        {children}
-      </Badge>
-    </div>
-  );
-}
-
-function PaymentsCard({ razorpay }: { razorpay: Catalogue["razorpay"] }) {
-  const webhookUrl = `${CONVEX_SITE || "https://<deployment>.convex.site"}/razorpay/webhook`;
-
-  return (
-    <Card className="lg:col-span-2">
-      <CardHeader>
-        <CardTitle>Payments</CardTitle>
-        <CardDescription>
-          Razorpay collects the monthly fee by autopay and takes wallet
-          top-ups.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <Status label="API keys" ok={razorpay.mode !== null}>
-            {razorpay.mode === "live"
-              ? "Live"
-              : razorpay.mode === "test"
-                ? "Test mode"
-                : "Not set"}
-          </Status>
-          <Status label="Webhook secret" ok={razorpay.webhookSecret}>
-            {razorpay.webhookSecret ? "Set" : "Not set"}
-          </Status>
-        </div>
-
-        {razorpay.mode === null ? (
-          <Alert variant="destructive">
-            <WarningIcon />
-            <AlertTitle>Nobody can pay yet</AlertTitle>
-            <AlertDescription>
-              Trials still run out while the keys are missing, and a company
-              whose trial has ended has no way to pay. Set them before the
-              first trial ends.
-            </AlertDescription>
-          </Alert>
-        ) : razorpay.mode === "test" ? (
-          <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            Test keys take no real money. Swap in the{" "}
-            <code className="font-mono">rzp_live_</code> pair to start
-            charging.
-          </p>
-        ) : null}
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="webhook-url">Webhook URL</Label>
-          <div className="flex gap-1.5">
-            <Input
-              id="webhook-url"
-              readOnly
-              value={webhookUrl}
-              className="font-mono text-xs"
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <Button
-              size="icon"
-              variant="outline"
-              aria-label="Copy the webhook URL"
-              onClick={() => void copy(webhookUrl, "Webhook URL")}
-            >
-              <CopyIcon />
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Paste it into Razorpay → Settings → Webhooks, with the same secret
-            as <code className="font-mono">RAZORPAY_WEBHOOK_SECRET</code>, and
-            tick these events:
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {WEBHOOK_EVENTS.map((event) => (
-              <code
-                key={event}
-                className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]"
-              >
-                {event}
-              </code>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">Keys</span>
-          <p className="text-xs text-muted-foreground">
-            From Razorpay → Account &amp; Settings → API keys, set on the
-            Convex deployment rather than here, so they never reach a browser:
-          </p>
-          <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-[11px] leading-relaxed">
-            {ENV_VARS.map((name) => `npx convex env set ${name} …`).join("\n")}
-          </pre>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1154,8 +975,7 @@ export default function AdminPlansPage() {
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             The monthly fee each company pays to use the platform — its plans,
-            the price of an extra agent, GST and the free trial — and whether
-            Razorpay is ready to collect it.
+            the price of an extra agent, GST and the free trial.
           </p>
         </div>
       </header>
@@ -1168,23 +988,20 @@ export default function AdminPlansPage() {
         <EnableBilling />
       ) : (
         <>
-          <div className="grid shrink-0 gap-3 lg:grid-cols-5">
-            <Card className="lg:col-span-3">
-              <CardHeader>
-                <CardTitle>Terms</CardTitle>
-                <CardDescription>
-                  What every plan is sold on. Billing was switched on{" "}
-                  {formatDay(settings.launchedAt)}.
-                </CardDescription>
-              </CardHeader>
-              <TermsForm
-                key={settings.updatedAt}
-                settings={settings}
-                plans={plans}
-              />
-            </Card>
-            <PaymentsCard razorpay={data.razorpay} />
-          </div>
+          <Card className="shrink-0">
+            <CardHeader>
+              <CardTitle>Terms</CardTitle>
+              <CardDescription>
+                What every plan is sold on. Billing was switched on{" "}
+                {formatDay(settings.launchedAt)}.
+              </CardDescription>
+            </CardHeader>
+            <TermsForm
+              key={settings.updatedAt}
+              settings={settings}
+              plans={plans}
+            />
+          </Card>
 
           <section className="flex shrink-0 flex-col gap-3">
             <div className="flex flex-wrap items-end justify-between gap-3">

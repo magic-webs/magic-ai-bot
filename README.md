@@ -463,7 +463,7 @@ with the same secret, and these events: every `subscription.*`,
 settles a payment the moment it succeeds; renewals, failed retries and a UPI
 mandate the bank confirms later only ever arrive by webhook, so billing does
 not work without it. Subscriptions and recurring payments must be enabled on
-the Razorpay account. **/admin/plans** shows which of the three are set.
+the Razorpay account.
 
 ### Outbound webhooks
 

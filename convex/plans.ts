@@ -12,7 +12,6 @@ import { requireAdmin, requireWorkspace } from "./lib/auth";
 import { allPlans, billingSettings } from "./lib/account";
 import { toMicros } from "./lib/billing";
 import { DEFAULT_PLANS, DEFAULT_SETTINGS } from "./lib/plans";
-import { razorpayConfig } from "./lib/razorpay";
 import { slugify } from "./lib/shared";
 
 /** A price above this is a slipped digit, not a monthly fee. */
@@ -50,15 +49,9 @@ export const adminCatalogue = query({
       counts.set(account.planId, (counts.get(account.planId) ?? 0) + 1);
     }
 
-    // Which keys the deployment holds — never the keys themselves.
-    const keyId = razorpayConfig()?.keyId ?? null;
     return {
       settings,
       plans: plans.map((plan) => ({ ...plan, accounts: counts.get(plan._id) ?? 0 })),
-      razorpay: {
-        mode: keyId ? (keyId.startsWith("rzp_live_") ? "live" : "test") : null,
-        webhookSecret: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim()),
-      },
     };
   },
 });
