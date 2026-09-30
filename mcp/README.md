@@ -330,6 +330,15 @@ the candidates.
 `delete_notification_alert`, `rotate_alert_url`, `capture_alert_sample`,
 `test_notification_alert`, `send_notification`, `list_notification_activity`
 
+**Marketing** — `get_marketing_overview`, `list_marketing_templates`,
+`draft_marketing_template`, `save_marketing_template`,
+`apply_marketing_template`, `check_marketing_template_status`,
+`delete_marketing_template`, `list_marketing_events`, `save_marketing_event`,
+`set_event_reminder_message`, `rewrite_event_reminders`,
+`delete_marketing_event`, `list_marketing_calendar`, `schedule_greeting`,
+`send_calendar_entry_now`, `delete_calendar_entry`, `update_birthday_wishes`,
+`add_marketing_contacts`, `export_contacts`
+
 **Platform administration** (admin sign-in only) — `create_workspace`,
 `issue_workspace_password`, `set_workspace_access`, `set_workspace_status`,
 `delete_workspace`, `workspace_access_report`, `platform_usage`
@@ -370,6 +379,17 @@ dashboard gives.
   `inbound` alert returns its own URL for another system to POST to.
   `test_notification_alert` sends a saved alert once to one number; WhatsApp
   tests and `send_notification` are real, billed messages.
+- **Marketing sends only approved templates.** `save_marketing_template`
+  saves; `apply_marketing_template` submits it to Meta through the channel's
+  panel (it needs the channel's WABA ID), and `check_marketing_template_status`
+  — or the half-hourly sweep — records the decision. Only `canSend: true`
+  templates deliver; one edited after approval stops until the edit is applied
+  too. `save_marketing_event` lays an event's reminders on the calendar and the
+  desk writes each one's line at once; `list_marketing_events` shows them, and
+  each reminder's `entryId` works with `send_calendar_entry_now` and
+  `delete_calendar_entry`. Sends go to every WhatsApp contact and are real,
+  billed messages. `add_marketing_contacts` wants `consent: true`; to import a
+  CSV, read it and pass its rows.
 - **`issue_workspace_password`** returns the password once and keeps only the
   hash. There is no way to read it back, only to issue a new one — which also
   drops that company's live sessions.
@@ -410,6 +430,9 @@ deciding whether to call it — that text is the whole interface.
 A whole new group is a new file in `src/tools/` exporting `register(server)`,
 added to `src/tools/index.mjs`. Nothing else needs to know about it.
 
-One duplication to know about: `BUILTIN_TOOL_KEYS` in `src/args.mjs` mirrors
-`BUILTIN_TOOLS` in `convex/lib/shared.ts`, because a `.mjs` file cannot import
-the TypeScript source. Add a builtin tool in both places.
+Duplications to know about, all because a `.mjs` file cannot import the
+TypeScript source: `BUILTIN_TOOL_KEYS` in `src/args.mjs` mirrors
+`BUILTIN_TOOLS` in `convex/lib/shared.ts`, so add a builtin tool in both
+places. In `src/tools/marketing.mjs`, `REMINDERS` mirrors `EVENT_TOUCHES` and
+`canSend` mirrors `templateBlocker`, both in `convex/lib/marketing.ts`, and the
+CSV writer mirrors `lib/contact-csv.ts`.

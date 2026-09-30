@@ -113,6 +113,28 @@ export async function findLeadStage(workspaceId, wanted) {
   return { stage, stages };
 }
 
+/** A marketing template by name, Meta name or id. */
+export async function findMarketingTemplate(workspaceId, wanted) {
+  const overview = await call.query(api.marketing.overview, { workspaceId });
+  const templates = overview?.templates ?? [];
+  if (templates.some((t) => t._id === wanted)) {
+    return templates.find((t) => t._id === wanted);
+  }
+  return pickByName(templates, wanted, "marketing template", [
+    "name",
+    "metaTemplateName",
+  ]);
+}
+
+/** A marketing event (the business's own, with reminders) by title or id. */
+export async function findMarketingEvent(workspaceId, wanted) {
+  const events = await call.query(api.marketingCampaigns.list, { workspaceId });
+  if (events.some((e) => e._id === wanted)) {
+    return events.find((e) => e._id === wanted);
+  }
+  return pickByName(events, wanted, "marketing event", ["title"]);
+}
+
 export async function findCustomTool(workspaceId, wanted) {
   const tools = await call.query(api.tools.listByWorkspace, { workspaceId });
   if (tools.some((t) => t._id === wanted)) {
