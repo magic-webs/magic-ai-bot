@@ -3,6 +3,13 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { interpretEvent } from "./lib/apps";
 import { verifyDelivery } from "./lib/appWebhooks";
+import {
+  paymentFields,
+  subscriptionFields,
+  webhookSignatureValid,
+  type RazorpayPayment,
+  type RazorpaySubscription,
+} from "./lib/razorpay";
 
 const http = httpRouter();
 
@@ -442,6 +449,85 @@ http.route({
       status: result.status,
       headers: { "Content-Type": "application/json" },
     });
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// Razorpay's webhook: subscriptions renewing and failing, payments settling,
+// mandates confirming.
+//
+//   https://<deployment>.convex.site/razorpay/webhook
+//
+// Set in the Razorpay dashboard (Settings -> Webhooks) with the secret that
+// is RAZORPAY_WEBHOOK_SECRET here, and these events: subscription.*,
+// payment.captured, payment.failed, order.paid, token.confirmed,
+// token.rejected, token.cancelled, token.paused.
+//
+// The signature is checked over the raw body before anything is parsed. The
+// payload is narrowed to the few fields billing reads and applied in one
+// mutation (convex/razorpayEvents.ts), deduplicated on the event id, so a
+// retry or a late duplicate changes nothing.
+// ---------------------------------------------------------------------------
+
+type Entity<T> = { entity?: T } | undefined;
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+http.route({
+  path: "/razorpay/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
+    if (!secret) return new Response("Webhook secret not configured", { status: 503 });
+
+    const raw = await request.text();
+    const signature = request.headers.get("x-razorpay-signature") ?? "";
+    if (!signature || !(await webhookSignatureValid(secret, raw, signature))) {
+      return new Response("Invalid signature", { status: 400 });
+    }
+
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = asObject(JSON.parse(raw));
+    } catch {
+      body = null;
+    }
+    const event = typeof body?.event === "string" ? body.event : null;
+    if (!body || !event) return new Response("Bad payload", { status: 400 });
+
+    const payload = asObject(body.payload) ?? {};
+    const subscription = (payload.subscription as Entity<RazorpaySubscription>)?.entity;
+    const payment = (payload.payment as Entity<RazorpayPayment>)?.entity;
+    const token = asObject((payload.token as Entity<unknown>)?.entity);
+    const recurring = asObject(token?.recurring_details);
+
+    await ctx.runMutation(internal.razorpayEvents.apply, {
+      eventId: request.headers.get("x-razorpay-event-id") ?? "",
+      event,
+      subscription:
+        subscription && typeof subscription.id === "string"
+          ? subscriptionFields(subscription)
+          : undefined,
+      payment:
+        payment && typeof payment.id === "string" && typeof payment.amount === "number"
+          ? paymentFields(payment)
+          : undefined,
+      token:
+        token && typeof token.id === "string"
+          ? {
+              tokenId: token.id,
+              status:
+                typeof recurring?.status === "string" ? recurring.status : undefined,
+              failureReason:
+                typeof recurring?.failure_reason === "string"
+                  ? recurring.failure_reason
+                  : undefined,
+            }
+          : undefined,
+    });
+    return new Response("ok", { status: 200 });
   }),
 });
 

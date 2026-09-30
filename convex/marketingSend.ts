@@ -122,13 +122,14 @@ async function sendPage(
 function blocker(context: {
   template: Doc<"marketingTemplates"> | null;
   channel: Channel | null;
+  walletBlock: string | null;
 }): string | null {
   if (!context.template) return "The template was removed.";
   if (!context.template.metaTemplateName) {
     return `"${context.template.name}" is not linked to an approved Meta template yet.`;
   }
   if (!context.channel) return "There is no active WhatsApp channel to send from.";
-  return null;
+  return context.walletBlock;
 }
 
 export const runEvent = internalAction({

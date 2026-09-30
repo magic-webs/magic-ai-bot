@@ -28,7 +28,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
 import { requireWorkspace } from "./lib/auth";
-import { charge } from "./lib/billing";
+import { charge } from "./lib/charge";
+import { templateBlocks } from "./lib/wallet";
 import { randomKey } from "./lib/shared";
 import {
   NOTIFICATION_EVENTS,
@@ -727,6 +728,8 @@ type SendContext = {
     string,
     { _id: Id<"emailTemplates">; name: string; subject: string; body: string; format: "text" | "html" }
   >;
+  /** Per template category, why the wallet cannot pay for one now. */
+  walletBlocks: Record<"utility" | "marketing" | "authentication", string | null>;
 };
 
 /**
@@ -788,6 +791,7 @@ async function sendContextFor(
   }
 
   return {
+    walletBlocks: await templateBlocks(ctx, workspace._id),
     workspace: {
       _id: workspace._id,
       name: workspace.name,

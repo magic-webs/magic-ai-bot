@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -28,16 +29,18 @@ import {
   MagnifyingGlassIcon,
   SignOutIcon,
   SirenIcon,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 
 /**
- * The escalations desk — the whole of what a human agent's own login opens.
+ * The escalations desk — a human agent's focused view of the inbox. Their
+ * login opens the whole workspace too; this is the page for somebody whose
+ * job is answering the threads handed to a person.
  *
  * The inbox's Escalations tab, on its own page: the same list rows, the same
- * transcript and the same reply box (components/conversation-detail.tsx), for
- * somebody who answers the threads the agents hand to a person and has no
- * business with the rest of the dashboard. Replies go out under their name,
- * and Resolve hands the thread back to the agent and off the desk.
+ * transcript and the same reply box (components/conversation-detail.tsx),
+ * without the rest of the dashboard around it. Replies go out under their
+ * name, and Resolve hands the thread back to the agent and off the desk.
  */
 
 const BUCKETS = [
@@ -109,6 +112,16 @@ export default function DeskPage() {
               {me.member.role}
             </p>
           </div>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Open the dashboard"
+            title="Open the dashboard"
+            nativeButton={false}
+            render={<Link href={`/w/${me.workspace.slug}`} />}
+          >
+            <SquaresFourIcon />
+          </Button>
           <Button
             size="icon-sm"
             variant="ghost"

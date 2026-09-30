@@ -546,10 +546,9 @@ export const issueMcpToken = action({
     ctx,
     args
   ): Promise<{ token: string; prefix: string; slug: string }> => {
-    // The workspace's own guard: a company may issue its own connector, and an
-    // admin may issue one for any workspace. Same rule as the rest of the
-    // dashboard rather than a special case.
-    await ctx.runQuery(internal.authDb.assertWorkspace, {
+    // A company may issue its own connector, and an admin may issue one for
+    // any workspace. Not a human agent: the token would outlive their login.
+    await ctx.runQuery(internal.authDb.assertOwner, {
       workspaceId: args.workspaceId,
     });
 
@@ -577,7 +576,7 @@ export const issueMcpToken = action({
 export const revokeMcpToken = action({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args): Promise<{ removed: boolean }> => {
-    await ctx.runQuery(internal.authDb.assertWorkspace, {
+    await ctx.runQuery(internal.authDb.assertOwner, {
       workspaceId: args.workspaceId,
     });
     return await ctx.runMutation(internal.authDb.clearMcpToken, {

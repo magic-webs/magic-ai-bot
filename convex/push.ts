@@ -148,6 +148,28 @@ function present(event: string, data: unknown): Presentation {
     };
   }
 
+  // Billing: the wallet running low, a recharge or a plan payment failing.
+  // Quiet unless money has actually failed to move.
+  if (
+    event === "wallet_low" ||
+    event === "wallet_recharge_failed" ||
+    event === "subscription_payment_failed"
+  ) {
+    const failed = event !== "wallet_low";
+    return {
+      title:
+        event === "wallet_low"
+          ? "Wallet balance is low"
+          : event === "wallet_recharge_failed"
+            ? "Auto-recharge failed"
+            : "Plan payment failed",
+      body: text("message") ?? "Open Billing for the details.",
+      channelId: CHANNELS.default,
+      sound: "default",
+      priority: failed ? "high" : "default",
+    };
+  }
+
   // Anything else still arrives rather than being silently dropped, so a new
   // event type is visible before it has been given its own copy.
   return {

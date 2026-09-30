@@ -98,7 +98,7 @@ type Member = Doc<"teamMembers"> & {
   lastMessage: LastMessage;
 };
 
-/** A human agent's own sign-in to the escalations desk, as the page sees it. */
+/** A human agent's own sign-in to the dashboard, as the page sees it. */
 type DeskLogin = {
   memberId: Id<"teamMembers">;
   username: string;
@@ -523,8 +523,8 @@ function MemberDialog({
           </DialogTitle>
           <DialogDescription>
             Who they are and what they do. Used on the roster, and to sign a
-            reply you send by hand from the inbox. Give them a desk login from
-            their card to let them answer escalations themselves.
+            reply you send by hand from the inbox. Give them a login from their
+            card to let them use the dashboard as themselves.
           </DialogDescription>
         </DialogHeader>
 
@@ -623,7 +623,7 @@ function MemberDialog({
             />
             <p className="text-xs text-muted-foreground">
               Inactive takes them off the list you can send a reply as, and
-              stops their desk login working.
+              stops their login working.
             </p>
           </div>
         </div>
@@ -656,7 +656,7 @@ async function copy(value: string, what: string) {
 }
 
 /**
- * The shown-once handoff of a desk login. Mirrors the workspace password
+ * The shown-once handoff of a human agent's login. Mirrors the workspace password
  * dialog in components/workspace-access.tsx: the password exists only in
  * memory here, and a lost one is reset rather than recovered.
  */
@@ -674,7 +674,7 @@ function IssuedLoginDialog({
     <Dialog open={Boolean(issued)} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Desk login for {issued?.name}</DialogTitle>
+          <DialogTitle>Login for {issued?.name}</DialogTitle>
           <DialogDescription>
             Copy these now — the password is stored hashed and cannot be shown
             again. Reset it from their card if it is lost.
@@ -721,11 +721,13 @@ function IssuedLoginDialog({
 
             <Alert>
               <WarningIcon />
-              <AlertTitle>It opens the escalations desk, and only that</AlertTitle>
+              <AlertTitle>It opens the whole dashboard</AlertTitle>
               <AlertDescription>
-                {issued.name} will see the conversations your agents escalate to
-                a person, and can reply to them and resolve them — signed with
-                their own name. Nothing else in the dashboard.
+                {issued.name} can use everything in this workspace — the inbox,
+                agents, leads, marketing — and replies they send are signed with
+                their own name. They cannot change the workspace password,
+                issue logins, or change the plan. Each login takes a human-agent
+                seat on your plan.
               </AlertDescription>
             </Alert>
           </div>
@@ -802,7 +804,7 @@ function MemberMenu({
               UI's Menu.GroupLabel and reads MenuGroupContext. */}
           <DropdownMenuGroup>
             <DropdownMenuLabel className="flex flex-col gap-0.5">
-              <span>Escalations desk</span>
+              <span>Dashboard login</span>
               <span className="truncate font-mono text-[11px] font-normal">
                 {login ? login.username : "No login yet"}
               </span>
@@ -858,7 +860,7 @@ function MemberMenu({
             <AlertDialogDescription>
               {confirmingLogin === "reset"
                 ? "The current password stops working and they are signed out everywhere. The new one is shown once; the username stays the same."
-                : "They are signed out of the escalations desk straight away and cannot sign in again until you generate a new login."}
+                : "They are signed out straight away and cannot sign in again until you generate a new login. It frees their human-agent seat on your plan."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -890,7 +892,7 @@ function MemberMenu({
             <AlertDialogTitle>Remove {member.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               They come off the roster and off the list you can reply as, and
-              their desk login stops working. The replies they already sent
+              their login stops working. The replies they already sent
               stay in their threads exactly as the customer saw them.
             </AlertDialogDescription>
           </AlertDialogHeader>

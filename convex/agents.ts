@@ -24,6 +24,7 @@ import {
   isCatalogueIntegration,
 } from "./lib/integrations";
 import { APP_TOOL_NAMES, findApp } from "./lib/apps";
+import { assertSeat } from "./lib/account";
 import { ensureOrdersBook } from "./lib/ordersBook";
 import { compileSystemPrompt, type TeammateShape } from "./lib/prompt";
 import { enabledToolNames } from "./lib/records";
@@ -671,6 +672,14 @@ export const update = mutation({
         (name) =>
           INTEGRATION_TOOL_NAMES.includes(name) || APP_TOOL_NAMES.includes(name)
       );
+    }
+
+    // Going live takes a custom-agent seat on the plan. The desks are part of
+    // every plan, and a draft or paused agent holds no seat.
+    const isSpecialist =
+      existing.kind === "specialist" || existing.kind === undefined;
+    if (isSpecialist && patch.status === "active" && existing.status !== "active") {
+      await assertSeat(ctx, existing.workspaceId, "ai");
     }
 
     if (existing.kind === "router") {

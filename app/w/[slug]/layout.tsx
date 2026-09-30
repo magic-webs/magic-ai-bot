@@ -11,6 +11,7 @@ import { WorkspaceTheme } from "@/components/workspace-theme";
 import { useSession } from "@/components/use-session";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { SidebarUser } from "@/components/sidebar-user";
+import { PlanGate } from "@/components/billing/plan-gate";
 import {
   Sidebar,
   SidebarContent,
@@ -483,7 +484,12 @@ export default function WorkspaceLayout({
           <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
             <SidebarTrigger />
           </header>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* The plan's banner above the page, or the lock in its place. */}
+            <PlanGate workspaceId={workspace._id} base={base}>
+              {children}
+            </PlanGate>
+          </div>
         </SidebarInset>
       </SidebarProvider>
     </WorkspaceProvider>

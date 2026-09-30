@@ -107,8 +107,8 @@ export default defineSchema({
   // Identity. Three kinds of principal:
   //   admin     — platform operator, sees every workspace
   //   workspace — the company, sees only its own workspace
-  //   member    — one human agent, sees only that workspace's escalated
-  //               threads (the escalations desk)
+  //   member    — one human agent, sees that workspace's whole dashboard, but
+  //               not its password, its logins or its subscription
   //
   // Passwords are PBKDF2-SHA256 (see convex/auth.ts). Sessions are opaque
   // tokens held in an httpOnly cookie and exchanged for short-lived JWTs that
@@ -814,16 +814,18 @@ export default defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   // -------------------------------------------------------------------------
-  // A human agent's own login, for the escalations desk.
+  // A human agent's own login.
   //
   // Its own table rather than fields on `teamMembers`, because
   // `team.listByWorkspace` hands whole member rows to the browser and a
   // password hash would ride along with them — the same reason the workspace
   // login lives in `workspaceCredentials` and not on `workspaces`.
   //
-  // Much narrower than the workspace login: it opens the escalated threads of
-  // one workspace and the reply box on them, and nothing else. See
-  // `threadAccess` in convex/lib/auth.ts.
+  // Opens the workspace's whole dashboard, and signs manual replies with the
+  // person's own name. Narrower than the workspace login in what an owner
+  // keeps: the password, other people's logins and the subscription. Each one
+  // is a human-agent seat on the plan. See `requireWorkspace` and
+  // `requireOwner` in convex/lib/auth.ts.
   // -------------------------------------------------------------------------
   memberCredentials: defineTable({
     workspaceId: v.id("workspaces"),
@@ -1438,6 +1440,297 @@ export default defineSchema({
       "category",
       "createdAt",
     ]),
+
+  // -------------------------------------------------------------------------
+  // The platform fee and the wallet.
+  //
+  // Two different things a company pays for. The platform fee is a monthly
+  // subscription for using the platform at all — a plan, plus any extra agents
+  // bought on top of it — collected by Razorpay autopay. The wallet is prepaid
+  // credit that WhatsApp messages are drawn from, at the per-message rates
+  // above, topped up by hand or automatically when it runs low.
+  //
+  // Money is in millionths of the currency throughout, the unit billingEvents
+  // already uses, so a wallet debit is the charge's own amount and nothing is
+  // converted between the ledger and the balance. Razorpay's paise appear only
+  // at the API boundary (convex/lib/razorpay.ts).
+  // -------------------------------------------------------------------------
+
+  /**
+   * The platform's billing configuration. One row, written by an
+   * administrator; until it exists billing is not switched on and nothing is
+   * enforced, so deploying this code locks nobody out.
+   */
+  billingSettings: defineTable({
+    /** What plans and the wallet are priced in. Razorpay's own: INR. */
+    currency: v.string(),
+    gstPercent: v.number(),
+    trialDays: v.number(),
+    /** How long a failed renewal keeps the dashboard open before it locks. */
+    graceDays: v.number(),
+    /** An extra agent's list price — shown struck through beside the price. */
+    extraAgentListMicros: v.number(),
+    /** What an extra agent, AI or human, actually costs a month ex-GST. */
+    extraAgentPriceMicros: v.number(),
+    /** Whose limits a workspace on trial gets. The first plan when absent. */
+    trialPlanId: v.optional(v.id("billingPlans")),
+    minTopUpMicros: v.number(),
+    /** A new account's low-balance line, until the company sets its own. */
+    defaultThresholdMicros: v.number(),
+    /**
+     * When billing was switched on. A workspace older than this starts its
+     * trial here rather than at its own creation, or every existing company
+     * would be locked out the moment an administrator saved the first plan.
+     */
+    launchedAt: v.number(),
+    updatedAt: v.number(),
+  }),
+
+  /** What the platform sells. Edited by an administrator. */
+  billingPlans: defineTable({
+    /** Stable handle for notes and Razorpay plan keys, e.g. "starter". */
+    code: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    /** Shown struck through when above `priceMicros`. */
+    listPriceMicros: v.number(),
+    /** Monthly, excluding GST. */
+    priceMicros: v.number(),
+    /**
+     * Custom agents — specialists — that may be live at once. The front desk,
+     * the follow-up desk and the marketing desk come with every plan and are
+     * not counted.
+     */
+    includedAiAgents: v.number(),
+    /** Human agents with a login of their own. */
+    includedHumanAgents: v.number(),
+    /** The bullet list on the plan card. */
+    features: v.array(v.string()),
+    highlighted: v.boolean(),
+    /**
+     * Hidden plans are not offered to anyone new, but an account already on
+     * one stays on it — retiring a price must not reprice a customer.
+     */
+    status: v.union(v.literal("active"), v.literal("hidden")),
+    sortOrder: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_code", ["code"])
+    .index("by_sortOrder", ["sortOrder"]),
+
+  /**
+   * One workspace's standing with the platform: its plan, its extra agents,
+   * how it pays, what it has been given, and its wallet preferences.
+   *
+   * Created on first need rather than for every workspace, so a workspace
+   * without one is simply on the trial the settings describe.
+   */
+  billingAccounts: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** What the account's limits come from now. */
+    planId: v.optional(v.id("billingPlans")),
+    /** Extra agents paid for on top of the plan — AI or human, one pool. */
+    extraAgents: v.number(),
+    /**
+     * How the platform fee is settled. `manual` is an administrator's call —
+     * invoiced offline, or given away — and bypasses Razorpay entirely.
+     */
+    mode: v.union(
+      v.literal("trial"),
+      v.literal("razorpay"),
+      v.literal("manual")
+    ),
+    trialEndsAt: v.optional(v.number()),
+    /** Manual only. Absent means open-ended. */
+    manualPaidThrough: v.optional(v.number()),
+    /** An administrator's discount off the plan price, 0–100. */
+    discountPercent: v.optional(v.number()),
+    /** An administrator's price for this account's extra agents. */
+    extraAgentPriceMicros: v.optional(v.number()),
+    adminNote: v.optional(v.string()),
+    /** The subscription that is being charged. */
+    subscriptionId: v.optional(v.id("billingSubscriptions")),
+    /** A replacement the company has been asked to authorise. */
+    pendingSubscriptionId: v.optional(v.id("billingSubscriptions")),
+    razorpayCustomerId: v.optional(v.string()),
+    // Who the tax invoice is made out to.
+    billingName: v.optional(v.string()),
+    gstin: v.optional(v.string()),
+    billingEmail: v.optional(v.string()),
+    billingPhone: v.optional(v.string()),
+    billingAddress: v.optional(v.string()),
+    billingState: v.optional(v.string()),
+    /** Below this the dashboard warns, and auto-recharge fires. */
+    lowBalanceThresholdMicros: v.number(),
+    autoRecharge: v.object({
+      enabled: v.boolean(),
+      /** Credited to the wallet each time; GST is added on top. */
+      amountMicros: v.number(),
+      /** "upi" or "card" — what the saved mandate was authorised with. */
+      method: v.optional(v.string()),
+      /**
+       * Razorpay's `recurring_details.status` for the mandate. Only
+       * `confirmed` may be charged; UPI confirms a while after checkout.
+       */
+      tokenStatus: v.optional(v.string()),
+      /** The most one debit may take — fixed when the mandate is authorised. */
+      maxAmountMicros: v.optional(v.number()),
+      lastError: v.optional(v.string()),
+      lastChargedAt: v.optional(v.number()),
+    }),
+    /**
+     * Razorpay's saved-mandate token. Top-level so a `token.*` webhook, which
+     * carries the token and nothing else of ours, can find its account.
+     */
+    mandateTokenId: v.optional(v.string()),
+    /**
+     * A recharge that has been asked for and not yet settled. UPI and card
+     * mandates debit a day after the pre-debit notice, so this can stand for
+     * a while; it is what stops every message in that day asking again.
+     */
+    rechargeInFlight: v.optional(
+      v.object({
+        paymentId: v.id("billingPayments"),
+        startedAt: v.number(),
+      })
+    ),
+    lowBalanceAlertedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_mandate_token", ["mandateTokenId"]),
+
+  /** Every Razorpay subscription created, live or superseded. */
+  billingSubscriptions: defineTable({
+    workspaceId: v.id("workspaces"),
+    razorpaySubscriptionId: v.string(),
+    razorpayPlanId: v.string(),
+    planId: v.id("billingPlans"),
+    extraAgents: v.number(),
+    /** The monthly price it was created at — fixed, like a Razorpay plan. */
+    subtotalMicros: v.number(),
+    gstMicros: v.number(),
+    totalMicros: v.number(),
+    currency: v.string(),
+    /** Razorpay's status, verbatim. See `SUBSCRIPTION_STATUS` in lib/plans. */
+    status: v.string(),
+    startAt: v.optional(v.number()),
+    currentStart: v.optional(v.number()),
+    currentEnd: v.optional(v.number()),
+    chargeAt: v.optional(v.number()),
+    paidCount: v.optional(v.number()),
+    shortUrl: v.optional(v.string()),
+    /** Set once the company has asked for it to stop at the period's end. */
+    cancelAtCycleEnd: v.optional(v.boolean()),
+    /** The subscription this one takes over from, for a plan change. */
+    replacesId: v.optional(v.id("billingSubscriptions")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_razorpay_id", ["razorpaySubscriptionId"])
+    .index("by_workspace", ["workspaceId"]),
+
+  /**
+   * A workspace's prepaid balance, on its own so the per-message debit — the
+   * busiest write in billing — contends with nothing else.
+   */
+  wallets: defineTable({
+    workspaceId: v.id("workspaces"),
+    currency: v.string(),
+    /** May go below zero: a service reply is never held back for credit. */
+    balanceMicros: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Money into the wallet, and an administrator's corrections. Debits are not
+   * repeated here: every one is already a `billingEvents` row.
+   */
+  walletTransactions: defineTable({
+    workspaceId: v.id("workspaces"),
+    kind: v.union(
+      v.literal("topup"),
+      v.literal("auto_recharge"),
+      v.literal("adjustment")
+    ),
+    amountMicros: v.number(),
+    balanceAfterMicros: v.number(),
+    paymentId: v.optional(v.id("billingPayments")),
+    note: v.optional(v.string()),
+    /** Who made an adjustment — an administrator's email. */
+    by: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_workspace_createdAt", ["workspaceId", "createdAt"]),
+
+  /** Every payment asked of Razorpay, and what became of it. */
+  billingPayments: defineTable({
+    workspaceId: v.id("workspaces"),
+    purpose: v.union(
+      v.literal("subscription"),
+      v.literal("wallet_topup"),
+      v.literal("auto_recharge")
+    ),
+    status: v.union(
+      v.literal("created"),
+      v.literal("pending"),
+      v.literal("paid"),
+      v.literal("failed")
+    ),
+    description: v.string(),
+    currency: v.string(),
+    subtotalMicros: v.number(),
+    gstMicros: v.number(),
+    totalMicros: v.number(),
+    /** What a wallet payment credits: the subtotal, since GST is not credit. */
+    creditMicros: v.optional(v.number()),
+    /**
+     * The authorisation payment for an auto-recharge mandate. Its amount is
+     * credited like any top-up; what it is for is the token it leaves behind.
+     */
+    mandate: v.optional(
+      v.object({
+        method: v.union(v.literal("upi"), v.literal("card")),
+        maxAmountMicros: v.number(),
+      })
+    ),
+    razorpayOrderId: v.optional(v.string()),
+    razorpayPaymentId: v.optional(v.string()),
+    razorpayInvoiceId: v.optional(v.string()),
+    subscriptionId: v.optional(v.id("billingSubscriptions")),
+    periodStart: v.optional(v.number()),
+    periodEnd: v.optional(v.number()),
+    method: v.optional(v.string()),
+    error: v.optional(v.string()),
+    paidAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace_createdAt", ["workspaceId", "createdAt"])
+    .index("by_order", ["razorpayOrderId"])
+    .index("by_razorpay_payment", ["razorpayPaymentId"]),
+
+  /**
+   * Razorpay plans already created, by the price they charge. A subscription
+   * needs a plan whose amount is its price, and prices here are dynamic — a
+   * discount, a number of extra agents — so one is made per distinct amount
+   * and reused rather than a new one per checkout.
+   */
+  razorpayPlans: defineTable({
+    key: v.string(),
+    razorpayPlanId: v.string(),
+    createdAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  /** Webhook deliveries already applied, so a retry is not applied twice. */
+  razorpayEvents: defineTable({
+    eventId: v.string(),
+    event: v.string(),
+    receivedAt: v.number(),
+  })
+    .index("by_eventId", ["eventId"])
+    .index("by_receivedAt", ["receivedAt"]),
 
   webhookEvents: defineTable({
     workspaceId: v.id("workspaces"),

@@ -10,8 +10,9 @@ const LOGIN_PATH = "/login";
 
 /** The area a session belongs to. Mirrors the redirect the login route returns. */
 function homeFor(role: string | undefined, ownSlug: string | undefined) {
-  if (role === "member") return DESK_PATH;
-  return role === "workspace" && ownSlug ? `/w/${ownSlug}` : "/admin";
+  // A human agent opens the company's workspace, as the company login does.
+  if ((role === "workspace" || role === "member") && ownSlug) return `/w/${ownSlug}`;
+  return role === "member" ? DESK_PATH : "/admin";
 }
 
 const isDesk = (pathname: string) =>
@@ -55,21 +56,15 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(login);
   }
 
-  // A human agent has the desk and nothing else. The Convex guards refuse
-  // their login everywhere outside it; this only keeps them from landing on
-  // a page that would say so.
-  if (role === "member") {
-    return isDesk(pathname)
-      ? NextResponse.next()
-      : NextResponse.redirect(new URL(DESK_PATH, request.url));
-  }
-
-  // …and the desk is only a human agent's.
+  // The desk — escalations on a page of their own — is a human agent's. They
+  // have the whole workspace besides.
   if (isDesk(pathname)) {
-    return NextResponse.redirect(new URL(homeFor(role, ownSlug), request.url));
+    return role === "member"
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL(homeFor(role, ownSlug), request.url));
   }
 
-  if (role === "workspace" && ownSlug) {
+  if ((role === "workspace" || role === "member") && ownSlug) {
     // A company has no platform area.
     if (pathname === "/admin" || pathname.startsWith("/admin/")) {
       return NextResponse.redirect(new URL(`/w/${ownSlug}`, request.url));

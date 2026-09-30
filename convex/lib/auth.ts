@@ -15,9 +15,10 @@ export type Principal =
   | { role: "admin"; adminId: Id<"admins">; label: string }
   | { role: "workspace"; workspaceId: Id<"workspaces">; label: string }
   /**
-   * A human agent on the escalations desk. Carries its workspace, but is not
-   * the workspace: `requireWorkspace` refuses it outright, and the only doors
-   * it opens are `threadAccess` and `requireMember` below.
+   * A human agent, signed in with a login of their own. Opens their
+   * workspace's dashboard as the company login does — `requireWorkspace`
+   * lets them through on their own workspace — but not what the company
+   * keeps for itself: see `requireOwner`.
    */
   | {
       role: "member";
@@ -106,18 +107,14 @@ export async function getPrincipal(ctx: Ctx): Promise<Principal | null> {
 }
 
 /**
- * An administrator or a company. For endpoints with no workspace in scope —
- * upload URLs, the model catalogue. Not a human agent: nothing behind these
- * is part of the escalations desk.
+ * Anyone signed in. For endpoints with no workspace in scope — upload URLs,
+ * the model catalogue.
  */
 export async function requireSignedIn(ctx: Ctx): Promise<Principal> {
   const principal = await getPrincipal(ctx);
   if (!principal) throw new AuthError("Sign in to continue.");
-  if (principal.role === "member") throw new AuthError(DESK_ONLY);
   return principal;
 }
-
-const DESK_ONLY = "This sign-in only opens the escalations desk.";
 
 /** A human agent, for the desk's own list and header. */
 export async function requireMember(
@@ -141,12 +138,11 @@ export async function requireAdmin(
 }
 
 /**
- * An admin, or the company that owns this workspace.
+ * An admin, the company that owns this workspace, or one of its human agents.
  *
- * Never a human agent, even one of this workspace. Theirs is the one principal
- * that carries a `workspaceId` without being the workspace, so it is refused by
- * role before the id is compared — every guard in convex/ that delegates here
- * stays closed to the desk without having to know it exists.
+ * A human agent's login opens the whole dashboard — it is what a human-agent
+ * seat on the plan buys. What the company keeps to itself is behind
+ * `requireOwner` instead.
  */
 export async function requireWorkspace(
   ctx: Ctx,
@@ -155,7 +151,6 @@ export async function requireWorkspace(
   const principal = await getPrincipal(ctx);
   if (!principal) throw new AuthError("Sign in to continue.");
   if (principal.role === "admin") return principal;
-  if (principal.role === "member") throw new AuthError(DESK_ONLY);
   if (principal.workspaceId !== workspaceId) {
     throw new AuthError("You do not have access to this workspace.");
   }
@@ -163,13 +158,30 @@ export async function requireWorkspace(
 }
 
 /**
- * The guard for reading and answering one thread, which is all the desk does.
+ * An admin, or the company itself — never one of its human agents.
  *
- * Everything `requireConversation` lets through, plus a human agent of the
- * same workspace — on an escalated thread only. Null rather than an error when
- * a human agent's thread has left the desk (resolved, or set back to open by
- * somebody else): that happens under a live subscription, and a query that
- * starts throwing mid-read takes the page down with it.
+ * For what outlives a person or spends the company's money: the workspace
+ * password, other people's logins, MCP tokens, and the subscription. A human
+ * agent issuing logins would be buying seats, and one who minted an MCP
+ * token would keep access after their own login was revoked.
+ */
+export async function requireOwner(
+  ctx: Ctx,
+  workspaceId: Id<"workspaces">
+): Promise<Principal> {
+  const principal = await requireWorkspace(ctx, workspaceId);
+  if (principal.role === "member") {
+    throw new AuthError("Only the workspace's own login can do this.");
+  }
+  return principal;
+}
+
+/**
+ * The guard for reading and answering one thread, from the inbox or the desk.
+ *
+ * Everything `requireConversation` lets through. Null rather than an error
+ * when the thread is gone: that happens under a live subscription, and a
+ * query that starts throwing mid-read takes the page down with it.
  */
 export async function threadAccess(
   ctx: Ctx,
@@ -181,15 +193,6 @@ export async function threadAccess(
   const principal = await getPrincipal(ctx);
   if (!principal) throw new AuthError("Sign in to continue.");
   const conversation = await ctx.db.get("conversations", conversationId);
-
-  if (principal.role === "member") {
-    if (!conversation) return null;
-    if (conversation.workspaceId !== principal.workspaceId) {
-      throw new AuthError("Conversation not found");
-    }
-    if (conversation.status !== "escalated") return null;
-    return { conversation, principal };
-  }
 
   if (!conversation) return null;
   await requireWorkspace(ctx, conversation.workspaceId);

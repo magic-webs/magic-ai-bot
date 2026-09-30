@@ -339,6 +339,7 @@ async function runRule(
     channel: Channel | null;
     templates: Templates;
     emailTemplates: EmailTemplates;
+    walletBlocks: Record<NonNullable<Result["category"]>, string | null>;
   },
   options: { overrideTo?: string; kind?: "test" | "manual" } = {}
 ): Promise<Result[]> {
@@ -399,6 +400,22 @@ async function runRule(
           templateName: rule.whatsappTemplateName,
           status: "skipped" as const,
           error,
+        })),
+      ];
+    }
+    // A template is the business starting the conversation, so it waits for
+    // credit; the log says why rather than it vanishing.
+    const walletBlock = context.walletBlocks[rendered.category ?? "utility"];
+    if (walletBlock) {
+      return [
+        ...skipped,
+        ...recipients.valid.map((to) => ({
+          ...base,
+          to,
+          templateName: rendered.name,
+          category: rendered.category,
+          status: "skipped" as const,
+          error: walletBlock,
         })),
       ];
     }

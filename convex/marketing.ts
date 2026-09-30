@@ -26,7 +26,8 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
-import { charge } from "./lib/billing";
+import { charge } from "./lib/charge";
+import { templateBlock } from "./lib/wallet";
 import { ensureMarketingDesk } from "./agents";
 import {
   festivalsBetween,
@@ -684,6 +685,8 @@ type SendContext = {
     phoneNumberId: string;
     accessToken: string;
   } | null;
+  /** Why the wallet cannot pay for this template now, if it cannot. */
+  walletBlock: string | null;
 };
 
 async function sendContext(
@@ -703,10 +706,16 @@ async function sendContext(
       q.eq("workspaceId", workspaceId).eq("kind", "marketing")
     )
     .first();
+  const own = template && template.workspaceId === workspaceId ? template : null;
   return {
     workspaceName: workspace.name,
     agentId: desk?._id ?? null,
-    template: template && template.workspaceId === workspaceId ? template : null,
+    template: own,
+    // Read per page, so a campaign that drains the wallet stops at the page
+    // it ran out on rather than sending the rest on credit.
+    walletBlock: own
+      ? await templateBlock(ctx, workspaceId, own.category ?? "marketing")
+      : null,
     channel: channel?.whatsapp
       ? {
           apiBaseUrl: channel.whatsapp.apiBaseUrl,

@@ -6,13 +6,13 @@ import { messageCategory } from "./schema";
 import { requireAdmin, requireWorkspace } from "./lib/auth";
 import {
   MESSAGE_CATEGORIES,
-  charge,
   defaultRateCard,
   effectiveRates,
   toMicros,
   workspaceRateCard,
   type MessageCategory,
 } from "./lib/billing";
+import { charge } from "./lib/charge";
 import { isValidCurrency } from "./lib/regional";
 import { logoSrcFor } from "./lib/branding";
 

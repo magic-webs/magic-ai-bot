@@ -11,7 +11,13 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { getPrincipal, requireAdmin, requireWorkspace } from "./lib/auth";
+import {
+  getPrincipal,
+  requireAdmin,
+  requireOwner,
+  requireWorkspace,
+} from "./lib/auth";
+import { assertSeat } from "./lib/account";
 import { maskSecret, slugify } from "./lib/shared";
 
 const roleValidator = v.union(
@@ -157,6 +163,15 @@ export const assertWorkspace = internalQuery({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     return null;
+  },
+});
+
+/** The company or an admin, never one of its human agents. See requireOwner. */
+export const assertOwner = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const principal = await requireOwner(ctx, args.workspaceId);
+    return { role: principal.role, label: principal.label };
   },
 });
 
@@ -704,12 +719,12 @@ export const replaceOwnCredential = internalMutation({
 });
 
 // ---------------------------------------------------------------------------
-// Human agents' own logins, for the escalations desk.
+// Human agents' own logins.
 //
 // Issued and revoked by the company from the Team page, not by an
-// administrator: these are the company's own people, and a login here opens
-// nothing but that company's escalated threads. The password is generated in
-// convex/auth.ts, shown once, and only hashed here.
+// administrator: these are the company's own people. A login opens the
+// company's dashboard, and each one takes a human-agent seat on its plan. The
+// password is generated in convex/auth.ts, shown once, and only hashed here.
 // ---------------------------------------------------------------------------
 
 /** Who on the roster can sign in, for the Team page. Never the hash. */
@@ -741,7 +756,7 @@ export const memberForLogin = internalQuery({
   handler: async (ctx, args) => {
     const member = await ctx.db.get("teamMembers", args.memberId);
     if (!member) throw new Error("Human agent not found");
-    await requireWorkspace(ctx, member.workspaceId);
+    await requireOwner(ctx, member.workspaceId);
     const workspace = await ctx.db.get("workspaces", member.workspaceId);
     if (!workspace) throw new Error("Workspace not found");
     return { member, workspace };
@@ -815,7 +830,7 @@ export const upsertMemberCredential = internalMutation({
   handler: async (ctx, args) => {
     const member = await ctx.db.get("teamMembers", args.memberId);
     if (!member) throw new Error("Human agent not found");
-    await requireWorkspace(ctx, member.workspaceId);
+    await requireOwner(ctx, member.workspaceId);
     const workspace = await ctx.db.get("workspaces", member.workspaceId);
     if (!workspace) throw new Error("Workspace not found");
 
@@ -826,6 +841,10 @@ export const upsertMemberCredential = internalMutation({
       .unique();
 
     if (existing) {
+      // Bringing a revoked login back takes a seat again; a reset keeps its own.
+      if (existing.status !== "active") {
+        await assertSeat(ctx, member.workspaceId, "human");
+      }
       await ctx.db.patch(existing._id, {
         passwordHash: args.passwordHash,
         status: "active",
@@ -835,6 +854,9 @@ export const upsertMemberCredential = internalMutation({
       await dropMemberSessions(ctx, args.memberId);
       return { username: existing.username };
     }
+
+    // A new login is a new human-agent seat; a reset is the same one.
+    await assertSeat(ctx, member.workspaceId, "human");
 
     const handle = slugify(member.name.split(/\s+/)[0] ?? "") || "agent";
     const base = `${workspace.slug}.${handle}`;
@@ -870,7 +892,7 @@ export const revokeMemberLogin = mutation({
   handler: async (ctx, args) => {
     const member = await ctx.db.get("teamMembers", args.memberId);
     if (!member) return { removed: false };
-    await requireWorkspace(ctx, member.workspaceId);
+    await requireOwner(ctx, member.workspaceId);
     return { removed: await removeMemberLogin(ctx, args.memberId) };
   },
 });

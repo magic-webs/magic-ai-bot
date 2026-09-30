@@ -78,4 +78,13 @@ crons.interval(
   {}
 );
 
+// Razorpay stops retrying a webhook after a day; its event ids are kept for a
+// month so a late duplicate is still recognised, then let go.
+crons.interval(
+  "prune razorpay webhook log",
+  { hours: 24 },
+  internal.razorpayEvents.pruneEvents,
+  {}
+);
+
 export default crons;

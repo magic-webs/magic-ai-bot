@@ -62,11 +62,12 @@ export async function POST(request: NextRequest) {
       workspaceSlug = result.workspaceSlug;
     }
 
+    // A human agent lands in the company's workspace, like the company login.
     const redirectTo =
-      role === "member"
-        ? DESK_PATH
-        : role === "workspace" && workspaceSlug
-          ? `/w/${workspaceSlug}`
+      (role === "workspace" || role === "member") && workspaceSlug
+        ? `/w/${workspaceSlug}`
+        : role === "member"
+          ? DESK_PATH
           : "/admin";
 
     const jar = await cookies();

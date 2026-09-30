@@ -2,17 +2,17 @@
  * Per-message billing: what a WhatsApp message costs the account that sent it.
  *
  * Every send path — an agent's reply, a rich message, a colleague's manual
- * reply, a follow-up nudge, a marketing template — ends by calling `charge`,
- * which prices the message at the account's rate for its category and writes
- * one `billingEvents` row. The amount is fixed there and then, so repricing an
- * account changes the next message, never the ledger.
+ * reply, a follow-up nudge, a marketing template — ends by calling `charge`
+ * (./charge), which prices the message at the account's rate for its category
+ * and writes one `billingEvents` row. The amount is fixed there and then, so
+ * repricing an account changes the next message, never the ledger.
  *
  * The pure half of this file is imported by React for labels and formatting;
  * the context types below are type-only imports and never reach the bundle.
  */
 
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { QueryCtx } from "../_generated/server";
 import type { Outbound } from "./whatsappSend";
 
 export type MessageCategory =
@@ -178,52 +178,4 @@ export async function effectiveRates(
   const fallback = await defaultRateCard(ctx);
   if (fallback) return { scope: "default", card: fallback };
   return { scope: "none", card: null };
-}
-
-/** Clamped to what the ledger shows, so one long reply is not a long row. */
-const PREVIEW_MAX = 140;
-
-/**
- * Charge one sent message to its workspace.
- *
- * Called only after the provider accepted the message: a send that failed is
- * not a message the account received, and must not be billed as one. With no
- * rate card anywhere the message is still recorded, at zero and marked
- * unrated, so the count is right and the gap is visible.
- */
-export async function charge(
-  ctx: MutationCtx,
-  args: {
-    workspaceId: Id<"workspaces">;
-    conversationId?: Id<"conversations">;
-    channelId?: Id<"channels">;
-    to: string;
-    category: MessageCategory;
-    source: BillingSource;
-    preview?: string;
-    templateName?: string;
-  }
-): Promise<Id<"billingEvents">> {
-  const { card } = await effectiveRates(ctx, args.workspaceId);
-  let currency = card?.currency;
-  if (!currency) {
-    const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    currency = workspace?.currency ?? "USD";
-  }
-
-  const preview = args.preview?.replace(/\s+/g, " ").trim();
-  return await ctx.db.insert("billingEvents", {
-    workspaceId: args.workspaceId,
-    conversationId: args.conversationId,
-    channelId: args.channelId,
-    to: args.to,
-    category: args.category,
-    source: args.source,
-    preview: preview ? preview.slice(0, PREVIEW_MAX) : undefined,
-    templateName: args.templateName,
-    currency,
-    amountMicros: card ? rateFor(card, args.category) : 0,
-    rated: card !== null,
-    createdAt: Date.now(),
-  });
 }
