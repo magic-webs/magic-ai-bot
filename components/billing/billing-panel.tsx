@@ -14,7 +14,6 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { useSession } from "@/components/use-session";
 import { useHourBucket } from "@/components/use-now";
 import { ActivityChart, StatTile } from "@/components/dashboard-charts";
-import { SelectField } from "@/components/select-field";
 import {
   CategoryBadge,
   CategoryDot,
@@ -90,14 +89,13 @@ function useStamp() {
  * Read-only for the company. An administrator sees an edit button on the
  * rates, which is the same dialog the admin billing page uses.
  */
-export function BillingPanel() {
+export function BillingPanel({ days }: { days: number }) {
   const workspace = useWorkspace();
   const { isAdmin } = useSession();
-  const [days, setDays] = useState("30");
   const now = useHourBucket();
   const data = useQuery(api.billing.workspaceSummary, {
     workspaceId: workspace._id,
-    days: Number(days),
+    days,
     now,
   });
   // Admin-only, for prefilling an account that has no rates of its own.
@@ -148,23 +146,6 @@ export function BillingPanel() {
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-end gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs tracking-wide text-muted-foreground uppercase">
-            Period
-          </span>
-          <SelectField
-            value={days}
-            onValueChange={setDays}
-            options={[
-              { value: "7", label: "Last 7 days" },
-              { value: "30", label: "Last 30 days" },
-              { value: "90", label: "Last 90 days" },
-            ]}
-          />
-        </div>
-      </div>
-
       {!data.rates ? (
         <Alert>
           <WarningIcon />

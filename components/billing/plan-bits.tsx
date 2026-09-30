@@ -110,15 +110,22 @@ export function StrikePrice({
   priceMicros,
   listMicros,
   className,
+  listClassName,
 }: {
   priceMicros: number;
   listMicros: number;
   className?: string;
+  listClassName?: string;
 }) {
   return (
     <span className={cn("inline-flex items-baseline gap-1.5", className)}>
       {listMicros > priceMicros ? (
-        <span className="text-muted-foreground text-[0.8em] font-normal line-through">
+        <span
+          className={cn(
+            "text-muted-foreground text-[0.8em] font-normal line-through",
+            listClassName
+          )}
+        >
           {inr(listMicros)}
         </span>
       ) : null}
@@ -274,6 +281,7 @@ export function PlanFeatures({
   features: string[];
   className?: string;
 }) {
+  if (features.length === 0) return null;
   return (
     <ul className={cn("flex flex-col gap-2 text-sm", className)}>
       {features.map((feature, index) => (

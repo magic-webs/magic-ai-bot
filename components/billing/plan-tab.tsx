@@ -345,9 +345,55 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
         ) : null}
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex flex-1 flex-col gap-4">
+        {!manual && monthly ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs tracking-wide text-muted-foreground uppercase">
+              {charging ? "What you pay each month" : "What this plan costs each month"}
+            </p>
+            <p className="flex flex-wrap items-baseline gap-x-1.5">
+              <span className="font-heading text-4xl leading-none font-semibold tracking-tight tabular-nums">
+                {inr(monthly.total)}
+              </span>
+              <span className="text-sm text-muted-foreground">with GST</span>
+            </p>
+            <p className="text-sm text-muted-foreground tabular-nums">
+              {plan?.name ?? "Plan"}
+              {extras > 0 ? ` + ${extras} extra ${extras === 1 ? "agent" : "agents"}` : ""}{" "}
+              {inr(monthly.subtotal)} · {monthly.gstLabel} {inr(monthly.gst)}
+            </p>
+          </div>
+        ) : null}
+
+        {plan ? (
+          <IncludedAgents
+            plan={plan}
+            seat={
+              priced
+                ? { priceMicros: priced.seatMicros, listMicros: priced.seatListMicros }
+                : undefined
+            }
+          />
+        ) : null}
+
+        {pending ? (
+          <Alert>
+            <ArrowClockwiseIcon />
+            <AlertTitle>A checkout hasn&apos;t been authorised yet</AlertTitle>
+            <AlertDescription>
+              {pendingPlan ? `The ${pendingPlan.name} plan` : "A plan"}
+              {pending.extraAgents > 0 ? ` with ${pending.extraAgents} extra ${pending.extraAgents === 1 ? "agent" : "agents"}` : ""}{" "}
+              was started {daysFrom(pending.createdAt, now)} and Razorpay
+              hasn&apos;t confirmed it.
+              {data.isOwner
+                ? " If you finished it, check again; otherwise pick the plan below to start over."
+                : null}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {dates.length > 0 || charging ? (
-          <dl className="grid gap-3 sm:grid-cols-2">
+          <dl className="mt-auto grid gap-3 border-t pt-4 sm:grid-cols-2">
             {dates.map((row) => (
               <div key={row.label} className="flex flex-col gap-0.5">
                 <dt className="text-xs tracking-wide text-muted-foreground uppercase">
@@ -383,47 +429,6 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
               </div>
             ) : null}
           </dl>
-        ) : null}
-
-        {!manual && monthly ? (
-          <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-3">
-            <p className="text-xs tracking-wide text-muted-foreground uppercase">
-              {charging ? "What you pay each month" : "What this plan comes to each month"}
-            </p>
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">
-                {plan?.name ?? "Plan"}
-                {extras > 0 ? ` + ${extras} extra ${extras === 1 ? "agent" : "agents"}` : ""}
-              </span>
-              <span className="tabular-nums">{inr(monthly.subtotal)}</span>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">{monthly.gstLabel}</span>
-              <span className="tabular-nums">{inr(monthly.gst)}</span>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 border-t pt-1.5">
-              <span className="text-sm font-medium">Total a month</span>
-              <span className="font-heading text-lg font-semibold tabular-nums">
-                {inr(monthly.total)}
-              </span>
-            </div>
-          </div>
-        ) : null}
-
-        {pending ? (
-          <Alert>
-            <ArrowClockwiseIcon />
-            <AlertTitle>A checkout hasn&apos;t been authorised yet</AlertTitle>
-            <AlertDescription>
-              {pendingPlan ? `The ${pendingPlan.name} plan` : "A plan"}
-              {pending.extraAgents > 0 ? ` with ${pending.extraAgents} extra ${pending.extraAgents === 1 ? "agent" : "agents"}` : ""}{" "}
-              was started {daysFrom(pending.createdAt, now)} and Razorpay
-              hasn&apos;t confirmed it.
-              {data.isOwner
-                ? " If you finished it, check again; otherwise pick the plan below to start over."
-                : null}
-            </AlertDescription>
-          </Alert>
         ) : null}
       </CardContent>
 
@@ -743,11 +748,13 @@ function PlanPicker({ data }: { data: Enabled }) {
             const isCurrent = live !== null && plan._id === current?._id;
             return (
               // The plan's name is the radio, stretched over the whole card,
-              // so the agents box can sit above it and open on its own.
+              // so the agents box can sit above it and open on its own. Each
+              // card spans three rows of the grid, so the agents box and the
+              // features line up across cards whatever wraps above them.
               <div
                 key={plan._id}
                 className={cn(
-                  "relative flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5 transition-colors hover:bg-muted/30 has-[[role=radio]:focus-visible]:ring-3 has-[[role=radio]:focus-visible]:ring-ring/50",
+                  "relative row-span-3 grid min-w-0 grid-rows-subgrid gap-4 rounded-xl border bg-card p-5 transition-colors hover:bg-muted/30 has-[[role=radio]:focus-visible]:ring-3 has-[[role=radio]:focus-visible]:ring-ring/50",
                   selected &&
                     "border-primary bg-primary/5 ring-1 ring-primary hover:bg-primary/5"
                 )}
@@ -774,6 +781,7 @@ function PlanPicker({ data }: { data: Enabled }) {
                       priceMicros={plan.priceMicros}
                       listMicros={plan.listPriceMicros}
                       className="font-heading text-3xl font-semibold tracking-tight tabular-nums"
+                      listClassName="text-[0.6em]"
                     />
                     <span className="text-sm text-muted-foreground">
                       / month + GST
@@ -791,12 +799,10 @@ function PlanPicker({ data }: { data: Enabled }) {
                   selected={selected}
                   className="relative z-10"
                 />
-                {plan.features.length > 0 ? (
-                  <PlanFeatures
-                    features={plan.features}
-                    className={selected ? undefined : "text-muted-foreground"}
-                  />
-                ) : null}
+                <PlanFeatures
+                  features={plan.features}
+                  className={selected ? undefined : "text-muted-foreground"}
+                />
               </div>
             );
           })}
@@ -804,8 +810,21 @@ function PlanPicker({ data }: { data: Enabled }) {
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
           {/* ------------------------------------------- extra agents */}
-          <div className="flex min-w-0 flex-col gap-2">
-            <Label htmlFor="extra-agents">Extra agents</Label>
+          <div className="flex min-w-0 flex-col gap-3 self-start rounded-lg border p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <Label htmlFor="extra-agents" className="flex items-center gap-2">
+                <UsersThreeIcon className="size-4 text-muted-foreground" />
+                Extra agents
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                <StrikePrice
+                  priceMicros={summary.seatMicros}
+                  listMicros={summary.seatListMicros}
+                  className="font-medium text-foreground"
+                />{" "}
+                each a month + GST
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -838,14 +857,6 @@ function PlanPicker({ data }: { data: Enabled }) {
                 <PlusIcon />
               </Button>
             </div>
-            <p className="text-sm text-muted-foreground">
-              <StrikePrice
-                priceMicros={summary.seatMicros}
-                listMicros={summary.seatListMicros}
-                className="font-medium text-foreground"
-              />{" "}
-              each a month + GST
-            </p>
             {needed > 0 ? (
               <p className="text-xs text-muted-foreground">
                 What is live now needs {needed} extra{" "}
@@ -1032,7 +1043,7 @@ function BillingDetails({
             placeholder="Optional"
             aria-invalid={gstinInvalid || undefined}
             onChange={(event) => set("gstin")(event.target.value.toUpperCase())}
-            className="font-mono uppercase"
+            className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
           />
           {gstinInvalid ? (
             <p className="text-xs text-destructive">

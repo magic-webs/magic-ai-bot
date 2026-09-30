@@ -51,7 +51,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -337,19 +341,22 @@ function TopUpCard({ data }: { data: Summary }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="topup-amount">Amount (₹)</Label>
-          <Input
-            id="topup-amount"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step={1}
-            value={amount}
-            disabled={busy}
-            aria-invalid={(value !== null && (tooSmall || tooLarge)) || undefined}
-            onChange={(event) => setAmount(event.target.value)}
-            className="tabular-nums"
-          />
+          <Label htmlFor="topup-amount">Amount</Label>
+          <InputGroup>
+            <InputGroupAddon>₹</InputGroupAddon>
+            <InputGroupInput
+              id="topup-amount"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={1}
+              value={amount}
+              disabled={busy}
+              aria-invalid={(value !== null && (tooSmall || tooLarge)) || undefined}
+              onChange={(event) => setAmount(event.target.value)}
+              className="tabular-nums"
+            />
+          </InputGroup>
         </div>
         <div className="flex flex-wrap gap-2">
           {QUICK_PICKS.map((pick) => (
@@ -565,6 +572,17 @@ function AutoRechargeCard({ data }: { data: Summary }) {
   };
 
   const state = mandateState(autoRecharge.tokenStatus);
+  const standing = !hasMandate
+    ? { label: "Off", tone: "bg-muted text-muted-foreground" }
+    : autoRecharge.enabled
+      ? {
+          label: "On",
+          tone: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600/20 ring-inset dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/25",
+        }
+      : {
+          label: "Paused",
+          tone: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20 ring-inset dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/25",
+        };
   const method = autoRecharge.method
     ? (METHOD_LABEL[autoRecharge.method] ?? autoRecharge.method)
     : "Saved mandate";
@@ -575,25 +593,31 @@ function AutoRechargeCard({ data }: { data: Summary }) {
         <CardTitle className="flex items-center gap-2">
           <LightningIcon className="size-4 text-muted-foreground" />
           Auto-recharge
+          <Badge variant="secondary" className={standing.tone}>
+            {standing.label}
+          </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <Label htmlFor="recharge-threshold">Low-balance line (₹)</Label>
-            <Input
-              id="recharge-threshold"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step={1}
-              value={threshold}
-              readOnly={!canEdit}
-              disabled={busy !== null}
-              aria-invalid={!thresholdValid || undefined}
-              onChange={(event) => setThreshold(event.target.value)}
-              className="tabular-nums"
-            />
+            <Label htmlFor="recharge-threshold">Low-balance line</Label>
+            <InputGroup>
+              <InputGroupAddon>₹</InputGroupAddon>
+              <InputGroupInput
+                id="recharge-threshold"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step={1}
+                value={threshold}
+                readOnly={!canEdit}
+                disabled={busy !== null}
+                aria-invalid={!thresholdValid || undefined}
+                onChange={(event) => setThreshold(event.target.value)}
+                className="tabular-nums"
+              />
+            </InputGroup>
             {lineShort ? (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 That is less than two days of last week&apos;s spend, so
@@ -602,20 +626,23 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             ) : null}
           </div>
           <div className="flex min-w-0 flex-col gap-1.5">
-            <Label htmlFor="recharge-amount">Recharge amount (₹)</Label>
-            <Input
-              id="recharge-amount"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step={1}
-              value={amount}
-              readOnly={!canEdit}
-              disabled={busy !== null}
-              aria-invalid={!amountValid || undefined}
-              onChange={(event) => setAmount(event.target.value)}
-              className="tabular-nums"
-            />
+            <Label htmlFor="recharge-amount">Recharge amount</Label>
+            <InputGroup>
+              <InputGroupAddon>₹</InputGroupAddon>
+              <InputGroupInput
+                id="recharge-amount"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step={1}
+                value={amount}
+                readOnly={!canEdit}
+                disabled={busy !== null}
+                aria-invalid={!amountValid || undefined}
+                onChange={(event) => setAmount(event.target.value)}
+                className="tabular-nums"
+              />
+            </InputGroup>
             {amountValue !== null && amountMicros < data.minTopUpMicros ? (
               <p className="text-xs text-destructive">
                 The smallest recharge is {inr(data.minTopUpMicros)}.
@@ -697,7 +724,7 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             </label>
           </div>
         ) : (
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
+          <div className="flex flex-col gap-3">
             {!data.profileReady ? (
               <Alert>
                 <WarningIcon />

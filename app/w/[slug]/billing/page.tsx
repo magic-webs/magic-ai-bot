@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BillingPanel } from "@/components/billing/billing-panel";
 import { PlanTab } from "@/components/billing/plan-tab";
 import { WalletTab } from "@/components/billing/wallet-tab";
+import { SelectField } from "@/components/select-field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartBarIcon, ReceiptIcon, WalletIcon } from "@phosphor-icons/react";
 
@@ -12,6 +13,12 @@ type Tab = (typeof TABS)[number];
 
 const isTab = (value: string | null): value is Tab =>
   TABS.includes(value as Tab);
+
+const PERIODS = [
+  { value: "7", label: "Last 7 days" },
+  { value: "30", label: "Last 30 days" },
+  { value: "90", label: "Last 90 days" },
+];
 
 export default function BillingPage() {
   // The tab lives in the URL rather than in state: the low-balance banner
@@ -23,11 +30,15 @@ export default function BillingPage() {
   const pathname = usePathname();
   const requested = params.get("tab");
   const tab: Tab = isTab(requested) ? requested : "plan";
+  // The usage period rides in the URL too, so its picker can sit on the tab
+  // row, level with the tabs, rather than on a line of its own.
+  const period =
+    PERIODS.find((row) => row.value === params.get("days"))?.value ?? "30";
 
-  const switchTab = (next: string) => {
+  const setParam = (key: string, value: string) => {
     // Everything else in the query string is somebody else's, so it stays.
     const query = new URLSearchParams(params.toString());
-    query.set("tab", next);
+    query.set(key, value);
     router.replace(`${pathname}?${query.toString()}`, { scroll: false });
   };
 
@@ -41,20 +52,30 @@ export default function BillingPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(next) => switchTab(String(next))}
+        onValueChange={(next) => setParam("tab", String(next))}
         className="min-w-0 gap-4"
       >
-        <TabsList>
-          <TabsTrigger value="plan">
-            <ReceiptIcon /> Plan
-          </TabsTrigger>
-          <TabsTrigger value="wallet">
-            <WalletIcon /> Wallet
-          </TabsTrigger>
-          <TabsTrigger value="usage">
-            <ChartBarIcon /> Message usage
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TabsList>
+            <TabsTrigger value="plan">
+              <ReceiptIcon /> Plan
+            </TabsTrigger>
+            <TabsTrigger value="wallet">
+              <WalletIcon /> Wallet
+            </TabsTrigger>
+            <TabsTrigger value="usage">
+              <ChartBarIcon /> Message usage
+            </TabsTrigger>
+          </TabsList>
+          {tab === "usage" ? (
+            <SelectField
+              value={period}
+              onValueChange={(next) => setParam("days", next)}
+              options={PERIODS}
+              aria-label="Period"
+            />
+          ) : null}
+        </div>
 
         <TabsContent value="plan">
           <PlanTab />
@@ -63,7 +84,7 @@ export default function BillingPage() {
           <WalletTab />
         </TabsContent>
         <TabsContent value="usage">
-          <BillingPanel />
+          <BillingPanel days={Number(period)} />
         </TabsContent>
       </Tabs>
     </div>
