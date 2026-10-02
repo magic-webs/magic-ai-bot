@@ -129,11 +129,20 @@ export const me = query({
 
     if (principal.role === "admin") {
       const admin = await ctx.db.get("admins", principal.adminId);
+      const assigned = principal.workspaceIds
+        ? await Promise.all(
+            principal.workspaceIds.map((id) => ctx.db.get("workspaces", id))
+          )
+        : null;
       return {
         role: "admin" as const,
         label: admin?.name?.trim() || admin?.email || "Administrator",
         email: admin?.email,
         workspaceSlug: null,
+        scoped: assigned !== null,
+        workspaceSlugs: assigned
+          ? assigned.flatMap((workspace) => (workspace ? [workspace.slug] : []))
+          : null,
       };
     }
 
@@ -145,6 +154,8 @@ export const me = query({
         label: principal.label,
         email: undefined,
         workspaceSlug: workspace?.slug ?? null,
+        scoped: false,
+        workspaceSlugs: null,
       };
     }
 
@@ -153,6 +164,8 @@ export const me = query({
       label: workspace?.name ?? "Workspace",
       email: undefined,
       workspaceSlug: workspace?.slug ?? null,
+      scoped: false,
+      workspaceSlugs: null,
     };
   },
 });
@@ -282,11 +295,97 @@ export const listAdmins = query({
       _id: admin._id,
       email: admin.email,
       name: admin.name,
+      role: admin.role ?? "admin",
+      workspaceIds: admin.role === "member" ? (admin.workspaceIds ?? []) : [],
       createdAt: admin.createdAt,
       lastLoginAt: admin.lastLoginAt ?? null,
       passwordHint: maskSecret(admin.passwordHash),
       twoFactor: protectedLogins.has(`admin|${admin._id}`),
     }));
+  },
+});
+
+const adminRole = v.union(v.literal("admin"), v.literal("member"));
+
+async function checkedWorkspaceIds(
+  ctx: QueryCtx | MutationCtx,
+  role: "admin" | "member",
+  workspaceIds: Id<"workspaces">[]
+): Promise<Id<"workspaces">[] | undefined> {
+  if (role === "admin") return undefined;
+  const unique = [...new Set(workspaceIds)];
+  for (const id of unique) {
+    if (!(await ctx.db.get("workspaces", id))) {
+      throw new Error("One of the selected workspaces no longer exists.");
+    }
+  }
+  return unique;
+}
+
+export const updateAdminAccess = mutation({
+  args: {
+    adminId: v.id("admins"),
+    name: v.optional(v.string()),
+    role: adminRole,
+    workspaceIds: v.array(v.id("workspaces")),
+  },
+  handler: async (ctx, args) => {
+    const principal = await requireAdmin(ctx);
+    const admin = await ctx.db.get("admins", args.adminId);
+    if (!admin) throw new Error("Team member not found.");
+    if (admin._id === principal.adminId && args.role !== "admin") {
+      throw new Error("You cannot remove your own administrator role.");
+    }
+    await ctx.db.patch(admin._id, {
+      name: args.name?.trim() || undefined,
+      role: args.role,
+      workspaceIds: await checkedWorkspaceIds(ctx, args.role, args.workspaceIds),
+    });
+    return null;
+  },
+});
+
+export const removeAdmin = mutation({
+  args: { adminId: v.id("admins") },
+  handler: async (ctx, args) => {
+    const principal = await requireAdmin(ctx);
+    if (args.adminId === principal.adminId) {
+      throw new Error("You cannot remove yourself.");
+    }
+    const admin = await ctx.db.get("admins", args.adminId);
+    if (!admin) return null;
+
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("by_admin", (q) => q.eq("adminId", admin._id))
+      .collect();
+    for (const session of sessions) await ctx.db.delete(session._id);
+
+    const tokens = await ctx.db
+      .query("adminMcpTokens")
+      .withIndex("by_admin", (q) => q.eq("adminId", admin._id))
+      .collect();
+    for (const token of tokens) await ctx.db.delete(token._id);
+
+    await dropFactor(ctx, `admin|${admin._id}`);
+    await ctx.db.delete(admin._id);
+    return null;
+  },
+});
+
+export const setAdminPassword = internalMutation({
+  args: { adminId: v.id("admins"), passwordHash: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await ctx.db.get("admins", args.adminId);
+    if (!admin) throw new Error("Team member not found.");
+    await ctx.db.patch(admin._id, { passwordHash: args.passwordHash });
+    await dropFactor(ctx, `admin|${admin._id}`);
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("by_admin", (q) => q.eq("adminId", admin._id))
+      .collect();
+    for (const session of sessions) await ctx.db.delete(session._id);
+    return null;
   },
 });
 
@@ -609,6 +708,8 @@ export const insertAdmin = internalMutation({
     email: v.string(),
     name: v.optional(v.string()),
     passwordHash: v.string(),
+    role: v.optional(adminRole),
+    workspaceIds: v.optional(v.array(v.id("workspaces"))),
     // Guarded here as well as in the action so a race cannot create a second
     // administrator through the unauthenticated setup path.
     requireFirst: v.boolean(),
@@ -627,10 +728,13 @@ export const insertAdmin = internalMutation({
       .unique();
     if (clash) throw new Error("That email address is already registered.");
 
+    const role = args.requireFirst ? "admin" : (args.role ?? "admin");
     return await ctx.db.insert("admins", {
       email: args.email,
       name: args.name,
       passwordHash: args.passwordHash,
+      role,
+      workspaceIds: await checkedWorkspaceIds(ctx, role, args.workspaceIds ?? []),
       createdAt: Date.now(),
     });
   },

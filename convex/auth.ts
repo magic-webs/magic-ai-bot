@@ -440,12 +440,11 @@ export const createAdmin = action({
     email: v.string(),
     name: v.optional(v.string()),
     password: v.string(),
+    role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
+    workspaceIds: v.optional(v.array(v.id("workspaces"))),
   },
   handler: async (ctx, args): Promise<{ adminId: Id<"admins"> }> => {
-    const principal = await ctx.runQuery(api.authDb.me, {});
-    if (principal?.role !== "admin") {
-      throw new Error("Administrator access required.");
-    }
+    await ctx.runQuery(internal.authDb.assertAdmin, {});
     if (args.password.length < 12) {
       throw new Error("Choose a password of at least 12 characters.");
     }
@@ -456,10 +455,27 @@ export const createAdmin = action({
         email: args.email.trim().toLowerCase(),
         name: args.name?.trim() || undefined,
         passwordHash: await hashPassword(args.password),
+        role: args.role,
+        workspaceIds: args.workspaceIds,
         requireFirst: false,
       }
     );
     return { adminId };
+  },
+});
+
+export const resetAdminPassword = action({
+  args: { adminId: v.id("admins"), password: v.string() },
+  handler: async (ctx, args): Promise<{ success: true }> => {
+    await ctx.runQuery(internal.authDb.assertAdmin, {});
+    if (args.password.length < 12) {
+      throw new Error("Choose a password of at least 12 characters.");
+    }
+    await ctx.runMutation(internal.authDb.setAdminPassword, {
+      adminId: args.adminId,
+      passwordHash: await hashPassword(args.password),
+    });
+    return { success: true };
   },
 });
 
@@ -1210,10 +1226,7 @@ export const generateWorkspacePassword = action({
     ctx,
     args
   ): Promise<{ password: string; slug: string }> => {
-    const principal = await ctx.runQuery(api.authDb.me, {});
-    if (principal?.role !== "admin") {
-      throw new Error("Administrator access required.");
-    }
+    await ctx.runQuery(internal.authDb.assertAdmin, {});
 
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.workspaces.getInternal,
@@ -1242,10 +1255,7 @@ export const setWorkspaceAccess = action({
     status: v.union(v.literal("active"), v.literal("revoked")),
   },
   handler: async (ctx, args): Promise<{ success: true }> => {
-    const principal = await ctx.runQuery(api.authDb.me, {});
-    if (principal?.role !== "admin") {
-      throw new Error("Administrator access required.");
-    }
+    await ctx.runQuery(internal.authDb.assertAdmin, {});
     await ctx.runMutation(internal.authDb.setCredentialStatus, {
       workspaceId: args.workspaceId,
       status: args.status,

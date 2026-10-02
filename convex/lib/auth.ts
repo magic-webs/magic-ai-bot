@@ -12,7 +12,13 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 
 export type Principal =
-  | { role: "admin"; adminId: Id<"admins">; label: string }
+  | {
+      role: "admin";
+      adminId: Id<"admins">;
+      label: string;
+      /** Null for a full administrator; the assigned workspaces for a team member. */
+      workspaceIds: Id<"workspaces">[] | null;
+    }
   | { role: "workspace"; workspaceId: Id<"workspaces">; label: string }
   /**
    * A human agent, signed in with a login of their own. Opens their
@@ -82,7 +88,12 @@ export async function getPrincipal(ctx: Ctx): Promise<Principal | null> {
     if (!adminId) return null;
     const admin = await ctx.db.get("admins", adminId);
     if (!admin) return null;
-    return { role: "admin", adminId, label: admin.email };
+    return {
+      role: "admin",
+      adminId,
+      label: admin.email,
+      workspaceIds: admin.role === "member" ? (admin.workspaceIds ?? []) : null,
+    };
   }
 
   if (parsed.role === "member") {
@@ -150,7 +161,23 @@ export async function requireMember(
   return principal;
 }
 
+export function isFullAdmin(principal: Principal | null): boolean {
+  return principal?.role === "admin" && principal.workspaceIds === null;
+}
+
+/** A full administrator. Team members with assigned workspaces are refused. */
 export async function requireAdmin(
+  ctx: Ctx
+): Promise<Extract<Principal, { role: "admin" }>> {
+  const principal = await getPrincipal(ctx);
+  if (principal?.role !== "admin" || principal.workspaceIds !== null) {
+    throw new AuthError("Administrator access required.");
+  }
+  return principal;
+}
+
+/** Anyone on the platform team: a full administrator or a team member. */
+export async function requireStaff(
   ctx: Ctx
 ): Promise<Extract<Principal, { role: "admin" }>> {
   const principal = await getPrincipal(ctx);
@@ -173,7 +200,12 @@ export async function requireWorkspace(
 ): Promise<Principal> {
   const principal = await getPrincipal(ctx);
   if (!principal) throw new AuthError("Sign in to continue.");
-  if (principal.role === "admin") return principal;
+  if (principal.role === "admin") {
+    if (principal.workspaceIds && !principal.workspaceIds.includes(workspaceId)) {
+      throw new AuthError("You do not have access to this workspace.");
+    }
+    return principal;
+  }
   if (principal.workspaceId !== workspaceId) {
     throw new AuthError("You do not have access to this workspace.");
   }

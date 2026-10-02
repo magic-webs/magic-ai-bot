@@ -15,7 +15,12 @@ import {
   query,
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { requireAdmin, requireOwner, requireWorkspace } from "./lib/auth";
+import {
+  isFullAdmin,
+  requireAdmin,
+  requireOwner,
+  requireWorkspace,
+} from "./lib/auth";
 import {
   accountFor,
   allPlans,
@@ -144,7 +149,7 @@ export const overview = query({
     return {
       enabled: true as const,
       isOwner: principal.role !== "member",
-      isAdmin: principal.role === "admin",
+      isAdmin: isFullAdmin(principal),
       razorpayKeyId: config?.keyId ?? null,
       pricing: pricingOf(settings),
       access: standing.access,

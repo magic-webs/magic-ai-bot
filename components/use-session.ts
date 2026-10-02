@@ -25,7 +25,8 @@ export function useSession() {
   return {
     me,
     isLoading: me === undefined,
-    isAdmin: me?.role === "admin",
+    isAdmin: me?.role === "admin" && !me.scoped,
+    isStaff: me?.role === "admin",
     signOut,
   };
 }

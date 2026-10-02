@@ -10,6 +10,7 @@ import { kvPair } from "./schema";
 import { slugify, randomKey } from "./lib/shared";
 import {
   requireAdmin,
+  requireStaff,
   requireWorkspace,
 } from "./lib/auth";
 import { logoSrcFor } from "./lib/branding";
@@ -85,8 +86,12 @@ async function uniqueSlug(ctx: MutationCtx, desired: string): Promise<string> {
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const workspaces = await ctx.db.query("workspaces").order("desc").collect();
+    const principal = await requireStaff(ctx);
+    const all = await ctx.db.query("workspaces").order("desc").collect();
+    const allowed = principal.workspaceIds;
+    const workspaces = allowed
+      ? all.filter((workspace) => allowed.includes(workspace._id))
+      : all;
     return await Promise.all(
       workspaces.map(async (workspace) => ({
         ...workspace,

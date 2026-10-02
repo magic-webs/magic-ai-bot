@@ -8,7 +8,7 @@
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { getPrincipal } from "./auth";
+import { getPrincipal, isFullAdmin } from "./auth";
 import {
   DEFAULT_RECHARGE_MICROS,
   DEFAULT_SETTINGS,
@@ -222,7 +222,7 @@ export async function assertSeat(
   workspaceId: Id<"workspaces">,
   kind: SeatKind
 ): Promise<void> {
-  if ((await getPrincipal(ctx))?.role === "admin") return;
+  if (isFullAdmin(await getPrincipal(ctx))) return;
 
   const workspace = await ctx.db.get("workspaces", workspaceId);
   if (!workspace) throw new Error("Workspace not found");

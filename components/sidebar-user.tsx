@@ -109,7 +109,11 @@ export function SidebarUser({
                 </span>
               ) : (
                 <span className="truncate text-xs text-muted-foreground">
-                  {session.isAdmin ? "Administrator" : "Workspace"}
+                  {session.isAdmin
+                    ? "Administrator"
+                    : session.isStaff
+                      ? "Team member"
+                      : "Workspace"}
                 </span>
               )}
             </div>
@@ -150,7 +154,7 @@ export function SidebarUser({
               <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
               {settingsLabel}
             </DropdownMenuItem>
-            {session.isAdmin && showPlatformLink ? (
+            {session.isStaff && showPlatformLink ? (
               <DropdownMenuItem render={<Link href="/admin/workspaces" />}>
                 <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
                 All workspaces

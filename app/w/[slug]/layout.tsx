@@ -279,7 +279,9 @@ export default function WorkspaceLayout({
   // A company may only ever load its own workspace; skip the query rather than
   // firing one the server will refuse.
   const allowed =
-    session.me?.role === "admin" || session.me?.workspaceSlug === slug;
+    session.isAdmin ||
+    session.me?.workspaceSlug === slug ||
+    Boolean(session.me?.workspaceSlugs?.includes(slug));
   const workspace = useQuery(
     api.workspaces.getBySlug,
     allowed ? { slug } : "skip"
@@ -389,7 +391,7 @@ export default function WorkspaceLayout({
           <SidebarHeader>
             <WorkspaceSwitcher
               workspace={workspace}
-              isAdmin={session.isAdmin}
+              isAdmin={session.isStaff}
             />
           </SidebarHeader>
 

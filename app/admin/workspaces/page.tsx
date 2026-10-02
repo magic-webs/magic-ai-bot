@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useSession } from "@/components/use-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -265,6 +266,7 @@ export default function AdminWorkspacesPage() {
   // query is asked outright rather than skipped on a role check.
   const workspaces = useQuery(api.workspaces.list, {});
   const seedDemo = useMutation(api.workspaces.seedDemo);
+  const { isAdmin } = useSession();
   const router = useRouter();
   const [seeding, setSeeding] = useState(false);
   const [view, setView] = useState<View>("list");
@@ -304,7 +306,7 @@ export default function AdminWorkspacesPage() {
             ))}
           </ToggleGroup>
 
-          <CreateWorkspaceDialog />
+          {isAdmin ? <CreateWorkspaceDialog /> : null}
         </div>
       </header>
 
@@ -317,6 +319,18 @@ export default function AdminWorkspacesPage() {
         ) : (
           <TableSkeleton rows={8} columns={5} />
         )
+      ) : workspaces.length === 0 && !isAdmin ? (
+        <Empty className="border border-dashed">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BuildingsIcon />
+            </EmptyMedia>
+            <EmptyTitle>No workspaces assigned</EmptyTitle>
+            <EmptyDescription>
+              An administrator has not given you access to any workspace yet.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : workspaces.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
@@ -404,11 +418,13 @@ export default function AdminWorkspacesPage() {
 
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
-                      <WorkspaceAccessDialog
-                        workspaceId={workspace._id}
-                        name={workspace.name}
-                        slug={workspace.slug}
-                      />
+                      {isAdmin ? (
+                        <WorkspaceAccessDialog
+                          workspaceId={workspace._id}
+                          name={workspace.name}
+                          slug={workspace.slug}
+                        />
+                      ) : null}
                       <Button
                         size="sm"
                         variant="outline"
@@ -449,11 +465,15 @@ export default function AdminWorkspacesPage() {
                 </span>
                 <Separator />
                 <div className="flex items-center justify-between gap-1">
-                  <WorkspaceAccessDialog
-                    workspaceId={workspace._id}
-                    name={workspace.name}
-                    slug={workspace.slug}
-                  />
+                  {isAdmin ? (
+                    <WorkspaceAccessDialog
+                      workspaceId={workspace._id}
+                      name={workspace.name}
+                      slug={workspace.slug}
+                    />
+                  ) : (
+                    <span />
+                  )}
                   <Button
                     size="lg"
                     variant="outline"

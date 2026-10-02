@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AdminSwitcher } from "@/components/admin-switcher";
 import { RequireAuth } from "@/components/require-auth";
 import { SidebarUser } from "@/components/sidebar-user";
@@ -42,6 +43,7 @@ import {
   Key01Icon,
   PlugSocketIcon,
   Tag01Icon,
+  UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 
 // The platform's own sections, in the order an operator meets them: what the
@@ -49,7 +51,7 @@ import {
 // an assistant, the models they all run on, what it costs, what it charges,
 // and who may sign in.
 //
-// Flat rows rather than the workspace sidebar's collapsible sections — nine
+// Flat rows rather than the workspace sidebar's collapsible sections — ten
 // destinations still read as one list, and a section that opens onto one item
 // is a control that does nothing.
 //
@@ -59,17 +61,29 @@ import {
 // charges. Plans & pricing sets the monthly fee, Subscriptions is who pays it
 // and how, and Message billing is what each account pays per WhatsApp
 // message out of its wallet.
-const NAV: Array<{ href: string; label: string; icon: IconSvgElement }> = [
+const NAV: Array<{
+  href: string;
+  label: string;
+  icon: IconSvgElement;
+  team?: boolean;
+}> = [
   { href: "", label: "Overview", icon: DashboardSpeed02Icon },
-  { href: "/workspaces", label: "Workspaces", icon: Building03Icon },
+  { href: "/workspaces", label: "Workspaces", icon: Building03Icon, team: true },
   { href: "/mcp", label: "MCP connector", icon: PlugSocketIcon },
   { href: "/models", label: "AI models", icon: AiBrain01Icon },
   { href: "/usage", label: "Tokens & cost", icon: Coins01Icon },
   { href: "/plans", label: "Plans & pricing", icon: Tag01Icon },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCardIcon },
   { href: "/billing", label: "Message billing", icon: Invoice01Icon },
-  { href: "/access", label: "Access", icon: Key01Icon },
+  { href: "/team", label: "Team", icon: UserGroupIcon },
+  { href: "/access", label: "Access", icon: Key01Icon, team: true },
 ];
+
+function teamMayOpen(pathname: string): boolean {
+  return NAV.some(
+    (item) => item.team && pathname.startsWith(`/admin${item.href}`)
+  );
+}
 
 /**
  * The platform shell.
@@ -80,9 +94,15 @@ const NAV: Array<{ href: string; label: string; icon: IconSvgElement }> = [
  */
 function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const session = useSession();
+  const blocked = session.isStaff && !session.isAdmin && !teamMayOpen(pathname);
 
-  if (session.isLoading) {
+  useEffect(() => {
+    if (blocked) router.replace("/admin/workspaces");
+  }, [blocked, router]);
+
+  if (session.isLoading || blocked) {
     return (
       <div className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
         <Spinner /> Loading…
@@ -90,7 +110,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session.isAdmin) {
+  if (!session.isStaff) {
     return (
       <div className="flex min-h-svh items-center justify-center p-8">
         <Empty className="max-w-md border border-dashed">
@@ -138,7 +158,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <SidebarGroupLabel>Platform</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV.map((item) => {
+                {NAV.filter((item) => session.isAdmin || item.team).map((item) => {
                   const href = `/admin${item.href}`;
                   // Overview is the area's own page, so it matches exactly —
                   // a prefix test would light it up on every route below it.
@@ -168,7 +188,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
           {/* No platform link in the menu: this is the platform. */}
           <SidebarUser
             settingsHref="/admin/access"
-            settingsLabel="Access & administrators"
+            settingsLabel="Access & two-factor"
             showPlatformLink={false}
           />
         </SidebarFooter>

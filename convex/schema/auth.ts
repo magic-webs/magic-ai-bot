@@ -6,6 +6,8 @@ export const authTables = {
     email: v.string(),
     name: v.optional(v.string()),
     passwordHash: v.string(),
+    role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
+    workspaceIds: v.optional(v.array(v.id("workspaces"))),
     createdAt: v.number(),
     lastLoginAt: v.optional(v.number()),
   }).index("by_email", ["email"]),
