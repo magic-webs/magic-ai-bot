@@ -48,6 +48,18 @@ export const agentsTables = {
     .index("by_workspace_status", ["workspaceId", "status"])
     .index("by_workspace_kind", ["workspaceId", "kind"]),
 
+  agentStats: defineTable({
+    workspaceId: v.id("workspaces"),
+    agentId: v.id("agents"),
+    replies: v.number(),
+    latencyTotalMs: v.number(),
+    latencyCount: v.number(),
+    lastReplyText: v.optional(v.string()),
+    lastReplyAt: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_agent", ["agentId"]),
+
   tools: defineTable({
     workspaceId: v.id("workspaces"),
     agentId: v.optional(v.id("agents")),

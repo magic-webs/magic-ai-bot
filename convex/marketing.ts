@@ -31,6 +31,8 @@ import { requireWorkspace } from "./lib/auth";
 import { charge } from "./lib/charge";
 import { normalisePhone } from "./lib/notifications";
 import { templateBlock } from "./lib/wallet";
+import { recordAgentReply } from "./lib/agentStats";
+import { insertConversation, noteMessage } from "./lib/inbox";
 import { ensureMarketingDesk } from "./agents";
 import {
   festivalsBetween,
@@ -909,7 +911,7 @@ async function marketingThread(
     .unique();
   if (existing) return existing;
 
-  const conversationId = await ctx.db.insert("conversations", {
+  const conversationId = await insertConversation(ctx, {
     workspaceId: args.workspaceId,
     agentId: entryAgentId,
     activeAgentId: entryAgentId,
@@ -941,11 +943,16 @@ async function writeMarketingMessage(
     agentId: args.agentId,
     createdAt: args.now,
   });
-  await ctx.db.patch("conversations", thread._id, {
-    messageCount: thread.messageCount + 1,
-    lastMessageAt: args.now,
-    lastMessagePreview: args.text.slice(0, 140),
-    lastMessageRole: "assistant",
+  await recordAgentReply(ctx, thread.workspaceId, args.agentId, {
+    at: args.now,
+    text: args.text,
+  });
+  const desk = args.agentId ? await ctx.db.get("agents", args.agentId) : null;
+  await noteMessage(ctx, thread, {
+    from: "agent",
+    sender: desk?.botName,
+    preview: args.text,
+    at: args.now,
   });
 }
 

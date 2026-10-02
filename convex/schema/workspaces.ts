@@ -45,6 +45,8 @@ export const workspacesTables = {
     ),
     messageCount: v.number(),
     lastActiveAt: v.optional(v.number()),
+    lastReplyText: v.optional(v.string()),
+    lastReplyAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),

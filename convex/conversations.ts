@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
+import type { ObjectType } from "convex/values";
 import {
   query,
   mutation,
@@ -13,6 +15,20 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
 import { historyText, type Outbound } from "./lib/whatsappSend";
 import { normaliseBirthday } from "./lib/marketing";
+import { recordAgentReply, REPLY_PREVIEW_CHARS } from "./lib/agentStats";
+import {
+  EMPTY_INBOX_COUNTS,
+  INBOX_COUNT_KEYS,
+  countsOf,
+  deleteConversation,
+  insertConversation,
+  isAwaitingReply,
+  pickCounts,
+  searchTextFor,
+  noteMessage,
+  patchConversation,
+  refreshContactSearch,
+} from "./lib/inbox";
 import {
   BOT_REPEAT_LIMIT,
   HANDBACK_AFTER_MINUTES,
@@ -71,13 +87,134 @@ export const listByWorkspace = query({
             .take(limit)
         : await ctx.db
             .query("conversations")
-            .withIndex("by_workspace", (q) =>
+            .withIndex("by_workspace_lastMessageAt", (q) =>
               q.eq("workspaceId", args.workspaceId)
             )
             .order("desc")
             .take(limit);
 
     return await inboxRows(ctx, args.workspaceId, rows);
+  },
+});
+
+/**
+ * The inbox, a page at a time, newest activity first.
+ *
+ * The bucket picks the index, so the common views read only the rows they
+ * show. The other filters narrow inside that range.
+ */
+export const inboxArgs = {
+  workspaceId: v.id("workspaces"),
+  paginationOpts: paginationOptsValidator,
+  escalations: v.optional(v.boolean()),
+  bucket: v.optional(
+    v.union(
+      v.literal("all"),
+      v.literal("open"),
+      v.literal("unread"),
+      v.literal("closed")
+    )
+  ),
+  channelType: v.optional(v.union(v.literal("whatsapp"), v.literal("web"))),
+  agentId: v.optional(v.id("agents")),
+  stageId: v.optional(v.id("leadStages")),
+  handling: v.optional(v.union(v.literal("team"), v.literal("agent"))),
+  bots: v.optional(v.union(v.literal("hide"), v.literal("only"))),
+  since: v.optional(v.number()),
+  search: v.optional(v.string()),
+};
+
+export const listInbox = query({
+  args: inboxArgs,
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return await inboxPage(ctx, args);
+  },
+});
+
+export async function inboxPage(
+  ctx: QueryCtx,
+  args: ObjectType<typeof inboxArgs>
+) {
+  const workspaceId = args.workspaceId;
+  const since = args.since ?? 0;
+  const unread = args.bucket === "unread";
+  const status = args.escalations
+    ? ("escalated" as const)
+    : args.bucket === "open" || args.bucket === "closed"
+      ? args.bucket
+      : undefined;
+  const term = args.search?.trim().slice(0, 100);
+
+  const conversations = ctx.db.query("conversations");
+  const range = term
+    ? conversations.withSearchIndex("search_inbox", (q) => {
+        const matched = q.search("searchText", term).eq("workspaceId", workspaceId);
+        const byStatus = status ? matched.eq("status", status) : matched;
+        return args.channelType
+          ? byStatus.eq("channelType", args.channelType)
+          : byStatus;
+      })
+    : unread
+      ? conversations
+          .withIndex("by_workspace_role_lastMessageAt", (q) =>
+            q
+              .eq("workspaceId", workspaceId)
+              .eq("lastMessageRole", "user")
+              .gte("lastMessageAt", since)
+          )
+          .order("desc")
+      : status
+        ? conversations
+            .withIndex("by_workspace_status_lastMessageAt", (q) =>
+              q
+                .eq("workspaceId", workspaceId)
+                .eq("status", status)
+                .gte("lastMessageAt", since)
+            )
+            .order("desc")
+        : conversations
+            .withIndex("by_workspace_lastMessageAt", (q) =>
+              q.eq("workspaceId", workspaceId).gte("lastMessageAt", since)
+            )
+            .order("desc");
+
+  const result = await range
+    .filter((q) => {
+      const all = [];
+      if (term && since) all.push(q.gte(q.field("lastMessageAt"), since));
+      if (unread) {
+        if (term) all.push(q.eq(q.field("lastMessageRole"), "user"));
+        if (status) all.push(q.eq(q.field("status"), status));
+        else all.push(q.neq(q.field("status"), "closed"));
+        all.push(q.neq(q.field("markedBot"), true));
+      }
+      if (args.channelType && !term) {
+        all.push(q.eq(q.field("channelType"), args.channelType));
+      }
+      if (args.agentId) all.push(q.eq(q.field("activeAgentId"), args.agentId));
+      if (args.stageId) all.push(q.eq(q.field("leadStageId"), args.stageId));
+      if (args.handling === "team") all.push(q.eq(q.field("humanHandling"), true));
+      if (args.handling === "agent") all.push(q.neq(q.field("humanHandling"), true));
+      if (args.bots === "hide") all.push(q.neq(q.field("markedBot"), true));
+      if (args.bots === "only") all.push(q.eq(q.field("markedBot"), true));
+      return all.length > 0 ? q.and(...all) : true;
+    })
+    .paginate(args.paginationOpts);
+
+  return { ...result, page: await inboxRows(ctx, workspaceId, result.page) };
+}
+
+/** Every bucket's size across the whole workspace, from one row. */
+export const inboxCounts = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const row = await ctx.db
+      .query("inboxCounts")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    return row ? pickCounts(row) : EMPTY_INBOX_COUNTS;
   },
 });
 
@@ -90,13 +227,11 @@ export const escalatedCount = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    const rows = await ctx.db
-      .query("conversations")
-      .withIndex("by_workspace_status", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("status", "escalated")
-      )
-      .take(100);
-    return rows.length;
+    const row = await ctx.db
+      .query("inboxCounts")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    return row?.escalated ?? 0;
   },
 });
 
@@ -111,22 +246,28 @@ export async function inboxRows(
   workspaceId: Id<"workspaces">,
   rows: Doc<"conversations">[]
 ) {
-  const agents = await ctx.db
-    .query("agents")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  const agentNames = new Map(agents.map((a) => [a._id, a.botName]));
+  const agentNames = new Map<Id<"agents">, string>();
+  const nameOf = async (agentId: Id<"agents">) => {
+    if (!agentNames.has(agentId)) {
+      const agent = await ctx.db.get("agents", agentId);
+      agentNames.set(agentId, agent?.workspaceId === workspaceId ? agent.botName : "—");
+    }
+    return agentNames.get(agentId)!;
+  };
 
   const out = [];
-  for (const row of rows) {
+  for (const stored of rows) {
+    const row = { ...stored, searchText: undefined };
     const contact = await ctx.db.get("contacts", row.contactId);
     const holderId = row.activeAgentId ?? row.agentId;
+    const agentName = await nameOf(row.agentId);
+    const activeAgentName = await nameOf(holderId);
     out.push({
       ...row,
-      agentName: agentNames.get(row.agentId) ?? "—",
+      agentName,
       // Who answered last. Differs from agentName once the front desk has
       // routed the conversation on.
-      activeAgentName: agentNames.get(holderId) ?? "—",
+      activeAgentName,
       handedOff: holderId !== row.agentId,
       contactLabel:
         contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown",
@@ -149,9 +290,9 @@ export async function inboxRows(
  */
 async function spokeLast(
   ctx: QueryCtx,
-  row: Doc<"conversations">
+  row: Omit<Doc<"conversations">, "searchText">
 ): Promise<boolean> {
-  if (row.lastMessageRole) return row.lastMessageRole === "user";
+  if (row.lastMessageRole) return isAwaitingReply(row);
 
   const tail = await ctx.db
     .query("messages")
@@ -207,7 +348,7 @@ export const startFromContact = mutation({
       matching.find((c) => c.status === "active") ?? matching[0] ?? undefined;
 
     const now = Date.now();
-    const conversationId = await ctx.db.insert("conversations", {
+    const conversationId = await insertConversation(ctx, {
       workspaceId: contact.workspaceId,
       agentId: args.agentId,
       activeAgentId: args.agentId,
@@ -324,11 +465,14 @@ export const reset = mutation({
       .collect();
     for (const message of messages) await ctx.db.delete(message._id);
 
-    await ctx.db.patch(args.conversationId, {
+    await patchConversation(ctx, conversation, {
       messageCount: 0,
       status: "open",
       lastMessagePreview: undefined,
       lastMessageRole: undefined,
+      lastMessageFrom: undefined,
+      lastMessageSender: undefined,
+      unreadCount: 0,
       lastMessageAt: Date.now(),
       // Give the thread back to the entry agent. Clearing the transcript alone
       // left whichever specialist the last handoff put in charge still holding
@@ -355,10 +499,9 @@ export const setStatus = mutation({
     // A human agent resolving their escalation is the commonest caller, and
     // the last one they can make on it: once it is open or closed it has left
     // the desk.
-    if (!(await threadAccess(ctx, args.conversationId))) {
-      throw new AuthError(OFF_THE_DESK);
-    }
-    await ctx.db.patch(args.conversationId, { status: args.status });
+    const access = await threadAccess(ctx, args.conversationId);
+    if (!access) throw new AuthError(OFF_THE_DESK);
+    await patchConversation(ctx, access.conversation, { status: args.status });
     return { success: true };
   },
 });
@@ -368,7 +511,7 @@ const OFF_THE_DESK = "This conversation is no longer available here.";
 export const remove = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    await requireConversation(ctx, args.conversationId);
+    const conversation = await requireConversation(ctx, args.conversationId);
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
@@ -376,7 +519,7 @@ export const remove = mutation({
       )
       .collect();
     for (const message of messages) await ctx.db.delete(message._id);
-    await ctx.db.delete(args.conversationId);
+    await deleteConversation(ctx, conversation);
     return { success: true };
   },
 });
@@ -457,19 +600,23 @@ export const recordManualReply = internalMutation({
     });
 
     if (sender) {
+      const text = args.text.trim();
       await ctx.db.patch(sender._id, {
         messageCount: sender.messageCount + 1,
         lastActiveAt: now,
+        ...(text
+          ? { lastReplyText: text.slice(0, REPLY_PREVIEW_CHARS), lastReplyAt: now }
+          : {}),
       });
     }
 
     const conversation = await ctx.db.get("conversations", args.conversationId);
     if (conversation) {
-      await ctx.db.patch(args.conversationId, {
-        messageCount: conversation.messageCount + 1,
-        lastMessageAt: now,
-        lastMessagePreview: args.text.slice(0, 140),
-        lastMessageRole: "assistant",
+      await noteMessage(
+        ctx,
+        conversation,
+        { from: "team", sender: sender?.name, preview: args.text, at: now },
+        {
         // Replying by hand is the takeover. Anything else would have the agent
         // answer the customer's next message over the top of a colleague who
         // is mid-conversation with them.
@@ -478,7 +625,8 @@ export const recordManualReply = internalMutation({
         // sweep only reclaims one nobody has touched.
         humanHandlingAt: now,
         humanHandlingUntil: now + clampPause(args.pauseMinutes) * 60_000,
-      });
+        }
+      );
     }
     return { success: true };
   },
@@ -493,11 +641,10 @@ export const setHumanHandling = mutation({
     pauseMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    if (!(await threadAccess(ctx, args.conversationId))) {
-      throw new AuthError(OFF_THE_DESK);
-    }
+    const access = await threadAccess(ctx, args.conversationId);
+    if (!access) throw new AuthError(OFF_THE_DESK);
     const now = Date.now();
-    await ctx.db.patch(args.conversationId, {
+    await patchConversation(ctx, access.conversation, {
       humanHandling: args.handling,
       // Cleared rather than left behind: the sweep finds held threads through
       // these fields' indexes, and a stale timestamp on a released thread
@@ -524,7 +671,7 @@ export const setBot = mutation({
     if ((conversation.markedBot ?? false) === args.bot) return { success: true };
 
     const now = Date.now();
-    await ctx.db.patch(conversation._id, {
+    await patchConversation(ctx, conversation, {
       markedBot: args.bot || undefined,
       markedBotAt: args.bot ? now : undefined,
       repeatText: undefined,
@@ -640,7 +787,7 @@ async function releaseHold(
         )
       : HANDBACK_AFTER_MINUTES;
 
-  await ctx.db.patch(conversation._id, {
+  await patchConversation(ctx, conversation, {
     humanHandling: false,
     humanHandlingAt: undefined,
     humanHandlingUntil: undefined,
@@ -850,7 +997,7 @@ export const startTurn = internalMutation({
           ? await marketingSeeds(ctx, contact._id, now)
           : [];
 
-      const conversationId = await ctx.db.insert("conversations", {
+      const conversationId = await insertConversation(ctx, {
         workspaceId: args.workspaceId,
         agentId: args.agentId,
         // A brand new conversation is held by whoever the channel points at —
@@ -936,11 +1083,11 @@ export const startTurn = internalMutation({
         : 1;
     const caughtAsBot = repeatCount > BOT_REPEAT_LIMIT;
 
-    await ctx.db.patch(conversation._id, {
-      messageCount: conversation.messageCount + 1,
-      lastMessageAt: now,
-      lastMessagePreview: args.text.slice(0, 140),
-      lastMessageRole: "user",
+    await noteMessage(
+      ctx,
+      conversation,
+      { from: "customer", preview: args.text, at: now },
+      {
       channelId: conversation.channelId ?? args.channelId,
       repeatText,
       repeatCount,
@@ -948,7 +1095,8 @@ export const startTurn = internalMutation({
       // A thread the marketing desk opened becomes a real conversation the
       // moment the customer answers it.
       ...(conversation.marketingOnly ? { marketingOnly: undefined } : {}),
-    });
+      }
+    );
 
     if (caughtAsBot) {
       await ctx.db.insert("messages", {
@@ -1061,17 +1209,23 @@ export const finishTurn = internalMutation({
         latencyMs: args.latencyMs,
         createdAt: now,
       });
-
+      await recordAgentReply(ctx, args.workspaceId, args.agentId, {
+        at: now,
+        text: args.replyText,
+        latencyMs: args.latencyMs,
+      });
       const conversation = await ctx.db.get(
         "conversations",
         args.conversationId
       );
       if (conversation) {
-        await ctx.db.patch(args.conversationId, {
-          messageCount: conversation.messageCount + 1,
-          lastMessageAt: now,
-          lastMessagePreview: args.replyText.slice(0, 140),
-          lastMessageRole: "assistant",
+        const agent = args.agentId ? await ctx.db.get("agents", args.agentId) : null;
+        await noteMessage(ctx, conversation, {
+          from: "agent",
+          sender: agent?.botName,
+          preview: args.replyText,
+          at: now,
+          latencyMs: args.latencyMs,
         });
       }
     }
@@ -1160,14 +1314,16 @@ export const recordRichMessage = internalMutation({
       agentId: args.agentId,
       createdAt: now,
     });
+    await recordAgentReply(ctx, args.workspaceId, args.agentId, { at: now });
 
     const conversation = await ctx.db.get("conversations", args.conversationId);
     if (conversation) {
-      await ctx.db.patch(args.conversationId, {
-        messageCount: conversation.messageCount + 1,
-        lastMessageAt: now,
-        lastMessagePreview: args.summary.slice(0, 140),
-        lastMessageRole: "assistant",
+      const agent = args.agentId ? await ctx.db.get("agents", args.agentId) : null;
+      await noteMessage(ctx, conversation, {
+        from: "agent",
+        sender: agent?.botName,
+        preview: args.summary,
+        at: now,
       });
     }
     return { success: true };
@@ -1223,13 +1379,12 @@ export const recordCustomerEvent = internalMutation({
       text: args.text,
       createdAt: now,
     });
-    await ctx.db.patch(conversation._id, {
-      messageCount: conversation.messageCount + 1,
-      lastMessageAt: now,
-      lastMessagePreview: args.text.slice(0, 140),
-      lastMessageRole: "user",
-      ...(conversation.marketingOnly ? { marketingOnly: undefined } : {}),
-    });
+    await noteMessage(
+      ctx,
+      conversation,
+      { from: "customer", preview: args.text, at: now },
+      conversation.marketingOnly ? { marketingOnly: undefined } : {}
+    );
     return { success: true };
   },
 });
@@ -1237,7 +1392,8 @@ export const recordCustomerEvent = internalMutation({
 export const markEscalated = internalMutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.conversationId, { status: "escalated" });
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (conversation) await patchConversation(ctx, conversation, { status: "escalated" });
   },
 });
 
@@ -1278,6 +1434,7 @@ export const saveContactDetail = internalMutation({
 
     if (known[field]) {
       await ctx.db.patch(args.contactId, { [known[field]]: value });
+      await refreshContactSearch(ctx, args.contactId);
       return { success: true, stored: known[field] };
     }
 
@@ -1324,8 +1481,146 @@ export const updateContact = mutation({
       if (value !== undefined) patch[key] = value;
     }
     await ctx.db.patch(contactId, patch);
+    await refreshContactSearch(ctx, contactId);
     return { success: true };
   },
 });
 
 export type ConversationId = Id<"conversations">;
+
+const RECOUNT_BATCH = 100;
+
+/**
+ * Rebuilds every workspace's inbox counts from its conversations. Daily from
+ * the cron, so a write that slipped past the helper cannot leave them wrong
+ * for long. With `fields`, it also fills the inbox fields older rows lack.
+ */
+export const recountInbox = internalMutation({
+  args: {
+    fields: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaces")
+      .paginate({ numItems: 20, cursor: args.cursor ?? null });
+    for (const workspace of page.page) {
+      await ctx.scheduler.runAfter(0, internal.conversations.recountInboxForWorkspace, {
+        workspaceId: workspace._id,
+        fields: args.fields ?? false,
+        cursor: null,
+        totals: EMPTY_INBOX_COUNTS,
+      });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.conversations.recountInbox, {
+        fields: args.fields,
+        cursor: page.continueCursor,
+      });
+    }
+    return { workspaces: page.page.length, done: page.isDone };
+  },
+});
+
+const countsValidator = v.object({
+  total: v.number(),
+  open: v.number(),
+  escalated: v.number(),
+  closed: v.number(),
+  unread: v.number(),
+  escalatedUnread: v.number(),
+  team: v.number(),
+  bots: v.number(),
+});
+
+export const recountInboxForWorkspace = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    fields: v.boolean(),
+    cursor: v.union(v.string(), v.null()),
+    totals: countsValidator,
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .paginate({ numItems: RECOUNT_BATCH, cursor: args.cursor });
+
+    const totals = { ...args.totals };
+    for (const conversation of page.page) {
+      const current = args.fields
+        ? await fillInboxFields(ctx, conversation)
+        : conversation;
+      const counts = countsOf(current);
+      for (const key of INBOX_COUNT_KEYS) totals[key] += counts[key];
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.conversations.recountInboxForWorkspace, {
+        ...args,
+        cursor: page.continueCursor,
+        totals,
+      });
+      return;
+    }
+
+    const row = await ctx.db
+      .query("inboxCounts")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (row) await ctx.db.patch(row._id, totals);
+    else await ctx.db.insert("inboxCounts", { workspaceId: args.workspaceId, ...totals });
+  },
+});
+
+async function fillInboxFields(
+  ctx: MutationCtx,
+  conversation: Doc<"conversations">
+): Promise<Doc<"conversations">> {
+  const tail = await ctx.db
+    .query("messages")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+    .order("desc")
+    .take(30);
+  const spoken = tail.filter(
+    (message) =>
+      (message.kind === "text" || message.kind === "rich") &&
+      (message.role === "user" || message.role === "assistant")
+  );
+  const last = spoken[0];
+  let unreadCount = 0;
+  for (const message of spoken) {
+    if (message.role !== "user") break;
+    unreadCount += 1;
+  }
+
+  let sender: string | undefined;
+  let from: Doc<"conversations">["lastMessageFrom"];
+  if (last?.role === "user") from = "customer";
+  else if (last?.sentByHuman) {
+    from = "team";
+    const member = last.teamMemberId ? await ctx.db.get("teamMembers", last.teamMemberId) : null;
+    sender = member?.name;
+  } else if (last?.agentId) {
+    from = "agent";
+    sender = (await ctx.db.get("agents", last.agentId))?.botName;
+  } else if (last) {
+    from = "system";
+  }
+
+  const contact = await ctx.db.get("contacts", conversation.contactId);
+  const filled = {
+    lastMessageRole:
+      conversation.lastMessageRole ?? (last ? (last.role === "user" ? "user" : "assistant") : undefined),
+    lastMessageFrom: from,
+    lastMessageSender: sender,
+    unreadCount,
+    activeAgentId: conversation.activeAgentId ?? conversation.agentId,
+    searchText: searchTextFor(contact, conversation.lastMessagePreview),
+  } as const;
+  const changed = (Object.keys(filled) as (keyof typeof filled)[]).some(
+    (key) => conversation[key] !== filled[key]
+  );
+  if (changed) await ctx.db.patch(conversation._id, filled);
+  return { ...conversation, ...filled };
+}

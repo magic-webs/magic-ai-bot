@@ -72,6 +72,7 @@ import {
   TimerIcon,
   WarningIcon,
   ProhibitIcon,
+  ChecksIcon,
 } from "@phosphor-icons/react";
 
 /**
@@ -83,10 +84,10 @@ import {
  * what `ConversationDetail` is handed: the desk passes `replyingAs`.
  */
 
-/** A thread as `conversations.listByWorkspace` and `desk.escalations` list it. */
+/** A thread as `conversations.listInbox` and `desk.escalations` list it. */
 export type InboxRow = FunctionReturnType<
-  typeof api.conversations.listByWorkspace
->[number];
+  typeof api.conversations.listInbox
+>["page"][number];
 
 export type Status = "open" | "escalated" | "closed";
 
@@ -115,26 +116,38 @@ function relative(timestamp: number): string {
   }
 }
 
-/**
- * The same thing, short enough to sit at the end of a row without pushing the
- * name out of it. "about 21 hours ago" is three words of padding when the
- * column it lives in is four characters wide.
- */
-export function shortAgo(timestamp: number): string {
-  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return "now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.round(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  return new Date(timestamp).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
+/** The time at the end of a chat row, the way WhatsApp writes it. */
+export function chatTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (timestamp >= today.getTime()) {
+    return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+  if (timestamp >= today.getTime() - dayMs) return "Yesterday";
+  if (timestamp >= today.getTime() - 6 * dayMs) {
+    return date.toLocaleDateString(undefined, { weekday: "long" });
+  }
+  return date.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
   });
+}
+
+/** Who said the last thing, as the row prefixes it. Null for the customer. */
+function lastSpeaker(row: InboxRow): string | null {
+  switch (row.lastMessageFrom) {
+    case "team":
+      return row.lastMessageSender ?? "Team";
+    case "agent":
+      return row.lastMessageSender ?? row.activeAgentName;
+    case "system":
+      return row.lastMessageSender ?? "Alert";
+    default:
+      return row.lastMessageRole === "assistant" ? row.activeAgentName : null;
+  }
 }
 
 export function statusVariant(status: Status) {
@@ -147,7 +160,7 @@ export function statusVariant(status: Status) {
 
 /** A thread the customer had the last word on, and that nobody has filed away. */
 export function isUnread(row: InboxRow): boolean {
-  return row.awaitingReply && row.status !== "closed";
+  return row.awaitingReply && row.status !== "closed" && !row.markedBot;
 }
 
 /** One thread in a list, as the inbox and the desk both draw it. */
@@ -164,6 +177,8 @@ export function ConversationRow({
   onSelect: () => void;
 }) {
   const unread = isUnread(row);
+  const speaker = lastSpeaker(row);
+  const waiting = unread ? Math.max(1, row.unreadCount ?? 1) : 0;
   return (
     <button
       type="button"
@@ -202,27 +217,40 @@ export function ConversationRow({
               bot
             </Badge>
           ) : null}
-          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-            {shortAgo(row.lastMessageAt)}
+          <span
+            className={cn(
+              "ml-auto shrink-0 text-xs",
+              unread ? "font-medium text-primary" : "text-muted-foreground"
+            )}
+          >
+            {chatTime(row.lastMessageAt)}
           </span>
         </span>
 
         <span className="mt-0.5 flex min-w-0 items-center gap-2">
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-xs",
+              "flex min-w-0 flex-1 items-center gap-1 text-xs",
               unread ? "text-foreground" : "text-muted-foreground"
             )}
           >
-            {row.lastMessagePreview ?? "No messages"}
+            {speaker ? (
+              <>
+                <ChecksIcon className="size-3.5 shrink-0 text-sky-500" weight="bold" />
+                <span className="shrink-0 font-medium">{speaker}:</span>
+              </>
+            ) : null}
+            <span className="truncate">
+              {row.lastMessagePreview ?? "No messages"}
+            </span>
           </span>
-          {/* The one thing on the row worth a colour: the customer spoke last
-              and is still waiting. */}
-          {unread ? (
+          {waiting ? (
             <span
-              className="size-2 shrink-0 rounded-full bg-primary"
-              title="Waiting on a reply"
-            />
+              className="flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground tabular-nums"
+              title="Messages waiting on a reply"
+            >
+              {waiting > 99 ? "99+" : waiting}
+            </span>
           ) : null}
         </span>
 

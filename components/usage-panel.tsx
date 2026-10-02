@@ -121,17 +121,6 @@ export function UsagePanel() {
         </div>
       </div>
 
-      {data.truncated ? (
-        <Alert variant="destructive">
-          <WarningIcon />
-          <AlertTitle>Showing a partial window</AlertTitle>
-          <AlertDescription>
-            The read cap was reached, so these totals are a floor, not the full
-            figure. Narrow the period.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       {data.unpricedModels.length > 0 ? (
         <Alert variant="destructive">
           <WarningIcon />
@@ -212,7 +201,6 @@ export function UsagePanel() {
                 <ActivityChart
                   data={costSeries}
                   windowDays={data.windowDays}
-                  truncated={data.truncated}
                   series={{
                     key: "cost",
                     label: "Cost (USD)",

@@ -31,6 +31,7 @@ import { requireWorkspace } from "./lib/auth";
 import { charge } from "./lib/charge";
 import { templateBlocks } from "./lib/wallet";
 import { randomKey } from "./lib/shared";
+import { noteMessage } from "./lib/inbox";
 import {
   NOTIFICATION_EVENTS,
   ZEPTO_REGIONS,
@@ -1252,16 +1253,11 @@ export const recordResults = internalMutation({
           text: result.preview,
           createdAt: now,
         });
-        thread = {
-          ...thread,
-          messageCount: thread.messageCount + 1,
-          lastMessageAt: now,
-        };
-        await ctx.db.patch("conversations", thread._id, {
-          messageCount: thread.messageCount,
-          lastMessageAt: now,
-          lastMessagePreview: result.preview.slice(0, 140),
-          lastMessageRole: "assistant",
+        thread = await noteMessage(ctx, thread, {
+          from: "system",
+          sender: "Alert",
+          preview: result.preview,
+          at: now,
         });
       }
     }

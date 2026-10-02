@@ -81,6 +81,17 @@ export const conversationsTables = {
     lastMessageRole: v.optional(
       v.union(v.literal("user"), v.literal("assistant"))
     ),
+    lastMessageFrom: v.optional(
+      v.union(
+        v.literal("customer"),
+        v.literal("agent"),
+        v.literal("team"),
+        v.literal("system")
+      )
+    ),
+    lastMessageSender: v.optional(v.string()),
+    unreadCount: v.optional(v.number()),
+    searchText: v.optional(v.string()),
     leadStageId: v.optional(v.id("leadStages")),
     leadStageNote: v.optional(v.string()),
     leadStagePinned: v.optional(v.boolean()),
@@ -95,10 +106,36 @@ export const conversationsTables = {
     .index("by_contact_agent", ["contactId", "agentId"])
     .index("by_workspace_status", ["workspaceId", "status"])
     .index("by_workspace_lastMessageAt", ["workspaceId", "lastMessageAt"])
+    .index("by_workspace_status_lastMessageAt", ["workspaceId", "status", "lastMessageAt"])
+    .index("by_workspace_role_lastMessageAt", ["workspaceId", "lastMessageRole", "lastMessageAt"])
     .index("by_workspace_stage", ["workspaceId", "leadStageId"])
     .index("by_humanHandlingAt", ["humanHandlingAt"])
     .index("by_humanHandlingUntil", ["humanHandlingUntil"])
-    .index("by_marketingOnly_and_lastMessageAt", ["marketingOnly", "lastMessageAt"]),
+    .index("by_marketingOnly_and_lastMessageAt", ["marketingOnly", "lastMessageAt"])
+    .searchIndex("search_inbox", {
+      searchField: "searchText",
+      filterFields: ["workspaceId", "status", "channelType"],
+    }),
+
+  inboxCounts: defineTable({
+    workspaceId: v.id("workspaces"),
+    total: v.number(),
+    open: v.number(),
+    escalated: v.number(),
+    closed: v.number(),
+    unread: v.number(),
+    escalatedUnread: v.number(),
+    team: v.number(),
+    bots: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  dailyStats: defineTable({
+    workspaceId: v.id("workspaces"),
+    day: v.string(),
+    messages: v.number(),
+    latencyTotalMs: v.number(),
+    latencyCount: v.number(),
+  }).index("by_workspace_day", ["workspaceId", "day"]),
 
   messages: defineTable({
     workspaceId: v.id("workspaces"),

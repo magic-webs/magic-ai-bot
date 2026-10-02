@@ -183,7 +183,7 @@ export function ActivityChart({
 }: {
   data: Array<Record<string, unknown> & { date: string }>;
   windowDays: number;
-  truncated: boolean;
+  truncated?: boolean;
   series?: Column;
   columns?: Column[];
   noun?: string;

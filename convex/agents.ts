@@ -40,6 +40,7 @@ import {
   requireAgent,
   requireWorkspace,
 } from "./lib/auth";
+import { deleteConversation } from "./lib/inbox";
 
 export const DEFAULT_TONE = {
   traits: ["professional", "warm", "clear", "consultative"],
@@ -726,7 +727,7 @@ export const remove = mutation({
         )
         .collect();
       for (const message of messages) await ctx.db.delete(message._id);
-      await ctx.db.delete(conversation._id);
+      await deleteConversation(ctx, conversation);
     }
 
     // Conversations that were merely handed to this agent belong to another
@@ -771,6 +772,12 @@ export const remove = mutation({
       .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
       .collect();
     for (const tool of tools) await ctx.db.delete(tool._id);
+
+    const stats = await ctx.db
+      .query("agentStats")
+      .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
+      .unique();
+    if (stats) await ctx.db.delete(stats._id);
 
     await ctx.db.delete(args.agentId);
     return { success: true };
@@ -892,20 +899,6 @@ export const getInternal = internalQuery({
 // ---------------------------------------------------------------------------
 
 /**
- * Messages are the highest-volume table, so the latency sample is capped the
- * way analytics.dashboard caps its own. A busier workspace averages its
- * response time over the most recent slice rather than all of history.
- */
-const AGENT_MESSAGE_SCAN_CAP = 4000;
-
-/**
- * How much of an agent's last reply travels with the roster. Enough to read a
- * sentence or two on hover; not so much that a card ships an essay nobody
- * opened, once per agent, on every roster read.
- */
-const REPLY_PREVIEW_CHARS = 280;
-
-/**
  * Everything the Agents page counts, in one read.
  *
  * `now` is an argument for the same reason analytics.dashboard takes one:
@@ -922,16 +915,15 @@ export const roster = query({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
 
-    const [conversations, messages, stages] = await Promise.all([
+    const [conversations, stats, stages] = await Promise.all([
       ctx.db
         .query("conversations")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .collect(),
       ctx.db
-        .query("messages")
+        .query("agentStats")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .order("desc")
-        .take(AGENT_MESSAGE_SCAN_CAP),
+        .collect(),
       ctx.db
         .query("leadStages")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -984,30 +976,13 @@ export const roster = query({
       }
     }
 
-    for (const message of messages) {
-      if (!message.agentId) continue;
-      const row = tally(message.agentId);
-      // What the agent actually said, so the count matches the bubbles in the
-      // transcript: not its tool calls, and not a colleague's typing.
-      if (
-        message.role === "assistant" &&
-        !message.sentByHuman &&
-        (message.kind === "text" || message.kind === "rich")
-      ) {
-        row.messages += 1;
-        // The scan is newest-first, so the first one of these with words in it
-        // is the latest. A `rich` message is counted but skipped here — a menu
-        // has no sentence to quote, and quoting its JSON would be worse than
-        // quoting the text reply before it.
-        const text = message.text?.trim();
-        if (row.lastText === null && text) {
-          row.lastText = text.slice(0, REPLY_PREVIEW_CHARS);
-          row.lastAt = message.createdAt;
-        }
-      }
-      if (typeof message.latencyMs !== "number") continue;
-      row.latencyTotal += message.latencyMs;
-      row.latencyCount += 1;
+    for (const row of stats) {
+      const tallied = tally(row.agentId);
+      tallied.messages = row.replies;
+      tallied.latencyTotal = row.latencyTotalMs;
+      tallied.latencyCount = row.latencyCount;
+      tallied.lastText = row.lastReplyText ?? null;
+      tallied.lastAt = row.lastReplyAt ?? null;
     }
 
     const rate = (part: number, whole: number) =>
@@ -1016,7 +991,6 @@ export const roster = query({
     const byAgent = [...tallies.entries()].map(([agentId, row]) => ({
       agentId,
       conversations: row.conversations,
-      // Capped by AGENT_MESSAGE_SCAN_CAP, like the latency average above it.
       messages: row.messages,
       resolutionRate: rate(row.resolved, row.conversations),
       avgLatencyMs: row.latencyCount
@@ -1054,24 +1028,15 @@ export const roster = query({
       else if (outcome === "lost") lost += 1;
     }
 
-    const latencies = messages.filter(
-      (message) => typeof message.latencyMs === "number"
-    );
+    const latencyTotal = stats.reduce((sum, row) => sum + row.latencyTotalMs, 0);
+    const latencyCount = stats.reduce((sum, row) => sum + row.latencyCount, 0);
 
     return {
-      // True when the latency sample hit the cap, so a client can say the
-      // average covers recent traffic rather than all of it.
-      latencyTruncated: messages.length === AGENT_MESSAGE_SCAN_CAP,
       totals: {
         conversations: conversations.length,
         resolutionRate: rate(resolvedTotal, conversations.length),
-        avgLatencyMs: latencies.length
-          ? Math.round(
-              latencies.reduce(
-                (sum, message) => sum + (message.latencyMs as number),
-                0
-              ) / latencies.length
-            )
+        avgLatencyMs: latencyCount
+          ? Math.round(latencyTotal / latencyCount)
           : null,
       },
       byAgent,

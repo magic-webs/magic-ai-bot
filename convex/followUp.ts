@@ -99,13 +99,20 @@ export const review = internalAction({
       conversationId: args.conversationId,
     });
     if (!context) return { reviewed: false, reason: "conversation_missing" };
+    const skip = async (reason: string) => {
+      await ctx.runMutation(internal.leads.markReviewed, {
+        conversationId: args.conversationId,
+        reviewedAt: Date.now(),
+      });
+      return { reviewed: false, reason };
+    };
     if (context.stages.length === 0) {
       // Nothing to file it at. Not an error: a workspace that has deleted every
       // stage has opted out of the pipeline.
-      return { reviewed: false, reason: "no_stages" };
+      return await skip("no_stages");
     }
     if (context.transcript.length === 0) {
-      return { reviewed: false, reason: "nothing_said" };
+      return await skip("nothing_said");
     }
 
     const { workspace, deskAgent } = context;

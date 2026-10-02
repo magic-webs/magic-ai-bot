@@ -186,7 +186,6 @@ export default function WorkspaceOverviewPage() {
                 <ActivityChart
                   data={stats.daily}
                   windowDays={stats.windowDays}
-                  truncated={stats.messagesTruncated}
                 />
               </CardContent>
             </Card>

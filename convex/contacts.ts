@@ -4,6 +4,7 @@ import { query, mutation } from "./_generated/server";
 import { requireContact, requireWorkspace } from "./lib/auth";
 import { normaliseBirthday } from "./lib/marketing";
 import { normaliseEmail, normalisePhone } from "./lib/notifications";
+import { refreshContactSearch } from "./lib/inbox";
 
 /** The most people one paste may add. */
 const MAX_ADD = 500;
@@ -84,6 +85,7 @@ export const addMany = mutation({
         if (!existing.company && company) patch.company = company;
         if (Object.keys(patch).length > 0) {
           await ctx.db.patch("contacts", existing._id, patch);
+          if (patch.name) await refreshContactSearch(ctx, existing._id);
         }
         updated++;
         continue;
@@ -295,6 +297,7 @@ export const update = mutation({
     }
 
     await ctx.db.patch(contactId, patch);
+    await refreshContactSearch(ctx, contactId);
     return { success: true };
   },
 });

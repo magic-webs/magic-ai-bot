@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useEffect, useRef, useState } from "react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -12,7 +12,6 @@ import {
   ConversationDetail,
   ConversationRow,
   STATUS_OPTIONS,
-  isUnread,
 } from "@/components/conversation-detail";
 import { NewConversationDialog } from "@/components/new-conversation-dialog";
 import { Button } from "@/components/ui/button";
@@ -32,6 +31,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { ListSkeleton } from "@/components/skeletons";
+import { Spinner } from "@/components/ui/spinner";
+import { useHourBucket } from "@/components/use-now";
 import {
   ChatsIcon,
   MagnifyingGlassIcon,
@@ -67,6 +68,29 @@ const ESCALATION_BUCKETS = BUCKETS.filter(
   (bucket) => bucket.value === "all" || bucket.value === "unread"
 );
 
+type Bucket = (typeof BUCKETS)[number]["value"];
+
+const PAGE_SIZE = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const ACTIVITY_OPTIONS = [
+  { value: "any", label: "Any time" },
+  { value: "today", label: "Today" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+];
+
+function activitySince(activity: string, now: number): number | undefined {
+  if (activity === "today") {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return start.getTime();
+  }
+  if (activity === "7d") return now - 7 * DAY_MS;
+  if (activity === "30d") return now - 30 * DAY_MS;
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 
 export default function ConversationsPage() {
@@ -88,92 +112,104 @@ export default function ConversationsPage() {
   const router = useRouter();
   const pathname = usePathname();
 
+  const stages = useQuery(api.leads.stageNames, { workspaceId: workspace._id });
+  const counts = useQuery(api.conversations.inboxCounts, {
+    workspaceId: workspace._id,
+  });
+  const now = useHourBucket();
+
   const [agentFilter, setAgentFilter] = useState("all");
-  const [pickedStatus, setStatusFilter] = useState("all");
+  const [pickedStatus, setStatusFilter] = useState<string>("all");
   const [channelFilter, setChannelFilter] = useState("all");
   const [handlingFilter, setHandlingFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [activityFilter, setActivityFilter] = useState("any");
+  const [botsFilter, setBotsFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [term, setTerm] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setTerm(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
   const [selected, setSelected] = useState<Id<"conversations"> | null>(
     requested ? (requested as Id<"conversations">) : null
   );
 
-  const agentId =
-    agentFilter === "all" ? undefined : (agentFilter as Id<"agents">);
-  const everything = useQuery(api.conversations.listByWorkspace, {
-    workspaceId: workspace._id,
-    agentId,
-    limit: 200,
-  });
-  // Its own query rather than a filter over the list above: that one is the
-  // newest two hundred threads, and an escalation older than those is still
-  // waiting on somebody. Subscribed on both tabs, for the count on the tab.
-  const escalations = useQuery(api.conversations.listByWorkspace, {
-    workspaceId: workspace._id,
-    agentId,
-    status: "escalated",
-    limit: 200,
-  });
-  const conversations = view === "escalations" ? escalations : everything;
   const buckets = view === "escalations" ? ESCALATION_BUCKETS : BUCKETS;
   // A status bucket picked on one tab means nothing on the other, and the tab
   // can change from the sidebar without going through switchView — so an
   // Open or Closed picked on Conversations reads as All on Escalations.
-  const statusFilter =
-    view === "conversations" || pickedStatus === "unread" ? pickedStatus : "all";
+  const statusFilter = (
+    view === "conversations" || pickedStatus === "unread" ? pickedStatus : "all"
+  ) as Bucket | "escalated";
 
   const switchView = (next: View) => {
     setStatusFilter("all");
     router.replace(next === "escalations" ? `${pathname}?view=escalations` : pathname);
   };
 
-  const term = search.trim().toLowerCase();
-  // Everything but the bucket, so the counts on the buckets are counts of what
-  // picking one would actually show.
-  const matching = (conversations ?? []).filter((row) => {
-    if (channelFilter !== "all" && row.channelType !== channelFilter) {
-      return false;
-    }
-    if (handlingFilter === "you" && !row.humanHandling) return false;
-    if (handlingFilter === "agent" && row.humanHandling) return false;
-    if (!term) return true;
-    return [
-      row.contactLabel,
-      row.contactExternalId ?? "",
-      row.agentName,
-      row.activeAgentName,
-      row.lastMessagePreview ?? "",
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(term);
-  });
-
-  const counts = {
-    all: matching.length,
-    open: matching.filter((row) => row.status === "open").length,
-    unread: matching.filter(isUnread).length,
-    closed: matching.filter((row) => row.status === "closed").length,
+  // Escalated is a status, not a bucket: on the Conversations tab it is the
+  // same list as the Escalations tab, so picking it switches there.
+  const pickStatus = (value: string) => {
+    if (value === "escalated") switchView("escalations");
+    else setStatusFilter(value);
   };
 
-  const rows = matching.filter((row) => {
-    if (statusFilter === "all") return true;
-    if (statusFilter === "unread") return isUnread(row);
-    return row.status === statusFilter;
-  });
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.conversations.listInbox,
+    {
+      workspaceId: workspace._id,
+      escalations: view === "escalations",
+      bucket: statusFilter === "escalated" ? "all" : statusFilter,
+      agentId: agentFilter === "all" ? undefined : (agentFilter as Id<"agents">),
+      channelType:
+        channelFilter === "all" ? undefined : (channelFilter as "whatsapp" | "web"),
+      stageId: stageFilter === "all" ? undefined : (stageFilter as Id<"leadStages">),
+      handling:
+        handlingFilter === "you"
+          ? "team"
+          : handlingFilter === "agent"
+            ? "agent"
+            : undefined,
+      bots: botsFilter === "all" ? undefined : (botsFilter as "hide" | "only"),
+      since: activitySince(activityFilter, now),
+      search: term || undefined,
+    },
+    { initialNumItems: PAGE_SIZE }
+  );
+  const loading = status === "LoadingFirstPage";
 
-  const narrowed = channelFilter !== "all" || handlingFilter !== "all";
+  const narrowed =
+    channelFilter !== "all" ||
+    handlingFilter !== "all" ||
+    stageFilter !== "all" ||
+    activityFilter !== "any" ||
+    botsFilter !== "all";
+  const filtered = narrowed || agentFilter !== "all" || term !== "";
 
-  // What the reader actually picked, or nothing. Kept separate from `active`
-  // because the two layouts want different answers: side by side there should
-  // always be a transcript up, but on a phone "nothing picked yet" is a real
-  // state — it is the one that gives the list the whole screen.
-  const chosen = selected
-    ? rows.find((row) => row._id === selected)
-    : undefined;
+  const bucketCount = (bucket: Bucket): number | undefined => {
+    if (!counts) return undefined;
+    if (view === "escalations") {
+      return bucket === "unread" ? counts.escalatedUnread : counts.escalated;
+    }
+    return bucket === "all" ? counts.total : counts[bucket];
+  };
 
-  // Derived rather than stored: keeps a conversation open by default, and
-  // falls back gracefully when the current selection is filtered out or deleted.
-  const active = chosen ?? rows[0];
+  // Loads the next page as the end of the list scrolls into view.
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || status !== "CanLoadMore") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore(PAGE_SIZE);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [status, loadMore]);
+
+  // A thread opened from a link may be on a later page, so the detail pane
+  // shows the pick whether or not the list has reached it.
+  const activeId = selected ?? results[0]?._id;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -217,7 +253,7 @@ export default function ConversationsPage() {
                 id="conv-status"
                 aria-label="Filter by status"
                 value={statusFilter}
-                onValueChange={setStatusFilter}
+                onValueChange={pickStatus}
                 options={[
                   { value: "all", label: "All statuses" },
                   { value: "unread", label: "unread" },
@@ -241,7 +277,7 @@ export default function ConversationsPage() {
         <div
           className={cn(
             "min-h-0 min-w-0 flex-col border-b lg:w-92 lg:shrink-0 lg:border-b-0 lg:border-r",
-            chosen ? "hidden lg:flex" : "flex"
+            selected ? "hidden lg:flex" : "flex"
           )}
         >
           {/* Above the buckets: it picks the list, they narrow it. No panels —
@@ -257,9 +293,9 @@ export default function ConversationsPage() {
               </TabsTrigger>
               <TabsTrigger value="escalations">
                 <SirenIcon /> Escalations
-                {escalations?.length ? (
+                {counts?.escalated ? (
                   <span className="rounded-md bg-destructive/10 px-1 py-px text-[11px] text-destructive tabular-nums">
-                    {escalations.length}
+                    {counts.escalated}
                   </span>
                 ) : null}
               </TabsTrigger>
@@ -273,6 +309,7 @@ export default function ConversationsPage() {
           >
             {buckets.map((bucket) => {
               const isActive = statusFilter === bucket.value;
+              const count = bucketCount(bucket.value);
               return (
                 <button
                   key={bucket.value}
@@ -288,16 +325,20 @@ export default function ConversationsPage() {
                   onClick={() => setStatusFilter(bucket.value)}
                 >
                   {bucket.label}
-                  <span
-                    className={cn(
-                      "rounded-md px-1 py-px text-[11px] tabular-nums",
-                      isActive
-                        ? "bg-primary/15"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {conversations === undefined ? "—" : counts[bucket.value]}
-                  </span>
+                  {/* Workspace-wide counts, so they are left off while a filter
+                      narrows the list to something they no longer describe. */}
+                  {filtered ? null : (
+                    <span
+                      className={cn(
+                        "rounded-md px-1 py-px text-[11px] tabular-nums",
+                        isActive
+                          ? "bg-primary/15"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {count === undefined ? "—" : count.toLocaleString()}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -367,6 +408,52 @@ export default function ConversationsPage() {
                     ]}
                   />
                 </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="conv-stage" className="text-xs">
+                    Lead stage
+                  </Label>
+                  <SelectField
+                    id="conv-stage"
+                    size="sm"
+                    value={stageFilter}
+                    onValueChange={setStageFilter}
+                    options={[
+                      { value: "all", label: "Any stage" },
+                      ...(stages ?? []).map((stage) => ({
+                        value: stage._id as string,
+                        label: stage.name,
+                      })),
+                    ]}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="conv-activity" className="text-xs">
+                    Last message
+                  </Label>
+                  <SelectField
+                    id="conv-activity"
+                    size="sm"
+                    value={activityFilter}
+                    onValueChange={setActivityFilter}
+                    options={ACTIVITY_OPTIONS}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="conv-bots" className="text-xs">
+                    Bots
+                  </Label>
+                  <SelectField
+                    id="conv-bots"
+                    size="sm"
+                    value={botsFilter}
+                    onValueChange={setBotsFilter}
+                    options={[
+                      { value: "all", label: "Include bots" },
+                      { value: "hide", label: "Hide bots" },
+                      { value: "only", label: "Only bots" },
+                    ]}
+                  />
+                </div>
                 {narrowed ? (
                   <Button
                     size="sm"
@@ -375,6 +462,9 @@ export default function ConversationsPage() {
                     onClick={() => {
                       setChannelFilter("all");
                       setHandlingFilter("all");
+                      setStageFilter("all");
+                      setActivityFilter("any");
+                      setBotsFilter("all");
                     }}
                   >
                     Clear
@@ -385,11 +475,11 @@ export default function ConversationsPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {conversations === undefined ? (
+            {loading ? (
               <div className="px-3 pb-3">
                 <ListSkeleton rows={7} />
               </div>
-            ) : rows.length === 0 ? (
+            ) : results.length === 0 ? (
               <div className="px-3 pb-3">
                 <Empty className="border border-dashed">
                   <EmptyHeader>
@@ -397,14 +487,14 @@ export default function ConversationsPage() {
                       {view === "escalations" ? <SirenIcon /> : <ChatsIcon />}
                     </EmptyMedia>
                     <EmptyTitle>
-                      {conversations.length > 0
+                      {filtered || statusFilter !== "all"
                         ? "Nothing matches"
                         : view === "escalations"
                           ? "No escalations"
                           : "No conversations"}
                     </EmptyTitle>
                     <EmptyDescription>
-                      {conversations.length > 0
+                      {filtered || statusFilter !== "all"
                         ? "Try a different search term or filter."
                         : view === "escalations"
                           ? "When an agent hands a conversation to your team, it waits here until somebody sets it back to open or closes it."
@@ -415,15 +505,18 @@ export default function ConversationsPage() {
               </div>
             ) : (
               <div className="divide-y">
-                {rows.map((row) => (
+                {results.map((row) => (
                   <ConversationRow
                     key={row._id}
                     row={row}
-                    active={row._id === active?._id}
+                    active={row._id === activeId}
                     showStatus={view === "conversations"}
                     onSelect={() => setSelected(row._id)}
                   />
                 ))}
+                <div ref={sentinel} className="flex justify-center py-3">
+                  {status === "LoadingMore" ? <Spinner /> : null}
+                </div>
               </div>
             )}
           </div>
@@ -433,19 +526,17 @@ export default function ConversationsPage() {
         <div
           className={cn(
             "min-h-0 min-w-0 flex-1 flex-col",
-            chosen ? "flex" : "hidden lg:flex"
+            selected ? "flex" : "hidden lg:flex"
           )}
         >
-          {!active ? (
+          {!activeId ? (
             <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-              {conversations === undefined
-                ? null
-                : "Select a conversation to read the transcript."}
+              {loading ? null : "Select a conversation to read the transcript."}
             </div>
           ) : (
             <ConversationDetail
-              key={active._id}
-              conversationId={active._id}
+              key={activeId}
+              conversationId={activeId}
               workspaceId={workspace._id}
               agents={agents}
               onDeleted={() => setSelected(null)}

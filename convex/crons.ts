@@ -104,4 +104,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "recount inbox",
+  { hours: 24 },
+  internal.conversations.recountInbox,
+  {}
+);
+
 export default crons;

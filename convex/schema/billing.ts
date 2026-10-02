@@ -2,27 +2,46 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 import { messageCategory } from "./validators";
 
+const usageSource = v.union(
+  v.literal("chat"),
+  v.literal("retrieval"),
+  v.literal("ingest"),
+  v.literal("draft_agent"),
+  v.literal("draft_tool"),
+  v.literal("draft_catalogue"),
+  v.literal("review"),
+  v.literal("assistant"),
+  v.literal("draft_marketing")
+);
+const usageChannel = v.optional(v.union(v.literal("whatsapp"), v.literal("web")));
+const usageKind = v.union(v.literal("chat"), v.literal("embedding"));
+
 export const billingTables = {
+  usageDaily: defineTable({
+    day: v.string(),
+    workspaceId: v.id("workspaces"),
+    model: v.string(),
+    kind: usageKind,
+    source: usageSource,
+    channelType: usageChannel,
+    priced: v.boolean(),
+    calls: v.number(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    totalTokens: v.number(),
+    costNanoUsd: v.number(),
+  })
+    .index("by_day", ["day"])
+    .index("by_workspace_day", ["workspaceId", "day"]),
+
   usageEvents: defineTable({
     workspaceId: v.id("workspaces"),
     agentId: v.optional(v.id("agents")),
     conversationId: v.optional(v.id("conversations")),
-    source: v.union(
-      v.literal("chat"),
-      v.literal("retrieval"),
-      v.literal("ingest"),
-      v.literal("draft_agent"),
-      v.literal("draft_tool"),
-      v.literal("draft_catalogue"),
-      v.literal("review"),
-      v.literal("assistant"),
-      v.literal("draft_marketing")
-    ),
-    channelType: v.optional(
-      v.union(v.literal("whatsapp"), v.literal("web"))
-    ),
+    source: usageSource,
+    channelType: usageChannel,
     model: v.string(),
-    kind: v.union(v.literal("chat"), v.literal("embedding")),
+    kind: usageKind,
     inputTokens: v.number(),
     outputTokens: v.number(),
     totalTokens: v.number(),

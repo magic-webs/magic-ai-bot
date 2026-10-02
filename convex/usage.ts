@@ -3,10 +3,10 @@ import { internalMutation, query } from "./_generated/server";
 import { requireAdmin, requireWorkspace } from "./lib/auth";
 import { lookupPrice, mergedCatalogue } from "./lib/modelCatalogue";
 import { costNanoUsd } from "./lib/pricing";
+import { dayKey } from "./lib/dailyStats";
+import { addToUsageDaily } from "./lib/usageDaily";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// The dashboard reads rows, not a rollup, so one read is capped.
-const SCAN_CAP = 20_000;
 
 const sourceValidator = v.union(
   v.literal("chat"),
@@ -53,7 +53,7 @@ export const record = internalMutation({
       await lookupPrice(ctx, args.model)
     );
 
-    return await ctx.db.insert("usageEvents", {
+    const event = {
       workspaceId: args.workspaceId,
       agentId: args.agentId,
       conversationId: args.conversationId,
@@ -67,7 +67,9 @@ export const record = internalMutation({
       costNanoUsd: cost,
       priced,
       createdAt: Date.now(),
-    });
+    };
+    await addToUsageDaily(ctx, event);
+    return await ctx.db.insert("usageEvents", event);
   },
 });
 
@@ -87,24 +89,14 @@ const emptyTotals = (): Totals => ({
   costNanoUsd: 0,
 });
 
-function add(into: Totals, row: Totals | Doc) {
-  into.calls += 1;
+function add(into: Totals, row: Totals) {
+  into.calls += row.calls;
   into.inputTokens += row.inputTokens;
   into.outputTokens += row.outputTokens;
   into.totalTokens += row.totalTokens;
   into.costNanoUsd += row.costNanoUsd;
 }
 
-type Doc = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  costNanoUsd: number;
-};
-
-function dayKey(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
 
 /**
  * Every dimension the admin usage tab plots, in one read.
@@ -127,11 +119,12 @@ export const adminSummary = query({
     const windowStart = todayStart - (days - 1) * DAY_MS;
     const previousStart = windowStart - days * DAY_MS;
 
-    // Both windows in one scan, so the comparison cannot straddle two reads.
+    // Both windows in one read, so the comparison cannot straddle two.
     const rows = await ctx.db
-      .query("usageEvents")
-      .withIndex("by_createdAt", (q) => q.gte("createdAt", previousStart))
-      .take(SCAN_CAP);
+      .query("usageDaily")
+      .withIndex("by_day", (q) => q.gte("day", dayKey(previousStart)))
+      .collect();
+    const windowDay = dayKey(windowStart);
 
     const workspaces = await ctx.db.query("workspaces").collect();
     const workspaceName = new Map(workspaces.map((w) => [w._id, w.name]));
@@ -151,14 +144,14 @@ export const adminSummary = query({
     const unpriced = new Set<string>();
 
     for (const row of rows) {
-      if (row.createdAt < windowStart) {
+      if (row.day < windowDay) {
         add(previous, row);
         continue;
       }
       add(totals, row);
       if (!row.priced) unpriced.add(row.model);
 
-      const bucket = daily.get(dayKey(row.createdAt));
+      const bucket = daily.get(row.day);
       if (bucket) add(bucket, row);
 
       const wsKey = row.workspaceId as string;
@@ -194,9 +187,6 @@ export const adminSummary = query({
 
     return {
       windowDays: days,
-      // True when the cap was hit, so the page can say the figures are partial
-      // instead of presenting a floor as a total.
-      truncated: rows.length === SCAN_CAP,
       totals,
       previous,
       daily: [...daily.values()],
@@ -231,11 +221,11 @@ export const workspaceSummary = query({
     const windowStart = todayStart - (days - 1) * DAY_MS;
 
     const rows = await ctx.db
-      .query("usageEvents")
-      .withIndex("by_workspace_createdAt", (q) =>
-        q.eq("workspaceId", args.workspaceId).gte("createdAt", windowStart)
+      .query("usageDaily")
+      .withIndex("by_workspace_day", (q) =>
+        q.eq("workspaceId", args.workspaceId).gte("day", dayKey(windowStart))
       )
-      .take(SCAN_CAP);
+      .collect();
 
     const totals = emptyTotals();
     const bySource = new Map<string, Totals>();
@@ -247,7 +237,6 @@ export const workspaceSummary = query({
 
     return {
       windowDays: days,
-      truncated: rows.length === SCAN_CAP,
       totals,
       bySource: [...bySource.entries()].map(([key, value]) => ({ key, ...value })),
     };

@@ -215,18 +215,6 @@ export default function AdminOverviewPage() {
         </Alert>
       ) : null}
 
-      {usage.truncated ? (
-        <Alert>
-          <WarningIcon />
-          <AlertTitle>These figures are partial</AlertTitle>
-          <AlertDescription>
-            The window holds more usage events than one read returns, so
-            everything below is a floor rather than a total. Narrow the window
-            on the cost page to get an exact figure.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Workspaces"
@@ -280,7 +268,6 @@ export default function AdminOverviewPage() {
             <ActivityChart
               data={costSeries}
               windowDays={WINDOW_DAYS}
-              truncated={usage.truncated}
               series={{ key: "calls", label: "Model calls" }}
               noun="model calls"
               emptyLabel="No model calls in this period."

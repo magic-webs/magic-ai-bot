@@ -400,6 +400,7 @@ export const remove = mutation({
 
     const tables = [
       "agents",
+      "agentStats",
       "channels",
       "products",
       "orders",
@@ -416,6 +417,18 @@ export const remove = mutation({
         .collect();
       for (const row of rows) await ctx.db.delete(row._id);
     }
+
+    const counts = await ctx.db
+      .query("inboxCounts")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (counts) await ctx.db.delete(counts._id);
+
+    const days = await ctx.db
+      .query("dailyStats")
+      .withIndex("by_workspace_day", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const row of days) await ctx.db.delete(row._id);
 
     // The account's own rate card goes; its billing ledger stays. What a
     // company was charged is a record the platform still has to answer for

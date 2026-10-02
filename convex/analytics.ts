@@ -2,14 +2,9 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireWorkspace } from "./lib/auth";
 import { orderRecords, statusForStage } from "./lib/ordersBook";
+import { dayKey } from "./lib/dailyStats";
 
-// Messages are the highest-volume table; cap what one dashboard read scans.
-const MESSAGE_SCAN_CAP = 4000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function dayKey(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
 
 /**
  * Everything the workspace dashboard plots, in one read.
@@ -38,7 +33,7 @@ export const dashboard = query({
     const windowStart = todayStart - (days - 1) * DAY_MS;
     const previousStart = windowStart - days * DAY_MS;
 
-    const [allConversations, orders, tools, messages] = await Promise.all([
+    const [allConversations, orders, tools, dailyRows] = await Promise.all([
       ctx.db
         .query("conversations")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -51,10 +46,11 @@ export const dashboard = query({
         .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .collect(),
       ctx.db
-        .query("messages")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .order("desc")
-        .take(MESSAGE_SCAN_CAP),
+        .query("dailyStats")
+        .withIndex("by_workspace_day", (q) =>
+          q.eq("workspaceId", args.workspaceId).gte("day", dayKey(previousStart))
+        )
+        .collect(),
     ]);
 
     // A thread the marketing desk opened, that the customer has not answered,
@@ -74,8 +70,6 @@ export const dashboard = query({
         replySeconds: number | null;
       }
     >();
-    // Latencies are collected per day first, then averaged.
-    const latencyByDay = new Map<string, number[]>();
     for (let i = 0; i < days; i++) {
       const key = dayKey(windowStart + i * DAY_MS);
       buckets.set(key, {
@@ -85,12 +79,11 @@ export const dashboard = query({
         messages: 0,
         replySeconds: null,
       });
-      latencyByDay.set(key, []);
     }
 
     const bump = (
       timestamp: number,
-      field: "conversations" | "orders" | "messages"
+      field: "conversations" | "orders"
     ) => {
       const bucket = buckets.get(dayKey(timestamp));
       if (bucket) bucket[field] += 1;
@@ -98,19 +91,14 @@ export const dashboard = query({
 
     for (const row of conversations) bump(row.createdAt, "conversations");
     for (const row of orders) bump(row.createdAt, "orders");
-    for (const row of messages) {
-      bump(row.createdAt, "messages");
-      if (typeof row.latencyMs === "number") {
-        latencyByDay.get(dayKey(row.createdAt))?.push(row.latencyMs);
+    for (const row of dailyRows) {
+      const bucket = buckets.get(row.day);
+      if (!bucket) continue;
+      bucket.messages = row.messages;
+      if (row.latencyCount > 0) {
+        bucket.replySeconds =
+          Math.round((row.latencyTotalMs / row.latencyCount / 1000) * 10) / 10;
       }
-    }
-
-    for (const [key, values] of latencyByDay) {
-      const bucket = buckets.get(key);
-      if (!bucket || values.length === 0) continue;
-      const total = values.reduce((sum, value) => sum + value, 0);
-      bucket.replySeconds =
-        Math.round((total / values.length / 1000) * 10) / 10;
     }
 
     // --- window vs the window before it, for the stat deltas --------------
@@ -123,17 +111,21 @@ export const dashboard = query({
       predicate: (timestamp: number) => boolean
     ) => rows.filter((row) => predicate(row.createdAt)).length;
 
-    // Only assistant turns carry a latency, and only inside the window.
-    const latencies = messages
-      .filter((m) => inWindow(m.createdAt) && typeof m.latencyMs === "number")
-      .map((m) => m.latencyMs as number);
-    const previousLatencies = messages
-      .filter((m) => inPrevious(m.createdAt) && typeof m.latencyMs === "number")
-      .map((m) => m.latencyMs as number);
-    const mean = (values: number[]) =>
-      values.length
-        ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length)
-        : null;
+    const windowDay = dayKey(windowStart);
+    const sumDays = (inRange: (day: string) => boolean) => {
+      const rows = dailyRows.filter((row) => inRange(row.day));
+      const latencyCount = rows.reduce((sum, row) => sum + row.latencyCount, 0);
+      return {
+        messages: rows.reduce((sum, row) => sum + row.messages, 0),
+        avgLatencyMs: latencyCount
+          ? Math.round(
+              rows.reduce((sum, row) => sum + row.latencyTotalMs, 0) / latencyCount
+            )
+          : null,
+      };
+    };
+    const current = sumDays((day) => day >= windowDay);
+    const before = sumDays((day) => day < windowDay);
 
     // --- breakdowns -------------------------------------------------------
     const statusOrder = [
@@ -161,27 +153,24 @@ export const dashboard = query({
 
     return {
       windowDays: days,
-      // The chart is honest about the cap: if we hit it, the earliest days of
-      // the message series may be short.
-      messagesTruncated: messages.length === MESSAGE_SCAN_CAP,
       daily: [...buckets.values()],
       totals: {
         conversations: count(conversations, inWindow),
         orders: count(orders, inWindow),
-        messages: messages.filter((m) => inWindow(m.createdAt)).length,
+        messages: current.messages,
         escalated: conversations.filter(
           (c) => c.status === "escalated" && inWindow(c.createdAt)
         ).length,
-        avgLatencyMs: mean(latencies),
+        avgLatencyMs: current.avgLatencyMs,
       },
       previous: {
         conversations: count(conversations, inPrevious),
         orders: count(orders, inPrevious),
-        messages: messages.filter((m) => inPrevious(m.createdAt)).length,
+        messages: before.messages,
         escalated: conversations.filter(
           (c) => c.status === "escalated" && inPrevious(c.createdAt)
         ).length,
-        avgLatencyMs: mean(previousLatencies),
+        avgLatencyMs: before.avgLatencyMs,
       },
       ordersByStatus: statusOrder.map((status) => ({
         status,

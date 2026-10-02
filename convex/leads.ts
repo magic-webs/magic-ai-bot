@@ -17,6 +17,8 @@ import {
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { historyText, type Outbound } from "./lib/whatsappSend";
+import { recordAgentReply } from "./lib/agentStats";
+import { noteMessage } from "./lib/inbox";
 import {
   DEFAULT_LEAD_STAGES,
   DORMANT_AFTER_MINUTES,
@@ -75,6 +77,21 @@ export const ensureDefaultStages = mutation({
 export const ensureDefaultStagesInternal = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => await ensureStages(ctx, args.workspaceId),
+});
+
+/** Just the stages' names, in pipeline order, for pickers. */
+export const stageNames = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const stages = await ctx.db
+      .query("leadStages")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .take(100);
+    return stages
+      .sort((a, b) => a.position - b.position)
+      .map((stage) => ({ _id: stage._id, name: stage.name }));
+  },
 });
 
 export const listStages = query({
@@ -433,7 +450,11 @@ export const recordReview = internalMutation({
     if (!conversation) return { success: false };
 
     await ctx.db.patch(args.conversationId, {
-      reviewedAt: args.reviewedAt,
+      // The nudge itself moved lastMessageAt past this review; without the max
+      // the thread is due again an hour later and reviewed for nothing.
+      reviewedAt: args.followedUp
+        ? Math.max(args.reviewedAt, conversation.lastMessageAt)
+        : args.reviewedAt,
       // A stage set by hand is left alone. The note still records what the desk
       // would have said, so a person can see where they disagree with it.
       ...(args.stageId && !conversation.leadStagePinned
@@ -464,6 +485,17 @@ export const recordReview = internalMutation({
   },
 });
 
+/** Takes a thread the review skipped off the due list until the customer speaks. */
+export const markReviewed = internalMutation({
+  args: { conversationId: v.id("conversations"), reviewedAt: v.number() },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get("conversations", args.conversationId);
+    if (conversation) {
+      await ctx.db.patch(args.conversationId, { reviewedAt: args.reviewedAt });
+    }
+  },
+});
+
 /** Records the follow-up itself, so it reads as an ordinary outgoing message. */
 export const recordFollowUp = internalMutation({
   args: {
@@ -483,16 +515,19 @@ export const recordFollowUp = internalMutation({
       agentId: args.agentId,
       createdAt: now,
     });
+    await recordAgentReply(ctx, args.workspaceId, args.agentId, {
+      at: now,
+      text: args.text,
+    });
 
     const conversation = await ctx.db.get("conversations", args.conversationId);
     if (conversation) {
-      await ctx.db.patch(args.conversationId, {
-        messageCount: conversation.messageCount + 1,
-        // lastMessageAt moves, which is what keeps the sweep from picking the
-        // thread up again immediately: it is only due once the customer speaks.
-        lastMessageAt: now,
-        lastMessagePreview: args.text.slice(0, 140),
-        lastMessageRole: "assistant",
+      const desk = args.agentId ? await ctx.db.get("agents", args.agentId) : null;
+      await noteMessage(ctx, conversation, {
+        from: "agent",
+        sender: desk?.botName,
+        preview: args.text,
+        at: now,
       });
     }
     return { success: true };

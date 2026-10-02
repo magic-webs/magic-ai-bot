@@ -17,6 +17,7 @@ import {
   mergedCatalogue,
 } from "./lib/modelCatalogue";
 import { costNanoUsd } from "./lib/pricing";
+import { addToUsageDaily } from "./lib/usageDaily";
 import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 
 // A mutation may not rewrite an unbounded number of rows, and repricing is a
@@ -298,6 +299,8 @@ export const repriceUnpriced = mutation({
         stillUnpriced += 1;
         continue;
       }
+      await addToUsageDaily(ctx, row, -1);
+      await addToUsageDaily(ctx, { ...row, costNanoUsd: cost, priced: true });
       await ctx.db.patch(row._id, { costNanoUsd: cost, priced: true });
       repriced += 1;
     }

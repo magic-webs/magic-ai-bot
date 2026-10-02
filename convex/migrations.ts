@@ -26,6 +26,9 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildSearchBlob } from "./lib/shared";
+import { REPLY_PREVIEW_CHARS } from "./lib/agentStats";
+import { dayKey } from "./lib/dailyStats";
+import { addToUsageDaily } from "./lib/usageDaily";
 import {
   deliveryText,
   ensureOrdersBook,
@@ -233,3 +236,285 @@ async function moveAlerts(
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Reply stats
+//
+//   npx convex run migrations:backfillReplyStats
+//
+// Fills agentStats and each team member's last reply from the messages already
+// there. Only messages from before the run are counted, so replies arriving
+// meanwhile, which count themselves, are not counted twice.
+// ---------------------------------------------------------------------------
+
+const STATS_MESSAGE_BATCH = 100;
+
+export const backfillReplyStats = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaces")
+      .paginate({ numItems: WORKSPACE_BATCH, cursor: args.cursor ?? null });
+
+    for (const workspace of page.page) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.migrations.backfillReplyStatsForWorkspace,
+        { workspaceId: workspace._id, cursor: null }
+      );
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.backfillReplyStats, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { workspaces: page.page.length, done: page.isDone };
+  },
+});
+
+export const backfillReplyStatsForWorkspace = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    startedAt: v.optional(v.number()),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const startedAt = args.startedAt ?? Date.now();
+    if (args.cursor === null) {
+      const stale = await ctx.db
+        .query("agentStats")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect();
+      for (const row of stale) await ctx.db.delete(row._id);
+    }
+
+    const page = await ctx.db
+      .query("messages")
+      .withIndex("by_workspace", (q) =>
+        q.eq("workspaceId", args.workspaceId).lt("_creationTime", startedAt)
+      )
+      .paginate({ numItems: STATS_MESSAGE_BATCH, cursor: args.cursor });
+
+    type Delta = {
+      replies: number;
+      latencyTotalMs: number;
+      latencyCount: number;
+      last?: { text: string; at: number };
+    };
+    const agents = new Map<Id<"agents">, Delta>();
+    const members = new Map<Id<"teamMembers">, { text: string; at: number }>();
+
+    for (const message of page.page) {
+      const text = message.text?.trim();
+      if (message.sentByHuman) {
+        if (message.teamMemberId && text) {
+          members.set(message.teamMemberId, {
+            text: text.slice(0, REPLY_PREVIEW_CHARS),
+            at: message.createdAt,
+          });
+        }
+        continue;
+      }
+      if (!message.agentId || message.role !== "assistant") continue;
+      if (message.kind !== "text" && message.kind !== "rich") continue;
+
+      const delta = agents.get(message.agentId) ?? {
+        replies: 0,
+        latencyTotalMs: 0,
+        latencyCount: 0,
+      };
+      delta.replies += 1;
+      if (typeof message.latencyMs === "number") {
+        delta.latencyTotalMs += message.latencyMs;
+        delta.latencyCount += 1;
+      }
+      if (message.kind === "text" && text) {
+        delta.last = { text: text.slice(0, REPLY_PREVIEW_CHARS), at: message.createdAt };
+      }
+      agents.set(message.agentId, delta);
+    }
+
+    for (const [agentId, delta] of agents) {
+      if (!(await ctx.db.get("agents", agentId))) continue;
+      const stats = await ctx.db
+        .query("agentStats")
+        .withIndex("by_agent", (q) => q.eq("agentId", agentId))
+        .unique();
+      const newer = (at?: number) => delta.last && delta.last.at >= (at ?? 0);
+      if (!stats) {
+        await ctx.db.insert("agentStats", {
+          workspaceId: args.workspaceId,
+          agentId,
+          replies: delta.replies,
+          latencyTotalMs: delta.latencyTotalMs,
+          latencyCount: delta.latencyCount,
+          lastReplyText: delta.last?.text,
+          lastReplyAt: delta.last?.at,
+        });
+        continue;
+      }
+      await ctx.db.patch(stats._id, {
+        replies: stats.replies + delta.replies,
+        latencyTotalMs: stats.latencyTotalMs + delta.latencyTotalMs,
+        latencyCount: stats.latencyCount + delta.latencyCount,
+        ...(newer(stats.lastReplyAt)
+          ? { lastReplyText: delta.last!.text, lastReplyAt: delta.last!.at }
+          : {}),
+      });
+    }
+
+    for (const [memberId, last] of members) {
+      const member = await ctx.db.get("teamMembers", memberId);
+      if (!member || last.at < (member.lastReplyAt ?? 0)) continue;
+      await ctx.db.patch(memberId, { lastReplyText: last.text, lastReplyAt: last.at });
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.migrations.backfillReplyStatsForWorkspace,
+        { workspaceId: args.workspaceId, startedAt, cursor: page.continueCursor }
+      );
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Daily message totals
+//
+//   npx convex run migrations:backfillDailyStats
+//
+// Fills dailyStats from the messages already there, with the same cut-off as
+// backfillReplyStats so a message is counted once.
+// ---------------------------------------------------------------------------
+
+export const backfillDailyStats = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaces")
+      .paginate({ numItems: WORKSPACE_BATCH, cursor: args.cursor ?? null });
+    for (const workspace of page.page) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.migrations.backfillDailyStatsForWorkspace,
+        { workspaceId: workspace._id, cursor: null }
+      );
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.backfillDailyStats, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { workspaces: page.page.length, done: page.isDone };
+  },
+});
+
+export const backfillDailyStatsForWorkspace = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    startedAt: v.optional(v.number()),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const startedAt = args.startedAt ?? Date.now();
+    if (args.cursor === null) {
+      const stale = await ctx.db
+        .query("dailyStats")
+        .withIndex("by_workspace_day", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect();
+      for (const row of stale) await ctx.db.delete(row._id);
+    }
+
+    const page = await ctx.db
+      .query("messages")
+      .withIndex("by_workspace", (q) =>
+        q.eq("workspaceId", args.workspaceId).lt("_creationTime", startedAt)
+      )
+      .paginate({ numItems: STATS_MESSAGE_BATCH, cursor: args.cursor });
+
+    const days = new Map<
+      string,
+      { messages: number; latencyTotalMs: number; latencyCount: number }
+    >();
+    for (const message of page.page) {
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      if (message.kind !== "text" && message.kind !== "rich") continue;
+      const day = dayKey(message.createdAt);
+      const delta = days.get(day) ?? { messages: 0, latencyTotalMs: 0, latencyCount: 0 };
+      delta.messages += 1;
+      if (typeof message.latencyMs === "number") {
+        delta.latencyTotalMs += message.latencyMs;
+        delta.latencyCount += 1;
+      }
+      days.set(day, delta);
+    }
+
+    for (const [day, delta] of days) {
+      const row = await ctx.db
+        .query("dailyStats")
+        .withIndex("by_workspace_day", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("day", day)
+        )
+        .unique();
+      if (!row) {
+        await ctx.db.insert("dailyStats", { workspaceId: args.workspaceId, day, ...delta });
+        continue;
+      }
+      await ctx.db.patch(row._id, {
+        messages: row.messages + delta.messages,
+        latencyTotalMs: row.latencyTotalMs + delta.latencyTotalMs,
+        latencyCount: row.latencyCount + delta.latencyCount,
+      });
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.migrations.backfillDailyStatsForWorkspace,
+        { workspaceId: args.workspaceId, startedAt, cursor: page.continueCursor }
+      );
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Daily usage rollup
+//
+//   npx convex run migrations:backfillUsageDaily
+//
+// Rebuilds usageDaily from usageEvents. The clear and the cut-off happen in
+// the same mutation, so an event recorded meanwhile is counted once.
+// ---------------------------------------------------------------------------
+
+const USAGE_BATCH = 500;
+
+export const backfillUsageDaily = internalMutation({
+  args: {
+    startedAt: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    let startedAt = args.startedAt;
+    if (startedAt === undefined) {
+      for (const row of await ctx.db.query("usageDaily").collect()) {
+        await ctx.db.delete(row._id);
+      }
+      startedAt = Date.now();
+    }
+
+    const page = await ctx.db
+      .query("usageEvents")
+      .withIndex("by_creation_time", (q) => q.lt("_creationTime", startedAt))
+      .paginate({ numItems: USAGE_BATCH, cursor: args.cursor ?? null });
+    for (const event of page.page) await addToUsageDaily(ctx, event);
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.backfillUsageDaily, {
+        startedAt,
+        cursor: page.continueCursor,
+      });
+    }
+    return { events: page.page.length, done: page.isDone };
+  },
+});

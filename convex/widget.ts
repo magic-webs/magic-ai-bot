@@ -26,6 +26,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { resolveGreeting } from "./lib/prompt";
 import { logoSrcFor } from "./lib/branding";
+import { refreshContactSearch } from "./lib/inbox";
 
 const MAX_SESSION_ID_CHARS = 64;
 const MAX_FIELD_CHARS = 120;
@@ -247,6 +248,9 @@ export const register = mutation({
         phone: existing.phone ?? phone,
         lastSeenAt: now,
       });
+      if ((!existing.name && name) || (!existing.phone && phone)) {
+        await refreshContactSearch(ctx, existing._id);
+      }
       return { contactId: existing._id };
     }
 
