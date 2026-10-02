@@ -97,14 +97,25 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function copy(value: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.add({ title: `${what} copied`, type: "success" });
+  } catch {
+    toast.add({ title: "Copy failed", type: "error" });
+  }
+}
+
 function PasswordField({
   id,
   value,
   onChange,
+  email,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
+  email?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -130,18 +141,25 @@ function PasswordField({
           variant="outline"
           aria-label="Copy the password"
           disabled={!value}
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(value);
-              toast.add({ title: "Password copied", type: "success" });
-            } catch {
-              toast.add({ title: "Copy failed", type: "error" });
-            }
-          }}
+          onClick={() => void copy(value, "Password")}
         >
           <CopyIcon />
         </Button>
       </div>
+      {email !== undefined ? (
+        <Button
+          variant="outline"
+          disabled={!value || !email.trim()}
+          onClick={() =>
+            void copy(
+              `Sign in at ${window.location.origin}/login\nEmail: ${email.trim()}\nPassword: ${value}`,
+              "Sign-in details"
+            )
+          }
+        >
+          <CopyIcon /> Copy all sign-in details
+        </Button>
+      ) : null}
       <p className="text-xs text-muted-foreground">
         Copy it before saving — it cannot be read back afterwards.
       </p>
@@ -353,6 +371,7 @@ function MemberDialog({
             <PasswordField
               id="team-password"
               value={form.password}
+              email={form.email}
               onChange={(password) => setForm((prev) => ({ ...prev, password }))}
             />
           )}
@@ -422,7 +441,12 @@ function ResetPasswordDialog({ member }: { member: TeamRow }) {
             so they can sign in with the new password and set it up again.
           </DialogDescription>
         </DialogHeader>
-        <PasswordField id="reset-password" value={password} onChange={setPassword} />
+        <PasswordField
+          id="reset-password"
+          value={password}
+          email={member.email}
+          onChange={setPassword}
+        />
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>
             Cancel
