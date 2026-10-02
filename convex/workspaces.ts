@@ -36,6 +36,7 @@ const workspaceFields = {
   currency: v.optional(v.string()),
   theme: v.optional(v.string()),
   webhookUrl: v.optional(v.string()),
+  maxMessagesPerConversation: v.optional(v.number()),
   facts: v.optional(v.array(kvPair)),
 };
 
@@ -240,6 +241,13 @@ export const update = mutation({
     if (rest.theme === "") patch.theme = undefined;
     if (rest.ownerName !== undefined) {
       patch.ownerName = rest.ownerName.trim() || undefined;
+    }
+    if (rest.maxMessagesPerConversation !== undefined) {
+      const limit = rest.maxMessagesPerConversation;
+      if (!Number.isInteger(limit) || limit < 0) {
+        throw new Error("The message limit must be a whole number, or 0 for no limit");
+      }
+      patch.maxMessagesPerConversation = limit || undefined;
     }
     await ctx.db.patch(workspaceId, patch);
     return { success: true };

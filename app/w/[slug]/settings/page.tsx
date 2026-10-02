@@ -119,6 +119,7 @@ export default function WorkspaceSettingsPage() {
   const [form, setForm] = useState({
     theme: workspace.theme ?? "",
     webhookUrl: workspace.webhookUrl ?? "",
+    maxMessages: workspace.maxMessagesPerConversation?.toString() ?? "",
   });
 
   // Re-seed the form if a different workspace is opened. Adjusting state during
@@ -129,6 +130,7 @@ export default function WorkspaceSettingsPage() {
     setForm({
       theme: workspace.theme ?? "",
       webhookUrl: workspace.webhookUrl ?? "",
+      maxMessages: workspace.maxMessagesPerConversation?.toString() ?? "",
     });
   }
 
@@ -147,6 +149,7 @@ export default function WorkspaceSettingsPage() {
         // stored theme would never clear.
         theme: form.theme,
         webhookUrl: form.webhookUrl,
+        maxMessagesPerConversation: Number(form.maxMessages.trim() || 0),
       });
       toast.add({ title: "Workspace saved", type: "success" });
     } catch (error) {
@@ -182,6 +185,7 @@ export default function WorkspaceSettingsPage() {
         <Tabs defaultValue="access" className="gap-4">
           <TabsList>
             <TabsTrigger value="access">Access</TabsTrigger>
+            <TabsTrigger value="conversations">Conversations</TabsTrigger>
             <TabsTrigger value="webhook">Webhook</TabsTrigger>
             <TabsTrigger value="assistant">Assistant</TabsTrigger>
             <TabsTrigger value="theme">Theme</TabsTrigger>
@@ -209,6 +213,34 @@ export default function WorkspaceSettingsPage() {
 
             {/* The signed-in login's own: the company's, or a human agent's. */}
             <TwoFactorCard />
+          </TabsContent>
+
+          <TabsContent value="conversations">
+            <Card>
+              <CardHeader>
+                <CardTitle>Message limit</CardTitle>
+                <CardDescription>
+                  Once a conversation holds this many messages, the agents stop
+                  replying to it. Customer messages are still recorded, and your
+                  team can keep answering by hand. Leave empty for no limit.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col gap-1.5 sm:max-w-xs">
+                  <Label htmlFor="s-max-messages">Messages per conversation</Label>
+                  <Input
+                    id="s-max-messages"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    value={form.maxMessages}
+                    placeholder="No limit"
+                    onChange={(event) => set("maxMessages", event.target.value)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="webhook">

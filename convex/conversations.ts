@@ -765,6 +765,7 @@ export const startTurn = internalMutation({
     contactPhone: v.optional(v.string()),
     text: v.string(),
     historyLimit: v.number(),
+    messageLimit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -901,6 +902,22 @@ export const startTurn = internalMutation({
       ...(conversation.marketingOnly ? { marketingOnly: undefined } : {}),
     });
 
+    const limitReached =
+      !!args.messageLimit && conversation.messageCount >= args.messageLimit;
+    if (limitReached && !conversation.messageLimitReachedAt) {
+      await ctx.db.patch(conversation._id, { messageLimitReachedAt: now });
+      await ctx.db.insert("messages", {
+        workspaceId: args.workspaceId,
+        conversationId: conversation._id,
+        role: "system",
+        kind: "note",
+        text: `This conversation reached the workspace limit of ${args.messageLimit} messages, so the agent has stopped replying. Answer by hand, or raise the limit in Settings.`,
+        createdAt: now,
+      });
+    } else if (!limitReached && conversation.messageLimitReachedAt) {
+      await ctx.db.patch(conversation._id, { messageLimitReachedAt: undefined });
+    }
+
     return {
       contactId: contact._id,
       conversationId: conversation._id,
@@ -910,6 +927,7 @@ export const startTurn = internalMutation({
       // Set when a colleague has taken the thread over. The inbound message
       // above is still recorded; the engine reads this and does not answer.
       humanHandling,
+      limitReached,
       contact: {
         name: contact.name,
         phone: contact.phone,

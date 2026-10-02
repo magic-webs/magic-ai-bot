@@ -71,6 +71,7 @@ export const conversationsTables = {
       v.literal("closed")
     ),
     messageCount: v.number(),
+    messageLimitReachedAt: v.optional(v.number()),
     lastMessageAt: v.number(),
     lastMessagePreview: v.optional(v.string()),
     lastMessageRole: v.optional(

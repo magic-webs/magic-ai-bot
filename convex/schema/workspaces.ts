@@ -22,6 +22,7 @@ export const workspacesTables = {
     logoUrl: v.optional(v.string()),
     webhookUrl: v.optional(v.string()),
     webhookSecret: v.optional(v.string()),
+    maxMessagesPerConversation: v.optional(v.number()),
     facts: v.array(kvPair),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
