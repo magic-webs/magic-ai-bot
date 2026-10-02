@@ -68,6 +68,14 @@ crons.daily(
   {}
 );
 
+// The bell keeps a month. Nightly, beside the session purge.
+crons.daily(
+  "prune the push inbox",
+  { hourUTC: 3, minuteUTC: 40 },
+  internal.push.pruneInbox,
+  {}
+);
+
 // A consent screen somebody opened and abandoned leaves a state row behind.
 // They expire after fifteen minutes and are consumed on use, so this is only
 // housekeeping — hourly is plenty.

@@ -398,6 +398,7 @@ export const remove = mutation({
       "tools",
       "contacts",
       "webhookEvents",
+      "pushInbox",
     ] as const;
 
     for (const table of tables) {

@@ -265,7 +265,62 @@ export const listDevices = query({
   },
 });
 
+/** The bell's list: the latest pushes, newest first. */
+export const inbox = query({
+  args: { workspaceId: v.id("workspaces"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const rows = await ctx.db
+      .query("pushInbox")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 50, 1), 100));
+    return rows.map((row) => ({
+      _id: row._id,
+      event: row.event,
+      title: row.title,
+      body: row.body,
+      conversationId: row.conversationId ?? null,
+      orderId: row.orderId ?? null,
+      createdAt: row.createdAt,
+    }));
+  },
+});
+
 // ------------------------------------------------------------------ internals
+
+const INBOX_DAYS = 30;
+
+export const remember = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    event: v.string(),
+    title: v.string(),
+    body: v.string(),
+    conversationId: v.optional(v.string()),
+    orderId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("pushInbox", { ...args, createdAt: Date.now() });
+  },
+});
+
+/* Batched and rescheduled rather than one sweep: a mutation that deletes a
+   month of a busy workspace's orders in one go can hit the write limit. */
+export const pruneInbox = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - INBOX_DAYS * 24 * 60 * 60 * 1000;
+    const stale = await ctx.db
+      .query("pushInbox")
+      .withIndex("by_created", (q) => q.lt("createdAt", cutoff))
+      .take(500);
+    for (const row of stale) await ctx.db.delete(row._id);
+    if (stale.length === 500) {
+      await ctx.scheduler.runAfter(0, internal.push.pruneInbox, {});
+    }
+  },
+});
 
 export const tokensForWorkspace = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -314,15 +369,32 @@ export const notify = internalAction({
     ctx,
     args
   ): Promise<{ sent: number; failed: number; reason?: string }> => {
+    const shape = present(args.event, args.data);
+    const row = (args.data ?? {}) as Record<string, unknown>;
+    const ref = (value: unknown) =>
+      typeof value === "string" && value ? value : undefined;
+
+    // Above the device check, so the bell has it even when nothing is
+    // registered to buzz.
+    try {
+      await ctx.runMutation(internal.push.remember, {
+        workspaceId: args.workspaceId,
+        event: args.event,
+        title: shape.title,
+        body: shape.body,
+        conversationId: ref(row.conversationId),
+        orderId: ref(row.orderId),
+      });
+    } catch {
+      // The inbox is a convenience; the push still goes.
+    }
+
     const devices = await ctx.runQuery(internal.push.tokensForWorkspace, {
       workspaceId: args.workspaceId,
     });
     if (devices.length === 0) {
       return { sent: 0, failed: 0, reason: "no_devices" };
     }
-
-    const shape = present(args.event, args.data);
-    const row = (args.data ?? {}) as Record<string, unknown>;
 
     let sent = 0;
     let failed = 0;
