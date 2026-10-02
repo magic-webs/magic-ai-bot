@@ -14,6 +14,7 @@ import { kvPair } from "./schema";
 import { historyText, type Outbound } from "./lib/whatsappSend";
 import { normaliseBirthday } from "./lib/marketing";
 import {
+  BOT_REPEAT_LIMIT,
   HANDBACK_AFTER_MINUTES,
   WHATSAPP_FREE_FORM_WINDOW_HOURS,
   WHATSAPP_TEXT_LIMIT,
@@ -510,6 +511,39 @@ export const setHumanHandling = mutation({
   },
 });
 
+/** Marks the thread as a bot, which drops its messages unanswered, or clears it. */
+export const setBot = mutation({
+  args: {
+    conversationId: v.id("conversations"),
+    bot: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const access = await threadAccess(ctx, args.conversationId);
+    if (!access) throw new AuthError(OFF_THE_DESK);
+    const { conversation } = access;
+    if ((conversation.markedBot ?? false) === args.bot) return { success: true };
+
+    const now = Date.now();
+    await ctx.db.patch(conversation._id, {
+      markedBot: args.bot || undefined,
+      markedBotAt: args.bot ? now : undefined,
+      repeatText: undefined,
+      repeatCount: undefined,
+    });
+    await ctx.db.insert("messages", {
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation._id,
+      role: "system",
+      kind: "note",
+      text: args.bot
+        ? "Marked as a bot. Its messages are now ignored and no agent answers it."
+        : "No longer marked as a bot. The agent answers it again.",
+      createdAt: now,
+    });
+    return { success: true };
+  },
+});
+
 /**
  * Hands back every thread a person took over and then left alone.
  *
@@ -845,6 +879,10 @@ export const startTurn = internalMutation({
       conversation = (await ctx.db.get("conversations", conversationId))!;
     }
 
+    if (conversation.markedBot) {
+      return { blocked: true as const, conversationId: conversation._id };
+    }
+
     // A pause that has run out ends here, on the customer's next message,
     // rather than whenever the sweep next comes round — which is every fifteen
     // minutes, and a customer on a fifteen-minute pause should not wait up to
@@ -891,16 +929,38 @@ export const startTurn = internalMutation({
       createdAt: now,
     });
 
+    const repeatText = args.text.trim().toLowerCase().replace(/\s+/g, " ");
+    const repeatCount =
+      repeatText === conversation.repeatText
+        ? (conversation.repeatCount ?? 0) + 1
+        : 1;
+    const caughtAsBot = repeatCount > BOT_REPEAT_LIMIT;
+
     await ctx.db.patch(conversation._id, {
       messageCount: conversation.messageCount + 1,
       lastMessageAt: now,
       lastMessagePreview: args.text.slice(0, 140),
       lastMessageRole: "user",
       channelId: conversation.channelId ?? args.channelId,
+      repeatText,
+      repeatCount,
+      ...(caughtAsBot ? { markedBot: true, markedBotAt: now } : {}),
       // A thread the marketing desk opened becomes a real conversation the
       // moment the customer answers it.
       ...(conversation.marketingOnly ? { marketingOnly: undefined } : {}),
     });
+
+    if (caughtAsBot) {
+      await ctx.db.insert("messages", {
+        workspaceId: args.workspaceId,
+        conversationId: conversation._id,
+        role: "system",
+        kind: "note",
+        text: `Blocked as a bot — the same message arrived more than ${BOT_REPEAT_LIMIT} times in a row. Its messages are now ignored and no agent answers it. Unmark it as a bot to let it through again.`,
+        createdAt: now,
+      });
+      return { blocked: true as const, conversationId: conversation._id };
+    }
 
     const limitReached =
       !!args.messageLimit && conversation.messageCount >= args.messageLimit;
@@ -919,6 +979,7 @@ export const startTurn = internalMutation({
     }
 
     return {
+      blocked: false as const,
       contactId: contact._id,
       conversationId: conversation._id,
       // Whoever the last handoff left in charge. The engine runs this agent,

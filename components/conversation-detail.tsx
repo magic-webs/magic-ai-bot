@@ -71,6 +71,7 @@ import {
   CaretRightIcon,
   TimerIcon,
   WarningIcon,
+  ProhibitIcon,
 } from "@phosphor-icons/react";
 
 /**
@@ -196,6 +197,11 @@ export function ConversationRow({
               {row.status}
             </Badge>
           ) : null}
+          {row.markedBot ? (
+            <Badge variant="destructive" className="shrink-0">
+              bot
+            </Badge>
+          ) : null}
           <span className="ml-auto shrink-0 text-xs text-muted-foreground">
             {shortAgo(row.lastMessageAt)}
           </span>
@@ -307,6 +313,7 @@ export function ConversationDetail({
   const setStatus = useMutation(api.conversations.setStatus);
   const setHumanHandling = useMutation(api.conversations.setHumanHandling);
   const removeConversation = useMutation(api.conversations.remove);
+  const setBot = useMutation(api.conversations.setBot);
   // Off by default: the trace is for working out why an agent said something,
   // and most people opening a thread are here to read what it said.
   const [showTools, setShowTools] = useState(false);
@@ -375,6 +382,26 @@ export function ConversationDetail({
       description: `${holderName} will answer ${label} again.`,
       type: "success",
     });
+  };
+
+  const toggleBot = async () => {
+    const bot = !conversation.markedBot;
+    try {
+      await setBot({ conversationId, bot });
+      toast.add({
+        title: bot ? "Marked as bot" : "Unmarked as bot",
+        description: bot
+          ? `Messages from ${label} are ignored and no agent answers them.`
+          : `${holderName} will answer ${label} again.`,
+        type: "success",
+      });
+    } catch (error) {
+      toast.add({
+        title: "Could not update",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
   };
 
   // Done with it: the agent answers again, and the thread leaves the desk.
@@ -488,6 +515,12 @@ export function ConversationDetail({
                   />
                 </Badge>
               ) : null}
+              {conversation.markedBot ? (
+                <Badge variant="destructive" className="gap-1">
+                  <ProhibitIcon className="size-3" />
+                  Bot · blocked
+                </Badge>
+              ) : null}
             </div>
 
             {/* Two facts, and only two. Everything else about the thread and
@@ -574,6 +607,10 @@ export function ConversationDetail({
                     <RobotIcon /> Resume agent now
                   </DropdownMenuItem>
                 ) : null}
+                <DropdownMenuItem onClick={() => void toggleBot()}>
+                  <ProhibitIcon />
+                  {conversation.markedBot ? "Unmark as bot" : "Mark as bot"}
+                </DropdownMenuItem>
                 {onDesk ? null : (
                   <DropdownMenuItem
                     variant="destructive"

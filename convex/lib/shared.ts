@@ -324,6 +324,9 @@ export const DORMANT_AFTER_MINUTES = 60;
  */
 export const HANDBACK_AFTER_MINUTES = 60;
 
+/** Identical messages in a row a contact may send before the thread is blocked as a bot. */
+export const BOT_REPEAT_LIMIT = 10;
+
 /** The lengths the reply box offers, shortest first. */
 export const PAUSE_CHOICES_MINUTES = [15, 30, 60, 120, 240, 480, 1440] as const;
 

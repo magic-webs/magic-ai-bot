@@ -307,6 +307,7 @@ export const dueForReview = internalQuery({
       // Escalated belongs to a person and closed is finished; neither wants a
       // machine writing into it.
       if (row.status !== "open") continue;
+      if (row.markedBot) continue;
       if ((row.reviewedAt ?? 0) >= row.lastMessageAt) continue;
       if (row.messageCount === 0) continue;
       due.push({ conversationId: row._id, workspaceId: row.workspaceId });
