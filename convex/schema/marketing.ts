@@ -278,6 +278,9 @@ export const marketingTables = {
     category: v.optional(v.string()),
     confidence: v.optional(v.number()),
     junk: v.optional(v.number()),
+    business: v.optional(v.boolean()),
+    doNotContact: v.optional(v.boolean()),
+    interest: v.optional(v.union(v.literal("cold"), v.literal("warm"), v.literal("hot"))),
     sortError: v.optional(v.string()),
     updatedAt: v.number(),
   })

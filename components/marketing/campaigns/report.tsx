@@ -16,15 +16,6 @@ import { SelectField } from "@/components/select-field";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -68,7 +59,7 @@ function time(ms: number | null) {
   return new Date(ms).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
-export function ReportDialog({
+export function CampaignReport({
   eventId,
   onClose,
   onDuplicate,
@@ -100,22 +91,21 @@ export function ReportDialog({
   const sent = stats ? stats.sent : 0;
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-5xl">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1">
+          <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
             {campaign?.title ?? "Campaign"}
             {campaign ? <Badge variant={STATUS_VARIANT[campaign.status]}>{campaign.status}</Badge> : null}
-          </DialogTitle>
-          <DialogDescription>
+          </h2>
+          <p className="max-w-3xl text-sm text-muted-foreground">
             {campaign
               ? `${campaign.template?.name ?? "No template"} · ${
                   campaign.startedAt ? `started ${time(campaign.startedAt)}` : `${dayLabel(campaign.date)} at ${hourLabel(campaign.sendHour)}`
                 }${campaign.audiences.length ? ` · ${campaign.audiences.map((a) => a.name).join(", ")}` : ""}`
               : "Loading…"}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-5">
+          </p>
+        </div>
+        <div className="flex flex-col gap-5">
           {!report || !stats ? (
             <div className="flex justify-center py-12">
               <Spinner />
@@ -202,8 +192,8 @@ export function ReportDialog({
               <Recipients eventId={eventId} title={campaign?.title ?? "campaign"} />
             </>
           )}
-        </DialogBody>
-        <DialogFooter className="flex-wrap">
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4 flex-wrap">
           {campaign && (campaign.status === "sending" || campaign.status === "scheduled") ? (
             <Button variant="outline" disabled={busy} onClick={() => void act(() => pause({ eventId }), "Could not pause")}>
               <PauseIcon /> Pause
@@ -233,10 +223,9 @@ export function ReportDialog({
           <Button variant="outline" onClick={onDuplicate}>
             <CopyIcon /> Duplicate
           </Button>
-          <Button onClick={onClose}>Close</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Button onClick={onClose}>Back to campaigns</Button>
+        </div>
+    </div>
   );
 }
 
@@ -331,7 +320,7 @@ function Recipients({ eventId, title }: { eventId: Id<"marketingEvents">; title:
           </Button>
         </form>
       ) : null}
-      <div className="max-h-80 overflow-auto rounded-md border border-border">
+      <div className="max-h-[60vh] overflow-auto rounded-md border border-border">
         <Table>
           <TableHeader>
             <TableRow>

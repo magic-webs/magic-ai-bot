@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
@@ -29,7 +30,6 @@ import {
   type AudienceChoice,
 } from "@/components/marketing/audience/audience-picker";
 import type { Category } from "@/components/marketing/audience/shared";
-import { GuestsDialog } from "@/components/marketing/events/guests-dialog";
 import {
   HOURS,
   STATUS_VARIANT,
@@ -121,6 +121,31 @@ function templateOptions(templates: Template[]) {
 
 // ------------------------------------------------------------------ the tab
 
+export function draftForCampaign(campaign: Campaign): CampaignDraft {
+  return {
+      campaignId: campaign._id,
+      title: campaign.title,
+      date: campaign.date,
+      startTime: campaign.startTime ?? "",
+      venue: campaign.venue ?? "",
+      details: campaign.details,
+      offer: campaign.offer ?? "",
+      link: campaign.link ?? "",
+      templateId: campaign.templateId,
+      sendHour: campaign.sendHour,
+      touches: campaign.touches
+        .filter(isPending)
+        .map((touch) => touch.offsetDays ?? 0),
+      sent: campaign.touches.filter((touch) => !isPending(touch)),
+      audience: campaign.audience ?? EVERYONE,
+      segments: Object.fromEntries(
+        campaign.touches
+          .filter((touch) => touch.guestSegment)
+          .map((touch) => [touch.offsetDays ?? 0, touch.guestSegment!])
+      ),
+    };
+}
+
 export function EventsTab({
   campaigns,
   templates,
@@ -138,7 +163,7 @@ export function EventsTab({
 }) {
   const workspace = useWorkspace();
   const [draft, setDraft] = useState<CampaignDraft | null>(null);
-  const [guestsOf, setGuestsOf] = useState<Campaign | null>(null);
+  const router = useRouter();
 
   const eventTemplate =
     templates.find((t) => t.occasion === "event" && templateReady(t)) ??
@@ -160,29 +185,7 @@ export function EventsTab({
       segments: {},
     });
 
-  const openCampaign = (campaign: Campaign) =>
-    setDraft({
-      campaignId: campaign._id,
-      title: campaign.title,
-      date: campaign.date,
-      startTime: campaign.startTime ?? "",
-      venue: campaign.venue ?? "",
-      details: campaign.details,
-      offer: campaign.offer ?? "",
-      link: campaign.link ?? "",
-      templateId: campaign.templateId,
-      sendHour: campaign.sendHour,
-      touches: campaign.touches
-        .filter(isPending)
-        .map((touch) => touch.offsetDays ?? 0),
-      sent: campaign.touches.filter((touch) => !isPending(touch)),
-      audience: campaign.audience ?? EVERYONE,
-      segments: Object.fromEntries(
-        campaign.touches
-          .filter((touch) => touch.guestSegment)
-          .map((touch) => [touch.offsetDays ?? 0, touch.guestSegment!])
-      ),
-    });
+  const openCampaign = (campaign: Campaign) => setDraft(draftForCampaign(campaign));
 
   // Upcoming until its last reminder has gone: an event yesterday still has
   // its thank-you to send today.
@@ -249,7 +252,7 @@ export function EventsTab({
               templates={templates}
               locale={workspace.locale}
               onEdit={() => openCampaign(campaign)}
-              onGuests={() => setGuestsOf(campaign)}
+              onGuests={() => router.push(`/w/${workspace.slug}/marketing/events/${campaign._id}`)}
               onOpenTouch={onOpenTouch}
             />
           ))}
@@ -263,7 +266,7 @@ export function EventsTab({
                   templates={templates}
                   locale={workspace.locale}
                   onEdit={() => openCampaign(campaign)}
-                  onGuests={() => setGuestsOf(campaign)}
+                  onGuests={() => router.push(`/w/${workspace.slug}/marketing/events/${campaign._id}`)}
                   onOpenTouch={onOpenTouch}
                 />
               ))}
@@ -273,14 +276,11 @@ export function EventsTab({
       )}
 
       <CampaignDialog draft={draft} setDraft={setDraft} templates={templates} categories={categories} />
-      {guestsOf ? (
-        <GuestsDialog key={guestsOf._id} campaign={guestsOf} onClose={() => setGuestsOf(null)} />
-      ) : null}
     </div>
   );
 }
 
-function EventCard({
+export function EventCard({
   campaign,
   templates,
   locale,
@@ -409,7 +409,7 @@ function EventCard({
 
 // -------------------------------------------------------------- the editor
 
-type CampaignDraft = {
+export type CampaignDraft = {
   campaignId?: Id<"marketingCampaigns">;
   title: string;
   date: string;
@@ -433,7 +433,7 @@ const segmentLabel = (segment: GuestSegment) =>
 const rate = (part: number, whole: number) =>
   whole > 0 ? `${Math.round((part / whole) * 100)}%` : "—";
 
-function CampaignDialog({
+export function CampaignDialog({
   draft,
   setDraft,
   templates,

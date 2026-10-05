@@ -83,8 +83,6 @@ type NavItem = {
   href: string;
   label: string;
   icon: IconSvgElement;
-  /** A tab of `href`, picked by `?tab=`; the first tabbed item is the page's default. */
-  tab?: string;
   /**
    * Active only on the row's own path, not on anything below it. Needed where
    * one section owns a page and another owns its children: Build links
@@ -174,12 +172,12 @@ const NAV: Array<{
     label: "Marketing",
     icon: Megaphone01Icon,
     items: [
-      { href: "/marketing", tab: "overview", label: "Overview", icon: Analytics01Icon },
-      { href: "/marketing", tab: "audience", label: "Audience", icon: ContactBookIcon },
-      { href: "/marketing", tab: "campaigns", label: "Campaigns", icon: SentIcon },
-      { href: "/marketing", tab: "events", label: "Events", icon: CalendarCheckIn01Icon },
-      { href: "/marketing", tab: "calendar", label: "Calendar", icon: Calendar03Icon },
-      { href: "/marketing", tab: "templates", label: "Templates", icon: MessageMultiple01Icon },
+      { href: "/marketing", label: "Overview", icon: Analytics01Icon, exact: true },
+      { href: "/marketing/audience", label: "Audience", icon: ContactBookIcon },
+      { href: "/marketing/campaigns", label: "Campaigns", icon: SentIcon },
+      { href: "/marketing/events", label: "Events", icon: CalendarCheckIn01Icon },
+      { href: "/marketing/calendar", label: "Calendar", icon: Calendar03Icon },
+      { href: "/marketing/templates", label: "Templates", icon: MessageMultiple01Icon },
     ],
   },
   // Beside Marketing: both send WhatsApp templates to customers, but these go
@@ -222,18 +220,13 @@ function NavSection({
   items,
   base,
   pathname,
-  currentTab,
 }: {
   label: string;
   icon: IconSvgElement;
   items: NavItem[];
   base: string;
   pathname: string;
-  currentTab: string | null;
 }) {
-  const shownTab = currentTab ?? items.find((item) => item.tab)?.tab;
-  const isActive = (item: NavItem) =>
-    isOn(pathname, base, item) && (!item.tab || item.tab === shownTab);
   const [manual, setManual] = useState<{ path: string; open: boolean } | null>(
     null
   );
@@ -270,11 +263,11 @@ function NavSection({
         <CollapsibleContent>
           <SidebarMenuSub>
             {items.map((item) => {
-              const href = `${base}${item.href}${item.tab ? `?tab=${item.tab}` : ""}`;
+              const href = `${base}${item.href}`;
               return (
-                <SidebarMenuSubItem key={`${item.href}:${item.tab ?? ""}`}>
+                <SidebarMenuSubItem key={item.href}>
                   <SidebarMenuSubButton
-                    isActive={isActive(item)}
+                    isActive={isOn(pathname, base, item)}
                     render={<Link href={href} />}
                   >
                     {/* SidebarMenuSubButton already sizes a direct svg child,
@@ -298,9 +291,7 @@ export default function WorkspaceLayout({
 }: LayoutProps<"/w/[slug]">) {
   const { slug } = use(params);
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const currentView = searchParams.get("view");
-  const currentTab = searchParams.get("tab");
+  const currentView = useSearchParams().get("view");
   const session = useSession();
   // A company may only ever load its own workspace; skip the query rather than
   // firing one the server will refuse.
@@ -491,7 +482,6 @@ export default function WorkspaceLayout({
                         items={section.items}
                         base={base}
                         pathname={pathname}
-                        currentTab={currentTab}
                       />
                     );
                   })}

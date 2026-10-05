@@ -4,22 +4,11 @@ import { useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { eventDateLabel } from "@/convex/lib/marketing";
 import { fail, formatPhone } from "@/components/marketing/audience/shared";
-import { useWorkspace } from "@/components/workspace-provider";
 import { SelectField } from "@/components/select-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -50,14 +39,7 @@ const RSVP_OPTIONS = [
   { value: "declined", label: "Can't come" },
 ];
 
-export function GuestsDialog({
-  campaign,
-  onClose,
-}: {
-  campaign: Doc<"marketingCampaigns">;
-  onClose: () => void;
-}) {
-  const workspace = useWorkspace();
+export function GuestsPanel({ campaign }: { campaign: Doc<"marketingCampaigns"> }) {
   const [filter, setFilter] = useState<Filter>("all");
   const summary = useQuery(api.eventGuests.summary, { campaignId: campaign._id });
   const { results, status, loadMore } = usePaginatedQuery(
@@ -82,17 +64,14 @@ export function GuestsDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Guests · {campaign.title}</DialogTitle>
-          <DialogDescription>
-            {eventDateLabel(campaign.date, campaign.startTime, workspace.locale)}
-            {campaign.venue ? ` · ${campaign.venue}` : ""}. Replies to the reminders are read as
-            RSVPs; change any of them by hand, and check people in on the day.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
+      <div>
+        <h3 className="text-base font-semibold">Guests</h3>
+        <p className="text-sm text-muted-foreground">
+          Replies to the reminders are read as RSVPs; change any of them by hand, and check people
+          in on the day.
+        </p>
+      </div>
           <form
             className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3"
             onSubmit={async (event) => {
@@ -240,11 +219,6 @@ export function GuestsDialog({
               </div>
             ) : null}
           </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button onClick={onClose}>Done</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </section>
   );
 }

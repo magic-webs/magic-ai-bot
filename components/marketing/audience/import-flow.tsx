@@ -12,15 +12,6 @@ import { SelectField } from "@/components/select-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -68,31 +59,7 @@ function parsePaste(text: string): ContactRow[] {
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
-export function ImportDialog({
-  open,
-  importId: initialImportId,
-  onClose,
-}: {
-  open: boolean;
-  importId: Id<"audienceImports"> | null;
-  onClose: () => void;
-}) {
-  const [importId, setImportId] = useState(initialImportId);
-
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-5xl">
-        {importId ? (
-          <ImportProgress importId={importId} onClose={onClose} />
-        ) : (
-          <UploadStep onStarted={setImportId} onClose={onClose} />
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function UploadStep({
+export function ImportUpload({
   onStarted,
   onClose,
 }: {
@@ -160,16 +127,17 @@ function UploadStep({
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>Bring in contacts</DialogTitle>
-        <DialogDescription>
-          Upload a file or paste a list. Every row is cleaned up and checked, sorted into your
-          categories, and nothing is saved until you have reviewed it.
-        </DialogDescription>
-      </DialogHeader>
-      <DialogBody className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-lg font-semibold">Bring in contacts</h2>
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          Upload a CSV exported from another system — Google Contacts, Excel, a CRM, an old
+          WhatsApp tool — or paste a list. Every row is cleaned up, checked and sorted by Jev, and
+          nothing is saved until you have reviewed it.
+        </p>
+      </div>
+      <div className="flex flex-col gap-4">
         <ol className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
-          {["Upload", "Clean up", "Sort", "Review and save"].map((label, index) => (
+          {["Upload", "Clean up", "Check with Jev", "Review and save"].map((label, index) => (
             <li
               key={label}
               className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
@@ -272,8 +240,8 @@ function UploadStep({
             not opt in gets a WhatsApp number restricted.
           </span>
         </label>
-      </DialogBody>
-      <DialogFooter>
+      </div>
+      <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
         <Button variant="outline" onClick={onClose} disabled={Boolean(busy)}>
           Cancel
         </Button>
@@ -281,12 +249,12 @@ function UploadStep({
           {busy ? <Spinner /> : <BroomIcon />}
           {busy ?? `Clean up and sort ${plural(rows.length, "contact")}`}
         </Button>
-      </DialogFooter>
+      </div>
     </>
   );
 }
 
-function ImportProgress({
+export function ImportProgress({
   importId,
   onClose,
 }: {
@@ -308,26 +276,26 @@ function ImportProgress({
     const sorted = data.total - counts.queued;
     return (
       <>
-        <DialogHeader>
-          <DialogTitle>Sorting {data.name}</DialogTitle>
-          <DialogDescription>
-            Each contact is checked and placed in a category. You can close this — it carries on,
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">Sorting {data.name}</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Each contact is checked and placed in a category. You can leave this page — it carries on,
             and the list waits for you under Imports.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-4 py-6">
+          </p>
+        </div>
+        <div className="flex flex-col gap-4 py-6">
           <Progress value={data.total ? Math.round((sorted / data.total) * 100) : 0} />
           <div className="flex items-center gap-2 text-sm">
             <SparkleIcon className="size-4 text-primary" />
             {sorted.toLocaleString()} of {data.total.toLocaleString()} looked at
           </div>
           <CountStrip counts={counts} />
-        </DialogBody>
-        <DialogFooter>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
           <Button variant="outline" onClick={onClose}>
-            Close
+            Back to audience
           </Button>
-        </DialogFooter>
+        </div>
       </>
     );
   }
@@ -336,15 +304,15 @@ function ImportProgress({
     const done = data.status === "saved";
     return (
       <>
-        <DialogHeader>
-          <DialogTitle>{done ? "Saved" : `Saving ${data.name}`}</DialogTitle>
-          <DialogDescription>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">{done ? "Saved" : `Saving ${data.name}`}</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground">
             {done
               ? `${plural(counts.saved, "contact")} added to your audience${data.audienceId ? ` and to the list “${data.name}”` : ""}.`
               : "Adding everyone you kept to your contacts."}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-4 py-6">
+          </p>
+        </div>
+        <div className="flex flex-col gap-4 py-6">
           {done ? (
             <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
               <CheckCircleIcon className="size-5" weight="fill" />
@@ -356,10 +324,10 @@ function ImportProgress({
             />
           )}
           <CountStrip counts={counts} />
-        </DialogBody>
-        <DialogFooter>
-          <Button onClick={onClose}>{done ? "Done" : "Close"}</Button>
-        </DialogFooter>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+          <Button onClick={onClose}>{done ? "Done" : "Back to audience"}</Button>
+        </div>
       </>
     );
   }
@@ -413,14 +381,14 @@ function Review({ data, onClose }: { data: ImportData; onClose: () => void }) {
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>Review {data.name}</DialogTitle>
-        <DialogDescription>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-lg font-semibold">Review {data.name}</h2>
+        <p className="max-w-3xl text-sm text-muted-foreground">
           {plural(data.total, "row")} cleaned up and sorted. Check anything flagged, change a
           category where it is wrong, then save.
-        </DialogDescription>
-      </DialogHeader>
-      <DialogBody className="flex min-h-0 flex-col gap-3">
+        </p>
+      </div>
+      <div className="flex min-h-0 flex-col gap-3">
         {data.error ? (
           <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
             {data.error}
@@ -468,8 +436,8 @@ function Review({ data, onClose }: { data: ImportData; onClose: () => void }) {
           ) : null}
         </div>
         <RowsTable key={bucket} importId={data._id} bucket={bucket} categories={data.categories} />
-      </DialogBody>
-      <DialogFooter className="flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+      </div>
+      <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <label className="flex flex-1 items-center gap-2 text-sm">
           <Checkbox checked={makeList} onCheckedChange={(next) => setMakeList(Boolean(next))} />
           <span className="shrink-0">Also save as the list</span>
@@ -508,7 +476,7 @@ function Review({ data, onClose }: { data: ImportData; onClose: () => void }) {
         >
           {busy ? <Spinner /> : <CheckCircleIcon />} Save {plural(counts.ready, "contact")}
         </Button>
-      </DialogFooter>
+      </div>
     </>
   );
 }
@@ -547,7 +515,7 @@ function RowsTable({
   }
 
   return (
-    <div className="max-h-[50vh] overflow-auto rounded-md border border-border">
+    <div className="max-h-[65vh] overflow-auto rounded-md border border-border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -602,11 +570,38 @@ function RowsTable({
                       Unsure · {Math.round(row.confidence * 100)}%
                     </Badge>
                   ) : null}
-                  {row.fixes.map((fix) => (
-                    <Badge key={fix} variant="secondary" className="text-[10px]">
-                      {FIX_LABELS[fix as ContactFix] ?? fix}
+                  {row.fixes.map((fix) =>
+                    fix === "business_name" || fix === "do_not_contact" ? (
+                      <Badge
+                        key={fix}
+                        variant="outline"
+                        className="gap-1 text-[10px] text-violet-700 dark:text-violet-300"
+                      >
+                        <SparkleIcon className="size-3" />
+                        {FIX_LABELS[fix]}
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() =>
+                            void updateRow({ rowId: row._id, undo: fix }).catch((error) =>
+                              fail("Could not undo it", error)
+                            )
+                          }
+                        >
+                          undo
+                        </button>
+                      </Badge>
+                    ) : (
+                      <Badge key={fix} variant="secondary" className="text-[10px]">
+                        {FIX_LABELS[fix as ContactFix] ?? fix}
+                      </Badge>
+                    )
+                  )}
+                  {row.interest ? (
+                    <Badge variant="outline" className="text-[10px]">
+                      {row.interest === "hot" ? "Keen" : row.interest === "warm" ? "Some interest" : "Not interested"}
                     </Badge>
-                  ))}
+                  ) : null}
                 </div>
               </TableCell>
               <TableCell>

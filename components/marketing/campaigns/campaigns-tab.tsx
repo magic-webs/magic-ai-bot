@@ -1,12 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePaginatedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { STATUS_VARIANT, hourLabel, shortDayLabel } from "@/components/marketing/format";
-import { EVERYONE } from "@/components/marketing/audience/audience-picker";
-import type { Category } from "@/components/marketing/audience/shared";
 import { useWorkspace } from "@/components/workspace-provider";
 import { TableSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
@@ -28,73 +26,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MegaphoneSimpleIcon, PlusIcon } from "@phosphor-icons/react";
-import { ComposerDialog, emptyCampaign, type CampaignDraft } from "./composer-dialog";
-import { ReportDialog } from "./report-dialog";
-
-type Template = Doc<"marketingTemplates"> & { metaBody: string };
 
 const rate = (part: number, whole: number) =>
   whole > 0 ? `${Math.round((part / whole) * 100)}%` : "—";
 
-let keySeq = 0;
-const nextKey = () => ++keySeq;
 
-export function CampaignsTab({
-  templates,
-  categories,
-  today,
-}: {
-  templates: Template[];
-  categories: Category[];
-  today: string;
-}) {
+export function CampaignsTab() {
   const workspace = useWorkspace();
   const { results, status, loadMore } = usePaginatedQuery(
     api.marketingBroadcasts.list,
     { workspaceId: workspace._id },
     { initialNumItems: 25 }
   );
-  const [draft, setDraft] = useState<{ value: CampaignDraft; key: number } | null>(null);
-  const [reportId, setReportId] = useState<Id<"marketingEvents"> | null>(null);
-
-  const open = (row: (typeof results)[number]) => {
-    if (row.startedAt || row.status === "sent" || row.status === "failed" || row.status === "cancelled") {
-      setReportId(row._id);
-      return;
-    }
-    setDraft({
-      key: nextKey(),
-      value: {
-        eventId: row._id,
-        title: row.title,
-        templateId: row.templateId,
-        message: row.note ?? "",
-        audience: row.audience ?? EVERYONE,
-        date: row.date < today ? today : row.date,
-        sendHour: row.sendHour,
-        ratePerMinute: row.ratePerMinute,
-        trackLinks: row.trackLinks ?? true,
-        when: "later",
-      },
-    });
-  };
-
-  const duplicate = (eventId: Id<"marketingEvents">) => {
-    const row = results.find((item) => item._id === eventId);
-    setReportId(null);
-    setDraft({
-      key: nextKey(),
-      value: {
-        ...emptyCampaign(today),
-        title: row ? `${row.title} (copy)` : "",
-        templateId: row?.templateId,
-        message: row?.note ?? "",
-        audience: row?.audience ?? EVERYONE,
-        ratePerMinute: row?.ratePerMinute,
-        trackLinks: row?.trackLinks ?? true,
-      },
-    });
-  };
+  const router = useRouter();
+  const base = `/w/${workspace.slug}/marketing/campaigns`;
+  const open = (row: (typeof results)[number]) =>
+    router.push(
+      row.startedAt || row.status === "sent" || row.status === "failed" || row.status === "cancelled"
+        ? `${base}/${row._id}`
+        : `${base}/new?edit=${row._id}`
+    );
 
   return (
     <div className="flex flex-col gap-4">
@@ -106,7 +57,7 @@ export function CampaignsTab({
             delivery, reads and replies tracked for each.
           </p>
         </div>
-        <Button onClick={() => setDraft({ key: nextKey(), value: emptyCampaign(today) })}>
+        <Button nativeButton={false} render={<Link href={`${base}/new`} />}>
           <PlusIcon /> New campaign
         </Button>
       </div>
@@ -124,7 +75,7 @@ export function CampaignsTab({
               Pick an audience and an approved template, and send now or at a time you choose.
             </EmptyDescription>
           </EmptyHeader>
-          <Button onClick={() => setDraft({ key: nextKey(), value: emptyCampaign(today) })}>
+          <Button nativeButton={false} render={<Link href={`${base}/new`} />}>
             <PlusIcon /> New campaign
           </Button>
         </Empty>
@@ -186,28 +137,6 @@ export function CampaignsTab({
         </div>
       )}
 
-      {draft ? (
-        <ComposerDialog
-          key={draft.key}
-          draft={draft.value}
-          templates={templates}
-          categories={categories}
-          today={today}
-          onClose={() => setDraft(null)}
-          onSaved={(eventId, sentNow) => {
-            setDraft(null);
-            if (sentNow) setReportId(eventId);
-          }}
-        />
-      ) : null}
-      {reportId ? (
-        <ReportDialog
-          key={reportId}
-          eventId={reportId}
-          onClose={() => setReportId(null)}
-          onDuplicate={() => duplicate(reportId)}
-        />
-      ) : null}
     </div>
   );
 }

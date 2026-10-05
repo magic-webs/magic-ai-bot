@@ -27,15 +27,6 @@ import { SelectField } from "@/components/select-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
@@ -94,7 +85,7 @@ function Section({ step, title, children }: { step: number; title: string; child
   );
 }
 
-export function ComposerDialog({
+export function CampaignComposer({
   draft: initial,
   templates,
   categories,
@@ -171,16 +162,15 @@ export function ComposerDialog({
     estimate?.currency ? formatMoney(micros, estimate.currency) : null;
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{draft.eventId ? "Edit campaign" : "New campaign"}</DialogTitle>
-          <DialogDescription>
+    <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">{draft.eventId ? "Edit campaign" : "New campaign"}</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground">
             One approved WhatsApp template, sent to the people you choose. Unsubscribed contacts are
             always left out.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-6">
+          </p>
+        </div>
+        <div className="flex flex-col gap-6">
           <Section step={1} title="Name it">
             <Input
               value={draft.title}
@@ -349,8 +339,8 @@ export function ComposerDialog({
               </Badge>
             ) : null}
           </div>
-        </DialogBody>
-        <DialogFooter>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
@@ -367,8 +357,7 @@ export function ComposerDialog({
             {busy ? <Spinner /> : <PaperPlaneTiltIcon />}
             {draft.when === "now" ? "Send now" : "Schedule"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+    </div>
   );
 }

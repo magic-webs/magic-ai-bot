@@ -28,7 +28,9 @@ export type ContactFix =
   | "name_dropped"
   | "email_dropped"
   | "birthday_dropped"
-  | "company_tidied";
+  | "company_tidied"
+  | "business_name"
+  | "do_not_contact";
 
 export const PROBLEM_LABELS: Record<ContactProblem, string> = {
   phone_missing: "No phone number",
@@ -43,6 +45,8 @@ export const FIX_LABELS: Record<ContactFix, string> = {
   email_dropped: "Email was not valid",
   birthday_dropped: "Birthday could not be read",
   company_tidied: "Company tidied",
+  business_name: "Business name moved to company",
+  do_not_contact: "Asked not to be messaged",
 };
 
 const PLACEHOLDER_NAMES = new Set([

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -40,7 +41,6 @@ import {
   UserPlusIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
-import { ImportDialog } from "./import-dialog";
 import { PersonDialog, type Person } from "./person-dialog";
 import { AudienceSettingsDialog } from "./settings-dialog";
 import { categoryLabel, categoryTone, fail, formatPhone, plural, type Category } from "./shared";
@@ -59,8 +59,6 @@ const IMPORT_STATUS: Record<string, string> = {
   saved: "Saved",
 };
 
-let keySeq = 0;
-const nextKey = () => ++keySeq;
 
 export function AudienceTab({
   categories,
@@ -83,7 +81,7 @@ export function AudienceTab({
   const [tag, setTag] = useState("");
   const [selected, setSelected] = useState<Set<Id<"contacts">>>(new Set());
   const [person, setPerson] = useState<Person | null>(null);
-  const [importOpen, setImportOpen] = useState<{ id: Id<"audienceImports"> | null; key: number } | null>(null);
+  const importBase = `/w/${workspace.slug}/marketing/audience/import`;
   const [settingsOpen, setSettingsOpen] = useState(0);
 
   const audiences = useQuery(api.audience.list, { workspaceId: workspace._id });
@@ -133,8 +131,8 @@ export function AudienceTab({
         <div>
           <h2 className="text-lg font-semibold">Audience</h2>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Everyone your campaigns and events can reach. Bring in a list and it is cleaned up,
-            sorted and checked by you before anyone is added.
+            Everyone your campaigns and events can reach. Import contacts from a CSV and they are
+            cleaned up and checked by Jev, then reviewed by you before anyone is added.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -145,8 +143,8 @@ export function AudienceTab({
           <Button variant="outline" onClick={onAddByHand}>
             <UserPlusIcon /> Add by hand
           </Button>
-          <Button onClick={() => setImportOpen({ id: null, key: nextKey() })}>
-            <BroomIcon /> Bring in contacts
+          <Button nativeButton={false} render={<Link href={importBase} />}>
+            <BroomIcon /> Import contacts
           </Button>
         </div>
       </div>
@@ -162,10 +160,9 @@ export function AudienceTab({
         <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
           <p className="text-sm font-medium">Imports</p>
           {pending.map((row) => (
-            <button
+            <Link
               key={row._id}
-              type="button"
-              onClick={() => setImportOpen({ id: row._id, key: nextKey() })}
+              href={`${importBase}/${row._id}`}
               className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50"
             >
               {row.status === "sorting" || row.status === "saving" ? <Spinner /> : <BroomIcon className="size-4 text-primary" />}
@@ -174,7 +171,7 @@ export function AudienceTab({
               <Badge variant={row.status === "review" ? "default" : "outline"}>
                 {IMPORT_STATUS[row.status] ?? row.status}
               </Badge>
-            </button>
+            </Link>
           ))}
         </div>
       ) : null}
@@ -407,14 +404,6 @@ export function AudienceTab({
 
       {birthdays}
 
-      {importOpen ? (
-        <ImportDialog
-          key={importOpen.key}
-          open
-          importId={importOpen.id}
-          onClose={() => setImportOpen(null)}
-        />
-      ) : null}
       {person ? (
         <PersonDialog key={person._id} person={person} categories={categories} onClose={() => setPerson(null)} />
       ) : null}

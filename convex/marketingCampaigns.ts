@@ -99,6 +99,21 @@ export const list = query({
   },
 });
 
+export const get = query({
+  args: { campaignId: v.id("marketingCampaigns") },
+  handler: async (ctx, args) => {
+    const campaign = await requireCampaign(ctx, args.campaignId);
+    const template = campaign.templateId
+      ? await ctx.db.get("marketingTemplates", campaign.templateId)
+      : null;
+    return {
+      ...campaign,
+      templateName: template?.name ?? null,
+      touches: await touchesOf(ctx, campaign._id),
+    };
+  },
+});
+
 // ---------------------------------------------------------------- mutations
 
 export const save = mutation({

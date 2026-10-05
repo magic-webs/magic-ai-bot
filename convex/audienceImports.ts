@@ -25,6 +25,8 @@ const SORT_PARALLEL = 8;
 const SAVE_BATCH = 100;
 const READY_CONFIDENCE = 0.8;
 const JUNK_PROBABILITY = 0.5;
+const FLAG_PROBABILITY = 0.8;
+const INTEREST_CONFIDENCE = 0.6;
 
 type Counts = Infer<typeof importCounts>;
 type RowStatus = Infer<typeof importRowStatus>;
@@ -285,6 +287,7 @@ export const sortContext = internalQuery({
         email: row.email,
         tags: row.tags,
         notes: row.notes,
+        hasNotes: Boolean(row.notes || row.tags.length > 0),
       })),
     };
   },
@@ -295,6 +298,9 @@ const sortedRow = v.object({
   category: v.string(),
   confidence: v.optional(v.number()),
   junk: v.optional(v.number()),
+  business: v.optional(v.boolean()),
+  doNotContact: v.optional(v.boolean()),
+  interest: v.optional(v.union(v.literal("cold"), v.literal("warm"), v.literal("hot"))),
   sortError: v.optional(v.string()),
 });
 
@@ -313,10 +319,28 @@ export const recordSorted = internalMutation({
         (result.confidence === undefined || result.confidence >= READY_CONFIDENCE) &&
         (result.junk ?? 0) < JUNK_PROBABILITY;
       const status: RowStatus = sure ? "ready" : "check";
+      const fixes = [...row.fixes];
+      let tags = row.tags;
+      let company = row.company;
+      if (result.business) {
+        if (!company && row.name) {
+          company = row.name;
+          fixes.push("business_name");
+        }
+        tags = [...new Set([...tags, "business"])];
+      }
+      if (result.doNotContact) fixes.push("do_not_contact");
+      if (result.interest) tags = [...new Set([...tags, result.interest])];
       await ctx.db.patch("audienceImportRows", row._id, {
         category: result.category,
         confidence: result.confidence,
         junk: result.junk,
+        business: result.business,
+        doNotContact: result.doNotContact,
+        interest: result.interest,
+        company,
+        tags: tags.slice(0, 10),
+        fixes,
         sortError: result.sortError,
         status,
         updatedAt: now,
@@ -394,16 +418,49 @@ export const sortBatch = internalAction({
               instructions:
                 "The name is keyboard mashing, a placeholder such as test or xxx, or nonsense",
             },
+            business: {
+              type: "boolean",
+              instructions: "The name is a shop, company or organisation rather than a person",
+            },
+            ...(row.hasNotes
+              ? {
+                  doNotContact: {
+                    type: "boolean" as const,
+                    instructions: "The notes say this person asked not to be contacted or messaged",
+                  },
+                  interest: {
+                    type: "score" as const,
+                    instructions: "How interested in buying is this contact",
+                    criteria: [
+                      "No interest or not interested",
+                      "Some interest or unclear",
+                      "Keen, asked for details or ready to buy",
+                    ],
+                  },
+                }
+              : {}),
           }
         );
         inputTokens += answer.inputTokens;
         outputTokens += answer.outputTokens;
         const choice = choiceOf(answer.answers.category);
+        const interest = answer.answers.interest;
         return {
           rowId: row._id,
           category: choice && criteria[choice.choice] ? choice.choice : fallback,
           confidence: choice?.confidence,
           junk: probabilityOf(answer.answers.junk) ?? undefined,
+          business: (probabilityOf(answer.answers.business) ?? 0) >= FLAG_PROBABILITY || undefined,
+          doNotContact:
+            (probabilityOf(answer.answers.doNotContact) ?? 0) >= FLAG_PROBABILITY || undefined,
+          interest:
+            interest?.type === "score" && interest.confidence >= INTEREST_CONFIDENCE
+              ? interest.score >= 1.5
+                ? ("hot" as const)
+                : interest.score <= 0.5
+                  ? ("cold" as const)
+                  : ("warm" as const)
+              : undefined,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -490,11 +547,30 @@ export const updateRow = mutation({
     name: v.optional(v.string()),
     phone: v.optional(v.string()),
     category: v.optional(v.string()),
+    undo: v.optional(v.union(v.literal("business_name"), v.literal("do_not_contact"))),
   },
   handler: async (ctx, args) => {
     const { row, importDoc } = await requireRow(ctx, args.rowId);
     reviewable(importDoc);
     const now = Date.now();
+
+    if (args.undo) {
+      const fixes = row.fixes.filter((fix) => fix !== args.undo);
+      await ctx.db.patch(
+        "audienceImportRows",
+        row._id,
+        args.undo === "business_name"
+          ? {
+              fixes,
+              business: undefined,
+              company: row.raw.company?.trim() || undefined,
+              tags: row.tags.filter((tag) => tag !== "business"),
+              updatedAt: now,
+            }
+          : { fixes, doNotContact: undefined, updatedAt: now }
+      );
+      return { status: row.status };
+    }
 
     if (args.phone !== undefined || args.name !== undefined) {
       const raw = {
@@ -700,6 +776,10 @@ export const saveBatch = internalMutation({
         }
         const tags = [...new Set([...(existing.tags ?? []), ...row.tags])].slice(0, 30);
         if (tags.length !== (existing.tags ?? []).length) patch.tags = tags;
+        if (row.doNotContact && !existing.optedOutAt) {
+          patch.optedOutAt = now;
+          patch.optOutReason = "import";
+        }
         if (Object.keys(patch).length > 0) {
           await ctx.db.patch("contacts", existing._id, patch);
           if (patch.name) await refreshContactSearch(ctx, existing._id);
@@ -719,6 +799,7 @@ export const saveBatch = internalMutation({
           tags: row.tags,
           attributes: [],
           source: "import",
+          ...(row.doNotContact ? { optedOutAt: now, optOutReason: "import" as const } : {}),
           lastSeenAt: now,
           createdAt: now,
         });
