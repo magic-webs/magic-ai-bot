@@ -22,6 +22,8 @@ export type ContactRow = {
   birthday?: string;
   email?: string;
   company?: string;
+  tags?: string;
+  notes?: string;
 };
 
 export type ContactParse = {
@@ -34,7 +36,15 @@ export type ContactParse = {
 
 export const CONTACT_CSV_COLUMNS = ["name", "phone", "birthday", "email", "company"] as const;
 
-type Field = "name" | "first" | "last" | "phone" | "birthday" | "email" | "company";
+type Field =
+  | "name"
+  | "first"
+  | "last"
+  | "phone"
+  | "birthday"
+  | "email"
+  | "company"
+  | "tags";
 
 /** "Phone 1 - Value" → "phone 1 value". */
 const clean = (header: string) =>
@@ -47,6 +57,7 @@ const clean = (header: string) =>
 function fieldOf(header: string): Field | null {
   const text = clean(header);
   if (!text || /\b(type|label)\b/.test(text)) return null;
+  if (/^(tags?|labels|groups?|segments?|categor(y|ies))$/.test(text)) return "tags";
   if (/^(first|given) name$/.test(text)) return "first";
   if (/^(last|family|sur) ?name$/.test(text)) return "last";
   if (/\b(phone|mobile|whatsapp|cell|tel|telephone|contact number)\b/.test(text) || text === "number") {
@@ -85,7 +96,8 @@ export function rowFromCells(cells: string[]): ContactRow | null {
   const name = rest.find(
     (cell) => cell !== email && cell !== birthday && /\p{L}/u.test(cell)
   );
-  return { phone, name, birthday, email };
+  const notes = rest.filter((cell) => cell !== email && cell !== birthday && cell !== name);
+  return { phone, name, birthday, email, notes: notes.join("; ") || undefined };
 }
 
 export function parseContactCsv(text: string): ContactParse {
@@ -124,12 +136,22 @@ export function parseContactCsv(text: string): ContactParse {
       return;
     }
     const joined = [pick("first"), pick("last")].filter(Boolean).join(" ");
+    const notes = table[0]
+      .map((header, i) =>
+        fields[i] === null && header.trim() && cells[i]?.trim()
+          ? `${header.trim()}: ${cells[i].trim()}`
+          : null
+      )
+      .filter(Boolean)
+      .join("; ");
     rows.push({
       phone,
       name: pick("name") ?? (joined || undefined),
       birthday: pick("birthday"),
       email: pick("email"),
       company: pick("company"),
+      tags: pick("tags"),
+      notes: notes || undefined,
     });
   });
 

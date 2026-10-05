@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { CATEGORY_LABELS } from "@/convex/lib/billing";
@@ -63,18 +64,10 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { TableSkeleton } from "@/components/skeletons";
 import { EventsTab, TouchDialog } from "@/components/marketing/events";
 import { AddContactsDialog } from "@/components/marketing/add-contacts-dialog";
-import { ExportContactsButton } from "@/components/marketing/export-contacts-button";
+import { AudienceTab } from "@/components/marketing/audience/audience-tab";
 import { TestSendButton } from "@/components/marketing/test-send";
 import { toast } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/convex-server";
@@ -86,13 +79,11 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   GiftIcon,
-  MagnifyingGlassIcon,
   MegaphoneIcon,
   PaperPlaneTiltIcon,
   PlusIcon,
   SparkleIcon,
   TrashIcon,
-  UserPlusIcon,
   UsersIcon,
   WarningCircleIcon,
   WhatsappLogoIcon,
@@ -114,6 +105,8 @@ type Template = Doc<"marketingTemplates"> & { metaBody: string };
 type Occasion = Doc<"marketingTemplates">["occasion"];
 type CalendarEvent = Doc<"marketingEvents"> & { templateName: string | null };
 type Festival = { key: string; name: string; date: string };
+
+const TABS = ["calendar", "events", "templates", "audience"];
 
 type TemplateCategory = NonNullable<Doc<"marketingTemplates">["category"]>;
 
@@ -188,9 +181,6 @@ const monthLabel = (year: number, month: number) =>
   formatDate(ymd(year, month, 1), { month: "long", year: "numeric" });
 
 /** "MM-DD" as "12 Mar". */
-const birthdayLabel = (monthDay: string) =>
-  formatDate(`2000-${monthDay}`, { day: "numeric", month: "short" });
-
 function fail(title: string, error: unknown) {
   toast.add({ title, description: errorMessage(error), type: "error" });
 }
@@ -1050,74 +1040,6 @@ function TemplateDialog({
   );
 }
 
-function BirthdayDialog({
-  contact,
-  onClose,
-}: {
-  contact: { _id: Id<"contacts">; label: string; phone: string; birthday: string | null } | null;
-  onClose: () => void;
-}) {
-  const update = useMutation(api.contacts.update);
-  const [value, setValue] = useState(
-    contact?.birthday ? `${contact.birthday.slice(3)}/${contact.birthday.slice(0, 2)}` : ""
-  );
-  const [busy, setBusy] = useState(false);
-
-  const save = async (birthday: string) => {
-    if (!contact) return;
-    setBusy(true);
-    try {
-      await update({ contactId: contact._id, birthday });
-      toast.add({
-        title: birthday ? `Birthday saved for ${contact.label}` : "Birthday cleared",
-        type: "success",
-      });
-      onClose();
-    } catch (error) {
-      fail("Could not save the birthday", error);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={contact !== null} onOpenChange={(open) => (open ? null : onClose())}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{contact?.label}</DialogTitle>
-          <DialogDescription>{contact?.phone}</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="birthday">Birthday</Label>
-          <Input
-            id="birthday"
-            value={value}
-            autoFocus
-            placeholder="25/12 or 25 December"
-            onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && value.trim()) void save(value);
-            }}
-          />
-          <p className="text-xs text-muted-foreground">
-            Day first. No year needed — the wish only needs the day.
-          </p>
-        </div>
-        <DialogFooter>
-          {contact?.birthday ? (
-            <Button variant="ghost" onClick={() => void save("")} disabled={busy}>
-              Clear
-            </Button>
-          ) : null}
-          <Button onClick={() => void save(value)} disabled={busy || !value.trim()}>
-            {busy ? <Spinner /> : null} Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // --------------------------------------------------------------- birthdays
 
 /**
@@ -1252,22 +1174,24 @@ export default function MarketingPage() {
   const timezone = workspace.timezone;
   const today = localDate(now, timezone);
 
-  const [tab, setTab] = useState("calendar");
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const requested = params.get("tab") === "contacts" ? "audience" : params.get("tab");
+  const tab = requested && TABS.includes(requested) ? requested : "calendar";
+  const setTab = (next: string) => {
+    const query = new URLSearchParams(params.toString());
+    query.set("tab", next);
+    router.replace(`${pathname}?${query.toString()}`, { scroll: false });
+  };
   const [cursor, setCursor] = useState(() => {
     const { year, month } = parts(today);
     return { year, month };
   });
   const [selected, setSelected] = useState(today);
-  const [search, setSearch] = useState("");
 
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
   const [templateDraft, setTemplateDraft] = useState<TemplateDraft | null>(null);
-  const [birthdayContact, setBirthdayContact] = useState<{
-    _id: Id<"contacts">;
-    label: string;
-    phone: string;
-    birthday: string | null;
-  } | null>(null);
   // An id rather than the reminder itself, so the dialog reads the live row
   // and shows the desk's line the moment it is written.
   const [touchId, setTouchId] = useState<Id<"marketingEvents"> | null>(null);
@@ -1289,12 +1213,6 @@ export default function MarketingPage() {
     today,
     days: 120,
   });
-  const contacts = useQuery(
-    api.marketing.contacts,
-    tab === "contacts"
-      ? { workspaceId: workspace._id, search: search.trim() || undefined }
-      : "skip"
-  );
   const campaigns = useQuery(api.marketingCampaigns.list, {
     workspaceId: workspace._id,
   });
@@ -1535,8 +1453,8 @@ export default function MarketingPage() {
                 </Badge>
               ) : null}
             </TabsTrigger>
-            <TabsTrigger value="contacts">
-              <UsersIcon /> Contacts
+            <TabsTrigger value="audience">
+              <UsersIcon /> Audience
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1737,102 +1655,29 @@ export default function MarketingPage() {
           )}
         </TabsContent>
 
-        {/* --------------------------------------------------------- contacts */}
-        <TabsContent value="contacts" className="flex flex-col gap-4 pt-4">
+        <TabsContent value="audience" className="pt-4">
           {overview ? (
-            <BirthdaySettings
-              key={JSON.stringify(overview.settings)}
-              settings={overview.settings}
-              templates={templates}
-              timezone={timezone}
-              withBirthday={overview.audience.withBirthday}
-            />
-          ) : null}
-
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold">Customers</h2>
-              <p className="text-sm text-muted-foreground">
-                Everyone here gets your greetings and event reminders. Add people who
-                have not written in yet.
-              </p>
-            </div>
-            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-              <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
-                <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  placeholder="Search name or number"
-                  className="pl-8"
-                  onChange={(event) => setSearch(event.target.value)}
+            <AudienceTab
+              categories={overview.categories}
+              weeklyCap={overview.weeklyCap}
+              reachable={overview.audience.whatsapp}
+              optedOut={overview.audience.optedOut}
+              onAddByHand={() => {
+                setAdding((n) => n + 1);
+                setAddOpen(true);
+              }}
+              birthdays={
+                <BirthdaySettings
+                  key={JSON.stringify(overview.settings)}
+                  settings={overview.settings}
+                  templates={templates}
+                  timezone={timezone}
+                  withBirthday={overview.audience.withBirthday}
                 />
-              </div>
-              <ExportContactsButton />
-              <Button
-                onClick={() => {
-                  setAdding((n) => n + 1);
-                  setAddOpen(true);
-                }}
-              >
-                <UserPlusIcon /> Add contacts
-              </Button>
-            </div>
-          </div>
-
-          {contacts === undefined ? (
-            <TableSkeleton rows={6} columns={3} />
-          ) : contacts.length === 0 ? (
-            <Empty className="border border-dashed">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <WhatsappLogoIcon />
-                </EmptyMedia>
-                <EmptyTitle>{search ? "Nobody matches" : "No WhatsApp customers yet"}</EmptyTitle>
-                <EmptyDescription>
-                  {search
-                    ? "No customer has that name or number."
-                    : "Everyone who messages you on WhatsApp appears here."}
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+              }
+            />
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Customer</TableHead>
-                    <TableHead className="hidden sm:table-cell">Number</TableHead>
-                    <TableHead>Birthday</TableHead>
-                    <TableHead className="w-24" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {contacts.map((contact) => (
-                    <TableRow key={contact._id}>
-                      <TableCell className="font-medium">{contact.label}</TableCell>
-                      <TableCell className="hidden font-mono text-xs text-muted-foreground sm:table-cell">
-                        {contact.phone}
-                      </TableCell>
-                      <TableCell>
-                        {contact.birthday ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <GiftIcon className="size-4 text-pink-600 dark:text-pink-400" />
-                            {birthdayLabel(contact.birthday)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="ghost" onClick={() => setBirthdayContact(contact)}>
-                          {contact.birthday ? "Edit" : "Add"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <TableSkeleton rows={6} columns={4} />
           )}
         </TabsContent>
       </Tabs>
@@ -1849,12 +1694,6 @@ export default function MarketingPage() {
         draft={templateDraft}
         setDraft={setTemplateDraft}
         templates={templates}
-      />
-      {/* Keyed on the contact so its field starts from their birthday. */}
-      <BirthdayDialog
-        key={birthdayContact?._id ?? "none"}
-        contact={birthdayContact}
-        onClose={() => setBirthdayContact(null)}
       />
       {/* Keyed on the reminder, so a draft typed into one never shows on
           the next. */}

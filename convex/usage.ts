@@ -17,7 +17,8 @@ const sourceValidator = v.union(
   v.literal("draft_catalogue"),
   v.literal("review"),
   v.literal("assistant"),
-  v.literal("draft_marketing")
+  v.literal("draft_marketing"),
+  v.literal("sort_contacts")
 );
 
 /**

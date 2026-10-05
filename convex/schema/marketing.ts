@@ -9,6 +9,26 @@ export const audienceSelection = v.object({
   excludeAudienceIds: v.array(v.id("audiences")),
 });
 
+export const importRowStatus = v.union(
+  v.literal("queued"),
+  v.literal("invalid"),
+  v.literal("duplicate"),
+  v.literal("check"),
+  v.literal("ready"),
+  v.literal("skipped"),
+  v.literal("saved")
+);
+
+export const importCounts = v.object({
+  queued: v.number(),
+  invalid: v.number(),
+  duplicate: v.number(),
+  check: v.number(),
+  ready: v.number(),
+  skipped: v.number(),
+  saved: v.number(),
+});
+
 export const audienceCategory = v.object({
   key: v.string(),
   label: v.string(),
@@ -166,4 +186,62 @@ export const marketingTables = {
   })
     .index("by_audienceId_and_contactId", ["audienceId", "contactId"])
     .index("by_contactId", ["contactId"]),
+
+  audienceImports: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    fileName: v.optional(v.string()),
+    countryCode: v.optional(v.string()),
+    status: v.union(
+      v.literal("uploading"),
+      v.literal("sorting"),
+      v.literal("review"),
+      v.literal("saving"),
+      v.literal("saved"),
+      v.literal("discarded")
+    ),
+    total: v.number(),
+    counts: importCounts,
+    audienceId: v.optional(v.id("audiences")),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index("by_workspace", ["workspaceId"]),
+
+  audienceImportRows: defineTable({
+    workspaceId: v.id("workspaces"),
+    importId: v.id("audienceImports"),
+    line: v.number(),
+    raw: v.object({
+      name: v.optional(v.string()),
+      phone: v.string(),
+      email: v.optional(v.string()),
+      company: v.optional(v.string()),
+      birthday: v.optional(v.string()),
+      tags: v.optional(v.string()),
+      notes: v.optional(v.string()),
+    }),
+    name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    company: v.optional(v.string()),
+    birthday: v.optional(v.string()),
+    tags: v.array(v.string()),
+    notes: v.optional(v.string()),
+    problem: v.optional(v.string()),
+    fixes: v.array(v.string()),
+    status: importRowStatus,
+    duplicateOfLine: v.optional(v.number()),
+    existingContactId: v.optional(v.id("contacts")),
+    optedOut: v.optional(v.boolean()),
+    category: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    junk: v.optional(v.number()),
+    sortError: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_importId_and_status", ["importId", "status"])
+    .index("by_importId_and_phone", ["importId", "phone"])
+    .index("by_importId_and_line", ["importId", "line"]),
 };

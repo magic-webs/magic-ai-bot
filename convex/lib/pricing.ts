@@ -54,6 +54,7 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   // catalogue if it ever leaves the free tier, because these zeros would then
   // be the silent kind this file exists to avoid.
   "inclusionai/ling-3.0-flash-fin": { input: 0, output: 0, kind: "chat" },
+  "typesafe-ai/jev": { input: 0.042, output: 0, kind: "chat" },
   "openai/text-embedding-3-small": { input: 0.02, output: 0, kind: "embedding" },
   "openai/text-embedding-3-large": { input: 0.13, output: 0, kind: "embedding" },
 

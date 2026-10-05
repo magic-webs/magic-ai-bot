@@ -11,7 +11,8 @@ const usageSource = v.union(
   v.literal("draft_catalogue"),
   v.literal("review"),
   v.literal("assistant"),
-  v.literal("draft_marketing")
+  v.literal("draft_marketing"),
+  v.literal("sort_contacts")
 );
 const usageChannel = v.optional(v.union(v.literal("whatsapp"), v.literal("web")));
 const usageKind = v.union(v.literal("chat"), v.literal("embedding"));

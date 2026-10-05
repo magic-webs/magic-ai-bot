@@ -77,6 +77,36 @@ export async function inSelection(
   return selection.audienceIds.some((id) => lists.has(id));
 }
 
+export async function loadMemberSets(
+  ctx: QueryCtx,
+  selection: AudienceSelection,
+  limit: number
+): Promise<Map<Id<"audiences">, Set<Id<"contacts">>>> {
+  const sets = new Map<Id<"audiences">, Set<Id<"contacts">>>();
+  for (const audienceId of [...selection.audienceIds, ...selection.excludeAudienceIds]) {
+    if (sets.has(audienceId)) continue;
+    const rows = await ctx.db
+      .query("audienceMembers")
+      .withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", audienceId))
+      .take(limit);
+    sets.set(audienceId, new Set(rows.map((row) => row.contactId)));
+  }
+  return sets;
+}
+
+export function matchesWith(
+  contact: Doc<"contacts">,
+  selection: AudienceSelection,
+  sets: Map<Id<"audiences">, Set<Id<"contacts">>>
+): boolean {
+  const member = (id: Id<"audiences">) => sets.get(id)?.has(contact._id) ?? false;
+  if (selection.excludeAudienceIds.some(member)) return false;
+  if (isEveryone(selection)) return true;
+  if (contact.category && selection.categories.includes(contact.category)) return true;
+  if (contact.tags?.some((tag) => selection.tags.includes(tag))) return true;
+  return selection.audienceIds.some(member);
+}
+
 export function reachable(contact: Doc<"contacts">): boolean {
   return contact.channelType === "whatsapp" && !contact.optedOutAt;
 }
