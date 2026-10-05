@@ -1188,7 +1188,20 @@ export const startTurn = internalMutation({
           optReply: { text: reply, messageId: replyMessageId },
         };
       }
-      await noteReply(ctx, contact._id, now);
+      const answered = await noteReply(ctx, contact._id, now);
+      const reminder = answered?.eventId ? await ctx.db.get("marketingEvents", answered.eventId) : null;
+      if (reminder?.campaignId && (reminder.offsetDays ?? 0) <= 0) {
+        const event = await ctx.db.get("marketingCampaigns", reminder.campaignId);
+        if (event) {
+          await ctx.scheduler.runAfter(0, internal.eventGuests.readReply, {
+            campaignId: event._id,
+            contactId: contact._id,
+            workspaceId: args.workspaceId,
+            eventTitle: event.title,
+            text: args.text,
+          });
+        }
+      }
     }
 
     const sessionOver =

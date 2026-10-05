@@ -9,6 +9,20 @@ export const audienceSelection = v.object({
   excludeAudienceIds: v.array(v.id("audiences")),
 });
 
+export const guestSegment = v.union(
+  v.literal("everyone"),
+  v.literal("not_declined"),
+  v.literal("interested"),
+  v.literal("attended"),
+  v.literal("no_show")
+);
+
+export const rsvpStatus = v.union(
+  v.literal("going"),
+  v.literal("maybe"),
+  v.literal("declined")
+);
+
 export const importRowStatus = v.union(
   v.literal("queued"),
   v.literal("invalid"),
@@ -79,6 +93,7 @@ export const marketingTables = {
     offsetDays: v.optional(v.number()),
     message: v.optional(v.string()),
     audience: v.optional(audienceSelection),
+    guestSegment: v.optional(guestSegment),
     status: v.union(
       v.literal("draft"),
       v.literal("scheduled"),
@@ -249,4 +264,20 @@ export const marketingTables = {
     .index("by_importId_and_status", ["importId", "status"])
     .index("by_importId_and_phone", ["importId", "phone"])
     .index("by_importId_and_line", ["importId", "line"]),
+
+  eventGuests: defineTable({
+    workspaceId: v.id("workspaces"),
+    campaignId: v.id("marketingCampaigns"),
+    contactId: v.id("contacts"),
+    rsvp: v.optional(rsvpStatus),
+    rsvpSource: v.optional(v.union(v.literal("reply"), v.literal("manual"))),
+    rsvpText: v.optional(v.string()),
+    respondedAt: v.optional(v.number()),
+    attended: v.optional(v.boolean()),
+    checkedInAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_campaignId_and_contactId", ["campaignId", "contactId"])
+    .index("by_campaignId_and_rsvp", ["campaignId", "rsvp"])
+    .index("by_campaignId_and_attended", ["campaignId", "attended"]),
 };

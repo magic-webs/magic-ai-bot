@@ -26,9 +26,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
 import { ensureMarketingDesk } from "./agents";
 import { clampHour, templateInWorkspace } from "./marketing";
+import { audienceSelection, guestSegment } from "./schema/marketing";
 import {
   EVENT_TOUCH_OFFSETS,
   addDays,
+  defaultSegment,
   asParameter,
   isLocalDate,
   isLocalTime,
@@ -114,6 +116,8 @@ export const save = mutation({
     sendHour: v.number(),
     /** Days before (negative) or after (positive), from EVENT_TOUCHES. */
     touches: v.array(v.number()),
+    segments: v.optional(v.array(v.object({ offset: v.number(), segment: guestSegment }))),
+    audience: v.optional(audienceSelection),
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
@@ -144,7 +148,14 @@ export const save = mutation({
 
     const now = Date.now();
     const sendHour = clampHour(args.sendHour);
+    const segmentOf = (offset: number) =>
+      args.segments?.find((row) => row.offset === offset)?.segment ?? defaultSegment(offset);
+    for (const id of [...(args.audience?.audienceIds ?? []), ...(args.audience?.excludeAudienceIds ?? [])]) {
+      const list = await ctx.db.get("audiences", id);
+      if (!list || list.workspaceId !== args.workspaceId) throw new Error("A list was not found.");
+    }
     const fields = {
+      audience: args.audience,
       title,
       date: args.date,
       startTime,
@@ -208,7 +219,9 @@ export const save = mutation({
         continue;
       }
 
+      const segment = segmentOf(offset);
       const touch = {
+        guestSegment: segment,
         title: `${title} · ${touchLabel(offset)}`,
         date,
         sendHour,
@@ -218,12 +231,13 @@ export const save = mutation({
         updatedAt: now,
       };
       if (row) {
+        const rewrite = briefChanged || row.guestSegment !== segment;
         await ctx.db.patch("marketingEvents", row._id, {
           ...touch,
           lastError: undefined,
-          ...(briefChanged ? { message: undefined } : {}),
+          ...(rewrite ? { message: undefined } : {}),
         });
-        if (briefChanged || !row.message) needsWriting = true;
+        if (rewrite || !row.message) needsWriting = true;
       } else {
         await ctx.db.insert("marketingEvents", {
           workspaceId: args.workspaceId,
@@ -374,6 +388,7 @@ export const writingContext = internalMutation({
       touches: touches.map((row) => ({
         eventId: row._id,
         offsetDays: row.offsetDays ?? 0,
+        guestSegment: row.guestSegment,
         date: row.date,
       })),
     };

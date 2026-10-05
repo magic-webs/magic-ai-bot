@@ -80,6 +80,8 @@ async function sendPage(
     key: string;
     monthDay?: string;
     audience?: AudienceSelection;
+    campaignId?: Id<"marketingCampaigns">;
+    guestSegment?: Doc<"marketingEvents">["guestSegment"];
     cursor: string | null;
     context: {
       workspaceName: string;
@@ -96,6 +98,8 @@ async function sendPage(
     key: args.key,
     monthDay: args.monthDay,
     audience: args.audience,
+    campaignId: args.campaignId,
+    guestSegment: args.guestSegment,
     now: Date.now(),
     cursor: args.cursor,
   });
@@ -251,6 +255,8 @@ export const runEvent = internalAction({
       values,
       key: `event:${args.eventId}`,
       audience: context.event.audience ?? context.campaign?.audience,
+      campaignId: context.event.campaignId,
+      guestSegment: context.event.guestSegment,
       cursor: args.cursor ?? null,
       context: {
         workspaceName: context.workspaceName,

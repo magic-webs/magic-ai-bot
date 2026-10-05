@@ -51,6 +51,7 @@ import {
 import {
   audienceCategory as audienceCategoryValidator,
   audienceSelection as audienceSelectionValidator,
+  guestSegment as guestSegmentValidator,
 } from "./schema/marketing";
 import { DEFAULT_CATEGORIES, inSelection, reachable } from "./lib/audience";
 
@@ -898,23 +899,52 @@ export const audiencePage = internalQuery({
     key: v.string(),
     monthDay: v.optional(v.string()),
     audience: v.optional(audienceSelectionValidator),
+    campaignId: v.optional(v.id("marketingCampaigns")),
+    guestSegment: v.optional(guestSegmentValidator),
     now: v.optional(v.number()),
     cursor: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
     const options = { numItems: SEND_BATCH, cursor: args.cursor };
     const monthDay = args.monthDay;
-    const page = monthDay
-      ? await ctx.db
-          .query("contacts")
-          .withIndex("by_workspace_and_birthday", (q) =>
-            q.eq("workspaceId", args.workspaceId).eq("birthday", monthDay)
-          )
-          .paginate(options)
-      : await ctx.db
-          .query("contacts")
-          .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-          .paginate(options);
+    const campaignId = args.campaignId;
+    const fromGuests =
+      campaignId &&
+      (args.guestSegment === "interested" ||
+        args.guestSegment === "attended" ||
+        args.guestSegment === "no_show");
+
+    let candidates: Array<Doc<"contacts"> | null>;
+    let continueCursor: string;
+    let isDone: boolean;
+    if (fromGuests) {
+      const page = await ctx.db
+        .query("eventGuests")
+        .withIndex("by_campaignId_and_contactId", (q) => q.eq("campaignId", campaignId))
+        .paginate(options);
+      const wanted = page.page.filter((guest) => {
+        const interested = guest.rsvp === "going" || guest.rsvp === "maybe";
+        if (args.guestSegment === "interested") return interested;
+        if (args.guestSegment === "attended") return guest.attended === true;
+        return interested && !guest.attended;
+      });
+      candidates = await Promise.all(wanted.map((guest) => ctx.db.get("contacts", guest.contactId)));
+      ({ continueCursor, isDone } = page);
+    } else {
+      const page = monthDay
+        ? await ctx.db
+            .query("contacts")
+            .withIndex("by_workspace_and_birthday", (q) =>
+              q.eq("workspaceId", args.workspaceId).eq("birthday", monthDay)
+            )
+            .paginate(options)
+        : await ctx.db
+            .query("contacts")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+            .paginate(options);
+      candidates = page.page;
+      ({ continueCursor, isDone } = page);
+    }
 
     const settings = await settingsFor(ctx, args.workspaceId);
     const cap = !monthDay && args.now ? (settings?.weeklyCap ?? 0) : 0;
@@ -925,9 +955,19 @@ export const audiencePage = internalQuery({
       name?: string;
     }> = [];
     let skipped = 0;
-    for (const contact of page.page) {
+    for (const contact of candidates) {
+      if (!contact || contact.workspaceId !== args.workspaceId) continue;
       if (!reachable(contact)) continue;
-      if (!(await inSelection(ctx, contact, args.audience))) continue;
+      if (!fromGuests && !(await inSelection(ctx, contact, args.audience))) continue;
+      if (campaignId && args.guestSegment === "not_declined") {
+        const guest = await ctx.db
+          .query("eventGuests")
+          .withIndex("by_campaignId_and_contactId", (q) =>
+            q.eq("campaignId", campaignId).eq("contactId", contact._id)
+          )
+          .unique();
+        if (guest?.rsvp === "declined") continue;
+      }
       const already = await ctx.db
         .query("marketingSends")
         .withIndex("by_contact_and_key", (q) =>
@@ -946,12 +986,7 @@ export const audiencePage = internalQuery({
       });
     }
 
-    return {
-      contacts,
-      skipped,
-      continueCursor: page.continueCursor,
-      isDone: page.isDone,
-    };
+    return { contacts, skipped, continueCursor, isDone };
   },
 });
 

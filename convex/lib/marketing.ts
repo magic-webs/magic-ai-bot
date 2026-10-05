@@ -288,12 +288,29 @@ export function greetingName(name: string | undefined): string {
  * no differently to a customer from 3.
  */
 export const EVENT_TOUCHES = [
-  { offset: -7, label: "1 week before" },
-  { offset: -3, label: "3 days before" },
-  { offset: -1, label: "1 day before" },
-  { offset: 0, label: "On the day" },
-  { offset: 1, label: "1 day after" },
+  { offset: -14, label: "2 weeks before", stage: "Announce" },
+  { offset: -7, label: "1 week before", stage: "Announce" },
+  { offset: -3, label: "3 days before", stage: "Remind" },
+  { offset: -1, label: "1 day before", stage: "Remind" },
+  { offset: 0, label: "On the day", stage: "Day of" },
+  { offset: 1, label: "1 day after", stage: "Thank you" },
+  { offset: 2, label: "2 days after", stage: "Feedback" },
+  { offset: 7, label: "1 week after", stage: "Follow up" },
 ] as const;
+
+export type GuestSegment = "everyone" | "not_declined" | "interested" | "attended" | "no_show";
+
+export const GUEST_SEGMENTS: Array<{ value: GuestSegment; label: string }> = [
+  { value: "everyone", label: "Everyone invited" },
+  { value: "not_declined", label: "Everyone but those who said no" },
+  { value: "interested", label: "Said yes or maybe" },
+  { value: "attended", label: "Came" },
+  { value: "no_show", label: "Said yes but didn't come" },
+];
+
+export function defaultSegment(offset: number): GuestSegment {
+  return offset <= 0 ? "not_declined" : "everyone";
+}
 
 export const EVENT_TOUCH_OFFSETS: readonly number[] = EVENT_TOUCHES.map(
   (touch) => touch.offset
@@ -310,18 +327,32 @@ export function touchLabel(offset: number): string {
 }
 
 /** What each reminder is for, as the desk is briefed on it. */
-export function touchBrief(offset: number): string {
+export function touchBrief(offset: number, segment: GuestSegment = defaultSegment(offset)): string {
+  if (segment === "no_show") {
+    return "They said they would come but did not make it: say they were missed, share one highlight, and offer a way to catch up or come next time. Never scold.";
+  }
   if (offset <= -7) {
-    return "An early announcement, a week ahead: tell them it is coming and why it is worth marking in the diary.";
+    return "An early announcement: tell them it is coming and why it is worth marking in the diary, and ask them to reply to say if they can come.";
   }
   if (offset < -1) {
-    return `A reminder ${-offset} days ahead: build a little anticipation and give them the one reason to come.`;
+    return `A reminder ${-offset} days ahead: build a little anticipation, give them the one reason to come, and ask them to reply yes or no.`;
   }
   if (offset === -1) {
     return "The day before: a short, friendly nudge that it is tomorrow.";
   }
   if (offset === 0) {
     return "The morning of the day: it is today — make it easy to come along.";
+  }
+  if (segment === "attended") {
+    if (offset >= 7) return "A week after, to people who came: a follow-up offer or next step that builds on the event.";
+    if (offset >= 2) return "Two days after, to people who came: ask in one line how it was, and invite a quick reply.";
+    return "The day after, to people who came: thank them warmly for coming.";
+  }
+  if (offset >= 7) {
+    return "A week after: a follow-up offer or next step that keeps the momentum going. Do not assume they attended.";
+  }
+  if (offset >= 2) {
+    return "Two days after: ask for a quick reply with their thoughts or questions. Do not assume they attended.";
   }
   return "The day after: thank everyone warmly, whether or not they came, and leave the door open for next time. Do not assume they attended.";
 }

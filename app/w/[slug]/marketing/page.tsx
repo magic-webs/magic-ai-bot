@@ -1567,6 +1567,7 @@ export default function MarketingPage() {
           <EventsTab
             campaigns={campaigns}
             templates={templates}
+            categories={overview?.categories ?? []}
             today={today}
             onOpenTouch={(touch) => setTouchId(touch._id)}
             onCreateTemplate={newEventTemplate}

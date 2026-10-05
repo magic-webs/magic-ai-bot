@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   DEFAULT_EVENT_TOUCHES,
   EVENT_TOUCHES,
+  GUEST_SEGMENTS,
   addDays,
+  defaultSegment,
+  type GuestSegment,
   eventDateLabel,
   templateBlocker,
   touchLabel,
@@ -19,6 +22,14 @@ import { useHourBucket } from "@/components/use-now";
 import { SelectField } from "@/components/select-field";
 import { TableSkeleton } from "@/components/skeletons";
 import { TestSendButton } from "@/components/marketing/test-send";
+import {
+  AudiencePicker,
+  EVERYONE,
+  isEveryone,
+  type AudienceChoice,
+} from "@/components/marketing/audience/audience-picker";
+import type { Category } from "@/components/marketing/audience/shared";
+import { GuestsDialog } from "@/components/marketing/events/guests-dialog";
 import {
   HOURS,
   STATUS_VARIANT,
@@ -72,6 +83,7 @@ import {
   PlusIcon,
   SparkleIcon,
   TrashIcon,
+  UsersThreeIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 
@@ -112,18 +124,21 @@ function templateOptions(templates: Template[]) {
 export function EventsTab({
   campaigns,
   templates,
+  categories,
   today,
   onOpenTouch,
   onCreateTemplate,
 }: {
   campaigns: Campaign[] | undefined;
   templates: Template[];
+  categories: Category[];
   today: string;
   onOpenTouch: (touch: Touch) => void;
   onCreateTemplate: () => void;
 }) {
   const workspace = useWorkspace();
   const [draft, setDraft] = useState<CampaignDraft | null>(null);
+  const [guestsOf, setGuestsOf] = useState<Campaign | null>(null);
 
   const eventTemplate =
     templates.find((t) => t.occasion === "event" && templateReady(t)) ??
@@ -141,6 +156,8 @@ export function EventsTab({
       templateId: eventTemplate?._id,
       sendHour: 10,
       touches: [...DEFAULT_EVENT_TOUCHES],
+      audience: EVERYONE,
+      segments: {},
     });
 
   const openCampaign = (campaign: Campaign) =>
@@ -159,6 +176,12 @@ export function EventsTab({
         .filter(isPending)
         .map((touch) => touch.offsetDays ?? 0),
       sent: campaign.touches.filter((touch) => !isPending(touch)),
+      audience: campaign.audience ?? EVERYONE,
+      segments: Object.fromEntries(
+        campaign.touches
+          .filter((touch) => touch.guestSegment)
+          .map((touch) => [touch.offsetDays ?? 0, touch.guestSegment!])
+      ),
     });
 
   // Upcoming until its last reminder has gone: an event yesterday still has
@@ -173,8 +196,9 @@ export function EventsTab({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Events</h2>
-          <p className="text-sm text-muted-foreground">
-            Put an event on and the marketing desk writes and sends its reminders.
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            An announcement, reminders, the day itself and the follow-up after — each written by
+            the marketing desk, sent to the right guests, with replies read as RSVPs.
           </p>
         </div>
         <Button onClick={newCampaign}>
@@ -225,6 +249,7 @@ export function EventsTab({
               templates={templates}
               locale={workspace.locale}
               onEdit={() => openCampaign(campaign)}
+              onGuests={() => setGuestsOf(campaign)}
               onOpenTouch={onOpenTouch}
             />
           ))}
@@ -238,6 +263,7 @@ export function EventsTab({
                   templates={templates}
                   locale={workspace.locale}
                   onEdit={() => openCampaign(campaign)}
+                  onGuests={() => setGuestsOf(campaign)}
                   onOpenTouch={onOpenTouch}
                 />
               ))}
@@ -246,7 +272,10 @@ export function EventsTab({
         </>
       )}
 
-      <CampaignDialog draft={draft} setDraft={setDraft} templates={templates} />
+      <CampaignDialog draft={draft} setDraft={setDraft} templates={templates} categories={categories} />
+      {guestsOf ? (
+        <GuestsDialog key={guestsOf._id} campaign={guestsOf} onClose={() => setGuestsOf(null)} />
+      ) : null}
     </div>
   );
 }
@@ -256,16 +285,25 @@ function EventCard({
   templates,
   locale,
   onEdit,
+  onGuests,
   onOpenTouch,
 }: {
   campaign: Campaign;
   templates: Template[];
   locale: string;
   onEdit: () => void;
+  onGuests: () => void;
   onOpenTouch: (touch: Touch) => void;
 }) {
+  const workspace = useWorkspace();
   const template = templates.find((t) => t._id === campaign.templateId);
   const waiting = campaign.touches.some(isPending);
+  const sentKeys = campaign.touches.filter((t) => t.startedAt).map((t) => `event:${t._id}`);
+  const stats = useQuery(
+    api.marketing.stats,
+    sentKeys.length ? { workspaceId: workspace._id, keys: sentKeys } : "skip"
+  );
+  const guests = useQuery(api.eventGuests.summary, { campaignId: campaign._id });
 
   return (
     <Card size="sm">
@@ -287,11 +325,24 @@ function EventCard({
             </CardDescription>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={onEdit}>
-          <PencilSimpleIcon /> Edit
-        </Button>
+        <div className="flex shrink-0 gap-1.5">
+          <Button size="sm" variant="ghost" onClick={onGuests}>
+            <UsersThreeIcon /> Guests
+          </Button>
+          <Button size="sm" variant="outline" onClick={onEdit}>
+            <PencilSimpleIcon /> Edit
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
+        {guests && (guests.going || guests.maybe || guests.declined || guests.attended) ? (
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            <Badge variant="secondary">{guests.going} going</Badge>
+            <Badge variant="outline">{guests.maybe} maybe</Badge>
+            <Badge variant="outline">{guests.declined} can&apos;t come</Badge>
+            {guests.attended ? <Badge>{guests.attended} came</Badge> : null}
+          </div>
+        ) : null}
         {waiting && !campaign.templateId ? (
           <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
             <WarningCircleIcon className="size-3.5 shrink-0" />
@@ -322,6 +373,9 @@ function EventCard({
                     <span className="text-xs text-muted-foreground">
                       {shortDayLabel(touch.date)} · {hourLabel(touch.sendHour)}
                     </span>
+                    <span className="text-xs text-muted-foreground">
+                      To {segmentLabel(touch.guestSegment ?? defaultSegment(touch.offsetDays ?? 0)).toLowerCase()}
+                    </span>
                   </span>
                   <span
                     className={cn(
@@ -332,11 +386,17 @@ function EventCard({
                     {touch.message ??
                       (isPending(touch) ? "The desk is writing this one…" : "—")}
                   </span>
-                  <Badge variant={STATUS_VARIANT[touch.status]} className="self-start">
-                    {touch.status === "sent"
-                      ? `sent to ${touch.sentCount}`
-                      : touch.status}
-                  </Badge>
+                  <span className="flex flex-col items-start gap-1 sm:items-end">
+                    <Badge variant={STATUS_VARIANT[touch.status]}>
+                      {touch.status === "sent" ? `sent to ${touch.sentCount}` : touch.status}
+                    </Badge>
+                    {stats?.[`event:${touch._id}`]?.sent ? (
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
+                        {rate(stats[`event:${touch._id}`].read, stats[`event:${touch._id}`].sent)} read ·{" "}
+                        {stats[`event:${touch._id}`].replied} replied
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               </li>
             ))}
@@ -363,16 +423,26 @@ type CampaignDraft = {
   touches: number[];
   /** Reminders already gone out, which a save leaves alone. */
   sent?: Touch[];
+  audience: AudienceChoice;
+  segments: Partial<Record<number, GuestSegment>>;
 };
+
+const segmentLabel = (segment: GuestSegment) =>
+  GUEST_SEGMENTS.find((row) => row.value === segment)?.label ?? segment;
+
+const rate = (part: number, whole: number) =>
+  whole > 0 ? `${Math.round((part / whole) * 100)}%` : "—";
 
 function CampaignDialog({
   draft,
   setDraft,
   templates,
+  categories,
 }: {
   draft: CampaignDraft | null;
   setDraft: (next: CampaignDraft | null) => void;
   templates: Template[];
+  categories: Category[];
 }) {
   const workspace = useWorkspace();
   const now = useHourBucket();
@@ -411,6 +481,13 @@ function CampaignDialog({
         templateId: draft.templateId,
         sendHour: draft.sendHour,
         touches: draft.touches,
+        audience: isEveryone(draft.audience) && draft.audience.excludeAudienceIds.length === 0
+          ? undefined
+          : draft.audience,
+        segments: draft.touches.map((offset) => ({
+          offset,
+          segment: draft.segments[offset] ?? defaultSegment(offset),
+        })),
       });
       toast.add({
         title: `${draft.title.trim()} saved`,
@@ -449,8 +526,8 @@ function CampaignDialog({
         <DialogHeader>
           <DialogTitle>{draft.campaignId ? "Edit event" : "New event"}</DialogTitle>
           <DialogDescription>
-            The marketing desk writes each reminder from these details and sends it to
-            every WhatsApp customer, in {workspace.timezone}.
+            The marketing desk writes each message from these details and sends it to the
+            guests you pick, in {workspace.timezone}.
           </DialogDescription>
         </DialogHeader>
 
@@ -533,6 +610,15 @@ function CampaignDialog({
           </div>
 
           <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+            <Label>Who&apos;s invited</Label>
+            <AudiencePicker
+              value={draft.audience}
+              categories={categories}
+              onChange={(audience) => set("audience", audience)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Messages</Label>
               <div className="flex items-center gap-2">
@@ -546,7 +632,7 @@ function CampaignDialog({
                 />
               </div>
             </div>
-            <div className="grid gap-1.5 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
               {EVENT_TOUCHES.map((touch) => {
                 const date = addDays(draft.date, touch.offset);
                 const sent = sentOffsets.has(touch.offset);
@@ -554,26 +640,46 @@ function CampaignDialog({
                   !sent &&
                   zonedToInstant(date, draft.sendHour, workspace.timezone) <= now;
                 const checked = sent || draft.touches.includes(touch.offset);
+                const active = checked && !passed && !sent;
                 return (
-                  <label
+                  <div
                     key={touch.offset}
                     className={cn(
-                      "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
-                      sent || passed ? "text-muted-foreground" : "cursor-pointer hover:bg-muted/40"
+                      "flex flex-wrap items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
+                      sent || passed ? "text-muted-foreground" : "hover:bg-muted/40"
                     )}
                   >
-                    <Checkbox
-                      checked={checked && !passed}
-                      disabled={sent || passed}
-                      onCheckedChange={(on) => toggle(touch.offset, on === true)}
-                    />
-                    <span className="min-w-0 flex-1">
-                      {touch.label}
-                      <span className="block text-xs text-muted-foreground">
-                        {sent ? "Already sent" : passed ? "Already past" : shortDayLabel(date)}
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
+                      <Checkbox
+                        checked={checked && !passed}
+                        disabled={sent || passed}
+                        onCheckedChange={(on) => toggle(touch.offset, on === true)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="mr-1.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                          {touch.stage}
+                        </span>
+                        {touch.label}
+                        <span className="block text-xs text-muted-foreground">
+                          {sent ? "Already sent" : passed ? "Already past" : shortDayLabel(date)}
+                        </span>
                       </span>
-                    </span>
-                  </label>
+                    </label>
+                    {active ? (
+                      <SelectField
+                        size="sm"
+                        aria-label={`Who gets ${touch.label}`}
+                        className="w-60"
+                        value={draft.segments[touch.offset] ?? defaultSegment(touch.offset)}
+                        onValueChange={(value) =>
+                          set("segments", { ...draft.segments, [touch.offset]: value as GuestSegment })
+                        }
+                        options={GUEST_SEGMENTS.filter(
+                          (row) => touch.offset > 0 || (row.value !== "attended" && row.value !== "no_show")
+                        )}
+                      />
+                    ) : null}
+                  </div>
                 );
               })}
             </div>

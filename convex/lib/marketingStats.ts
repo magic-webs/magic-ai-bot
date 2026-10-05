@@ -121,7 +121,8 @@ async function latestSend(ctx: MutationCtx, contactId: Id<"contacts">, since: nu
 
 export async function noteReply(ctx: MutationCtx, contactId: Id<"contacts">, at: number) {
   const send = await latestSend(ctx, contactId, at - REPLY_WINDOW_MS);
-  if (!send || send.repliedAt) return;
+  if (!send) return null;
+  if (send.repliedAt) return send;
   const delta: Partial<MarketingCounts> = { replied: 1 };
   const patch: Partial<Doc<"marketingSends">> = { repliedAt: at };
   if (!send.readAt) {
@@ -134,6 +135,7 @@ export async function noteReply(ctx: MutationCtx, contactId: Id<"contacts">, at:
   }
   await ctx.db.patch("marketingSends", send._id, patch);
   await bumpStats(ctx, send.workspaceId, send.key, delta);
+  return send;
 }
 
 export async function noteOptOut(ctx: MutationCtx, contactId: Id<"contacts">, at: number) {

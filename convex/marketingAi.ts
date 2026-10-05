@@ -212,7 +212,7 @@ async function writeTouchLines(
           touch.date,
           undefined,
           workspace.locale
-        )}. ${touchBrief(touch.offsetDays)}`
+        )}. ${touchBrief(touch.offsetDays, touch.guestSegment)}`
     ),
   ]
     .filter((line) => line !== "")

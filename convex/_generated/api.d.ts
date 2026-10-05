@@ -26,6 +26,7 @@ import type * as crons from "../crons.js";
 import type * as deliveries from "../deliveries.js";
 import type * as desk from "../desk.js";
 import type * as engine from "../engine.js";
+import type * as eventGuests from "../eventGuests.js";
 import type * as followUp from "../followUp.js";
 import type * as formSubmissions from "../formSubmissions.js";
 import type * as http from "../http.js";
@@ -137,6 +138,7 @@ declare const fullApi: ApiFromModules<{
   deliveries: typeof deliveries;
   desk: typeof desk;
   engine: typeof engine;
+  eventGuests: typeof eventGuests;
   followUp: typeof followUp;
   formSubmissions: typeof formSubmissions;
   http: typeof http;
