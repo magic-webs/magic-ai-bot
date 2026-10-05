@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { buildMessage } from "./lib/whatsappSend";
+import { buildMessage, providerMessageId } from "./lib/whatsappSend";
 import {
   asParameter,
   eventDateLabel,
@@ -56,11 +56,8 @@ async function sendTemplate(
       ),
     });
     if (response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        messages?: Array<{ id?: unknown }>;
-      } | null;
-      const id = body?.messages?.[0]?.id;
-      return { ok: true, wamid: typeof id === "string" ? id : undefined };
+      const body = await response.json().catch(() => null);
+      return { ok: true, wamid: providerMessageId(body) };
     }
     const text = await response.text().catch(() => "");
     return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };

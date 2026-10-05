@@ -699,3 +699,17 @@ export function summarise(message: Outbound): string {
       return message.preview?.trim() || `[template: ${message.templateName}]`;
   }
 }
+
+/**
+ * The id a send can be traced by: Meta's `wamid`, or — through 1Automations,
+ * which queues the message first — its `queue_id`, swapped for the `wamid`
+ * when the queue webhook reports the send (see `deliveries.resolveQueued`).
+ */
+export function providerMessageId(body: unknown): string | undefined {
+  const parsed = body as {
+    messages?: Array<{ id?: unknown }>;
+    message?: { queue_id?: unknown };
+  } | null;
+  const id = parsed?.messages?.[0]?.id ?? parsed?.message?.queue_id;
+  return typeof id === "string" && id ? id : undefined;
+}

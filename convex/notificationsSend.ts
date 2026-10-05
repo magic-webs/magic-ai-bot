@@ -37,6 +37,7 @@ import {
   request,
   type Json,
 } from "./lib/panel";
+import { providerMessageId } from "./lib/whatsappSend";
 
 
 type Channel = {
@@ -118,9 +119,7 @@ async function postWhatsApp(channel: Channel, body: Json): Promise<Delivery> {
     if (!response.ok) {
       return { ok: false, error: providerError(response.status, response.body, response.text) };
     }
-    const messages = (response.body as Json | null)?.messages;
-    const id = Array.isArray(messages) ? (messages[0] as Json | undefined)?.id : undefined;
-    return { ok: true, messageId: typeof id === "string" ? id : undefined };
+    return { ok: true, messageId: providerMessageId(response.body) };
   } catch (error) {
     return { ok: false, error: errorText(error) };
   }

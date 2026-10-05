@@ -92,6 +92,32 @@ function hasMessages(shape: Record<string, unknown>): boolean {
 
 const RECEIPTS = new Set(["sent", "delivered", "read", "failed"]);
 
+/**
+ * 1Automations queues every send and answers with a `queue_id`; this report
+ * is where the queued message gets its Meta `wamid`, or its failure.
+ */
+function queueReport(shape: Record<string, unknown>) {
+  const message = shape.message as
+    | { queue_id?: unknown; message_status?: unknown }
+    | undefined;
+  if (typeof message?.queue_id !== "string") return null;
+  const response = shape.response as
+    | {
+        messages?: Array<{ id?: unknown }>;
+        error?: { message?: unknown; error_data?: { details?: unknown } };
+      }
+    | undefined;
+  const wamid = response?.messages?.[0]?.id;
+  const problem = response?.error?.error_data?.details ?? response?.error?.message;
+  const failed = message.message_status === "failed" || Boolean(response?.error);
+  return {
+    queueId: message.queue_id,
+    ...(typeof wamid === "string" ? { wamid } : {}),
+    failed,
+    ...(failed && typeof problem === "string" ? { error: problem.slice(0, 300) } : {}),
+  };
+}
+
 function deliveryStatuses(shape: Record<string, unknown>) {
   return webhookValues(shape).flatMap((value) =>
     (value.statuses ?? []).flatMap((status) => {
@@ -198,6 +224,18 @@ http.route({
           headers: { "Content-Type": "text/plain" },
         });
       }
+    }
+
+    const queued = queueReport(shape);
+    if (queued) {
+      await ctx.scheduler.runAfter(0, internal.deliveries.resolveQueued, {
+        channelKey,
+        ...queued,
+      });
+      return new Response(JSON.stringify({ status: "accepted" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const statuses = deliveryStatuses(shape);

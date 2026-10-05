@@ -8,7 +8,12 @@ import { v } from "convex/values";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { buildMessage, summarise, type Outbound } from "./lib/whatsappSend";
+import {
+  buildMessage,
+  providerMessageId,
+  summarise,
+  type Outbound,
+} from "./lib/whatsappSend";
 import { categoryOf, type BillingSource } from "./lib/billing";
 import { transcribe as transcribeAudio } from "ai";
 import { aiGateway, TRANSCRIPTION_MODEL } from "./lib/gateway";
@@ -43,11 +48,8 @@ async function send(
   });
 
   if (response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      messages?: Array<{ id?: unknown }>;
-    } | null;
-    const id = body?.messages?.[0]?.id;
-    return { ok: true, wamid: typeof id === "string" ? id : undefined };
+    const body = await response.json().catch(() => null);
+    return { ok: true, wamid: providerMessageId(body) };
   }
   const text = await response.text().catch(() => "");
   return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };

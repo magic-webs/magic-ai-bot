@@ -38,14 +38,22 @@ changing anything that talks to WhatsApp.
 - Messages are sent with `POST <apiBaseUrl>/<apiVersion>/<phone_number_id>/messages`
   in the Cloud API shape, using `Authorization: Bearer <accessToken>`. The
   channel's `apiBaseUrl` already carries the provider's `/api/meta` prefix.
-- A successful send returns the provider message id (`wamid`) in
-  `messages[0].id`. Every send path must keep it: it is what links a delivery
-  receipt back to a row in `messages`, through `whatsappMessageIds`.
+- 1Automations queues every send. The response is
+  `{ messaging_channel, message: { queue_id, message_status: "queued" } }`,
+  with no `wamid`. A second webhook,
+  `{ messaging_channel, message: { queue_id, message_status }, response }`,
+  carries Meta's response, and the `wamid` is in `response.messages[0].id`.
+  `providerMessageId` keeps whichever id a send returned, and
+  `deliveries.resolveQueued` links the `queue_id` to the `wamid` when that
+  webhook arrives. Every send path must keep the id: it is how a delivery
+  receipt finds its row in `messages`, through `whatsappMessageIds`.
 - Delivery receipts arrive on the same `/whatsapp/<channelKey>` webhook as
   inbound messages, as `entry[].changes[].value.statuses[]` with
   `sent | delivered | read | failed`. `convex/http.ts` hands them to
   `deliveries.applyStatuses`. A status only moves forward (see
-  `convex/lib/delivery.ts`), because receipts arrive out of order.
+  `convex/lib/delivery.ts`), because receipts arrive out of order. A receipt
+  can also arrive before the queue webhook, so one that matches nothing is
+  retried a few times before it is dropped.
 - The provider sends receipts only for the events its webhook subscribes to.
   Subscribe through `POST /v2/webhook`, with `sent`, `delivered`, `read` and
   `failed` among the `events`. Without them, every tick stays at "sent".
