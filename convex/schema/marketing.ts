@@ -108,6 +108,7 @@ export const marketingTables = {
     skippedCount: v.optional(v.number()),
     cursor: v.optional(v.union(v.string(), v.null())),
     ratePerMinute: v.optional(v.number()),
+    trackLinks: v.optional(v.boolean()),
     lastError: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     finishedAt: v.optional(v.number()),
@@ -163,8 +164,12 @@ export const marketingTables = {
     repliedAt: v.optional(v.number()),
     clickedAt: v.optional(v.number()),
     optedOutAt: v.optional(v.number()),
+    convertedAt: v.optional(v.number()),
+    linkCode: v.optional(v.string()),
+    linkTarget: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_linkCode", ["linkCode"])
     .index("by_contact_and_key", ["contactId", "key"])
     .index("by_contactId_and_createdAt", ["contactId", "createdAt"])
     .index("by_key_and_createdAt", ["key", "createdAt"])
@@ -182,7 +187,22 @@ export const marketingTables = {
     replied: v.number(),
     clicked: v.number(),
     optedOut: v.number(),
+    converted: v.optional(v.number()),
   }).index("by_key_and_shard", ["key", "shard"]),
+
+  marketingDaily: defineTable({
+    workspaceId: v.id("workspaces"),
+    day: v.string(),
+    shard: v.number(),
+    sent: v.number(),
+    failed: v.number(),
+    delivered: v.number(),
+    read: v.number(),
+    replied: v.number(),
+    clicked: v.number(),
+    optedOut: v.number(),
+    converted: v.optional(v.number()),
+  }).index("by_workspaceId_and_day_and_shard", ["workspaceId", "day", "shard"]),
 
   audiences: defineTable({
     workspaceId: v.id("workspaces"),

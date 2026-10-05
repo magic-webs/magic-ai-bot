@@ -1105,6 +1105,8 @@ export const recordBatch = internalMutation({
         text: v.string(),
         error: v.optional(v.string()),
         wamid: v.optional(v.string()),
+        linkCode: v.optional(v.string()),
+        linkTarget: v.optional(v.string()),
       })
     ),
     skipped: v.optional(v.number()),
@@ -1128,6 +1130,8 @@ export const recordBatch = internalMutation({
         text: result.ok ? result.text : undefined,
         agentId: args.agentId,
         delivery: result.ok ? "sent" : "failed",
+        linkCode: result.ok ? result.linkCode : undefined,
+        linkTarget: result.ok ? result.linkTarget : undefined,
         createdAt: now,
       });
 

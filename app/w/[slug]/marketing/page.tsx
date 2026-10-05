@@ -69,6 +69,7 @@ import { EventsTab, TouchDialog } from "@/components/marketing/events";
 import { AddContactsDialog } from "@/components/marketing/add-contacts-dialog";
 import { AudienceTab } from "@/components/marketing/audience/audience-tab";
 import { CampaignsTab } from "@/components/marketing/campaigns/campaigns-tab";
+import { OverviewTab } from "@/components/marketing/overview-tab";
 import { TestSendButton } from "@/components/marketing/test-send";
 import { toast } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/convex-server";
@@ -76,6 +77,7 @@ import { cn } from "@/lib/utils";
 import {
   ArrowClockwiseIcon,
   CalendarBlankIcon,
+  ChartBarIcon,
   CalendarCheckIcon,
   CaretLeftIcon,
   CaretRightIcon,
@@ -107,7 +109,7 @@ type Occasion = Doc<"marketingTemplates">["occasion"];
 type CalendarEvent = Doc<"marketingEvents"> & { templateName: string | null };
 type Festival = { key: string; name: string; date: string };
 
-const TABS = ["audience", "campaigns", "events", "calendar", "templates"];
+const TABS = ["overview", "audience", "campaigns", "events", "calendar", "templates"];
 
 type TemplateCategory = NonNullable<Doc<"marketingTemplates">["category"]>;
 
@@ -1181,7 +1183,7 @@ export default function MarketingPage() {
   const router = useRouter();
   const pathname = usePathname();
   const requested = params.get("tab") === "contacts" ? "audience" : params.get("tab");
-  const tab = requested && TABS.includes(requested) ? requested : "campaigns";
+  const tab = requested && TABS.includes(requested) ? requested : "overview";
   const setTab = (next: string) => {
     const query = new URLSearchParams(params.toString());
     query.set("tab", next);
@@ -1443,6 +1445,9 @@ export default function MarketingPage() {
         {/* Scrolls sideways on a phone rather than clipping the last tab. */}
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           <TabsList>
+            <TabsTrigger value="overview">
+              <ChartBarIcon /> Overview
+            </TabsTrigger>
             <TabsTrigger value="audience">
               <UsersIcon /> Audience
             </TabsTrigger>
@@ -1661,6 +1666,10 @@ export default function MarketingPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="overview" className="pt-4">
+          <OverviewTab onGo={setTab} />
         </TabsContent>
 
         <TabsContent value="campaigns" className="pt-4">

@@ -73,6 +73,7 @@ export function CampaignsTab({
         date: row.date < today ? today : row.date,
         sendHour: row.sendHour,
         ratePerMinute: row.ratePerMinute,
+        trackLinks: row.trackLinks ?? true,
         when: "later",
       },
     });
@@ -90,6 +91,7 @@ export function CampaignsTab({
         message: row?.note ?? "",
         audience: row?.audience ?? EVERYONE,
         ratePerMinute: row?.ratePerMinute,
+        trackLinks: row?.trackLinks ?? true,
       },
     });
   };

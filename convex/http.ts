@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { interpretEvent } from "./lib/apps";
 import { verifyDelivery } from "./lib/appWebhooks";
+import { isLinkBot } from "./lib/links";
 import {
   paymentFields,
   subscriptionFields,
@@ -367,6 +368,23 @@ function inboundResponse(status: number, body: unknown): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+http.route({
+  pathPrefix: "/l/",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const code = new URL(request.url).pathname.replace(/^\/l\//, "").replace(/\/+$/, "");
+    if (!/^[a-z0-9]{6,20}$/.test(code)) return new Response("Not found", { status: 404 });
+    const target = isLinkBot(request.headers.get("user-agent"))
+      ? await ctx.runQuery(internal.marketingTracking.target, { code })
+      : await ctx.runMutation(internal.marketingTracking.click, { code });
+    if (!target) return new Response("This link has expired.", { status: 404 });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: target, "Cache-Control": "no-store" },
+    });
+  }),
+});
 
 http.route({
   pathPrefix: "/notify/",

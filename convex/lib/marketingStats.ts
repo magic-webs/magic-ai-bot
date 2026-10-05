@@ -7,6 +7,11 @@ import type { Delivery } from "./delivery";
 const SHARDS = 8;
 const REPLY_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const OPT_OUT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const CONVERSION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function utcDay(at: number) {
+  return new Date(at).toISOString().slice(0, 10);
+}
 
 export type MarketingCounts = {
   sent: number;
@@ -16,6 +21,7 @@ export type MarketingCounts = {
   replied: number;
   clicked: number;
   optedOut: number;
+  converted: number;
 };
 
 export const EMPTY_COUNTS: MarketingCounts = {
@@ -26,6 +32,7 @@ export const EMPTY_COUNTS: MarketingCounts = {
   replied: 0,
   clicked: 0,
   optedOut: 0,
+  converted: 0,
 };
 
 export async function bumpStats(
@@ -35,25 +42,53 @@ export async function bumpStats(
   delta: Partial<MarketingCounts>
 ) {
   const shard = Math.floor(Math.random() * SHARDS);
+  const add = (row: Partial<MarketingCounts>) => {
+    const patch: Partial<MarketingCounts> = {};
+    for (const [field, value] of Object.entries(delta) as Array<[keyof MarketingCounts, number]>) {
+      patch[field] = (row[field] ?? 0) + value;
+    }
+    return patch;
+  };
+
   const row = await ctx.db
     .query("marketingStats")
     .withIndex("by_key_and_shard", (q) => q.eq("key", key).eq("shard", shard))
     .unique();
-  if (!row) {
-    await ctx.db.insert("marketingStats", {
-      workspaceId,
-      key,
-      shard,
-      ...EMPTY_COUNTS,
-      ...delta,
-    });
-    return;
+  if (row) await ctx.db.patch("marketingStats", row._id, add(row));
+  else await ctx.db.insert("marketingStats", { workspaceId, key, shard, ...EMPTY_COUNTS, ...delta });
+
+  const day = utcDay(Date.now());
+  const daily = await ctx.db
+    .query("marketingDaily")
+    .withIndex("by_workspaceId_and_day_and_shard", (q) =>
+      q.eq("workspaceId", workspaceId).eq("day", day).eq("shard", shard)
+    )
+    .unique();
+  if (daily) await ctx.db.patch("marketingDaily", daily._id, add(daily));
+  else await ctx.db.insert("marketingDaily", { workspaceId, day, shard, ...EMPTY_COUNTS, ...delta });
+}
+
+export async function dailyStats(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  from: string,
+  to: string
+) {
+  const rows = await ctx.db
+    .query("marketingDaily")
+    .withIndex("by_workspaceId_and_day_and_shard", (q) =>
+      q.eq("workspaceId", workspaceId).gte("day", from).lte("day", to)
+    )
+    .take(SHARDS * 120);
+  const days = new Map<string, MarketingCounts>();
+  for (const row of rows) {
+    const total = days.get(row.day) ?? { ...EMPTY_COUNTS };
+    for (const field of Object.keys(total) as Array<keyof MarketingCounts>) {
+      total[field] += row[field] ?? 0;
+    }
+    days.set(row.day, total);
   }
-  const patch: Partial<MarketingCounts> = {};
-  for (const [field, value] of Object.entries(delta) as Array<[keyof MarketingCounts, number]>) {
-    patch[field] = row[field] + value;
-  }
-  await ctx.db.patch("marketingStats", row._id, patch);
+  return days;
 }
 
 export async function statsFor(ctx: QueryCtx, key: string): Promise<MarketingCounts> {
@@ -64,7 +99,7 @@ export async function statsFor(ctx: QueryCtx, key: string): Promise<MarketingCou
   const total = { ...EMPTY_COUNTS };
   for (const row of rows) {
     for (const field of Object.keys(total) as Array<keyof MarketingCounts>) {
-      total[field] += row[field];
+      total[field] += row[field] ?? 0;
     }
   }
   return total;
@@ -143,6 +178,13 @@ export async function noteOptOut(ctx: MutationCtx, contactId: Id<"contacts">, at
   if (!send || send.optedOutAt) return;
   await ctx.db.patch("marketingSends", send._id, { optedOutAt: at });
   await bumpStats(ctx, send.workspaceId, send.key, { optedOut: 1 });
+}
+
+export async function noteConversion(ctx: MutationCtx, contactId: Id<"contacts">, at: number) {
+  const send = await latestSend(ctx, contactId, at - CONVERSION_WINDOW_MS);
+  if (!send || send.convertedAt) return;
+  await ctx.db.patch("marketingSends", send._id, { convertedAt: at });
+  await bumpStats(ctx, send.workspaceId, send.key, { converted: 1 });
 }
 
 export async function noteClick(ctx: MutationCtx, sendId: Id<"marketingSends">, at: number) {

@@ -125,12 +125,13 @@ export function ReportDialog({
               {campaign?.lastError ? (
                 <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{campaign.lastError}</p>
               ) : null}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 <StatTile label="Sent" value={sent} previous={null} />
                 <StatTile label="Delivered" value={pct(stats.delivered, sent)} previous={null} suffix="%" />
                 <StatTile label="Read" value={pct(stats.read, sent)} previous={null} suffix="%" />
                 <StatTile label="Replied" value={pct(stats.replied, sent)} previous={null} suffix="%" />
                 <StatTile label="Clicked" value={pct(stats.clicked, sent)} previous={null} suffix="%" />
+                <StatTile label="Orders and bookings" value={stats.converted} previous={null} />
                 <StatTile label="Failed" value={stats.failed} previous={null} lowerIsBetter />
                 <StatTile label="Unsubscribed" value={stats.optedOut} previous={null} lowerIsBetter />
                 <StatTile
@@ -151,6 +152,7 @@ export function ReportDialog({
                       { step: "Read", value: stats.read },
                       { step: "Replied", value: stats.replied },
                       { step: "Clicked", value: stats.clicked },
+                      { step: "Ordered or booked", value: stats.converted },
                     ]}
                     categoryKey="step"
                     valueKey="value"

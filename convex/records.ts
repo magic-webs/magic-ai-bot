@@ -33,6 +33,7 @@ import {
 } from "./lib/records";
 import { postWebhook } from "./lib/webhookDelivery";
 import { findOrdersBook } from "./lib/ordersBook";
+import { noteConversion } from "./lib/marketingStats";
 import {
   requireRecord,
   threadAccess,
@@ -551,6 +552,7 @@ export const createRecord = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    if (args.contactId) await noteConversion(ctx, args.contactId, now);
 
     await ctx.scheduler.runAfter(0, internal.records.announce, {
       recordId,
@@ -1116,6 +1118,7 @@ export const fileFromTool = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    if (args.contactId) await noteConversion(ctx, args.contactId, now);
 
     await ctx.scheduler.runAfter(0, internal.records.announce, {
       recordId,

@@ -26,6 +26,7 @@ import { useHourBucket } from "@/components/use-now";
 import { SelectField } from "@/components/select-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogBody,
@@ -54,6 +55,7 @@ export type CampaignDraft = {
   date: string;
   sendHour: number;
   ratePerMinute?: number;
+  trackLinks: boolean;
   when: "now" | "later";
 };
 
@@ -64,6 +66,7 @@ export function emptyCampaign(today: string): CampaignDraft {
     audience: EVERYONE,
     date: today,
     sendHour: 10,
+    trackLinks: true,
     when: "later",
   };
 }
@@ -145,6 +148,7 @@ export function ComposerDialog({
         date: draft.when === "now" ? today : draft.date,
         sendHour: draft.sendHour,
         ratePerMinute: draft.ratePerMinute,
+        trackLinks: draft.trackLinks,
         sendNow: draft.when === "now",
       });
       toast.add({
@@ -234,6 +238,19 @@ export function ComposerDialog({
                 <TestSendButton templateId={template._id} />
               </div>
             ) : null}
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={draft.trackLinks}
+                onCheckedChange={(next) => set({ trackLinks: next === true })}
+              />
+              <span>
+                Track link clicks
+                <span className="block text-xs text-muted-foreground">
+                  A link in the message is swapped for a short one per person, so clicks are
+                  counted, and tagged for Google Analytics (utm_source=whatsapp).
+                </span>
+              </span>
+            </label>
           </Section>
 
           <Section step={4} title="When it goes">

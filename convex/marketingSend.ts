@@ -20,6 +20,7 @@ import {
   type TemplateVariable,
 } from "./lib/marketing";
 import type { AudienceSelection } from "./lib/audience";
+import { slug, trackFirstLink } from "./lib/links";
 
 /** Every variable but the customer's own name, which is filled per contact. */
 type SharedValues = Omit<Record<TemplateVariable, string>, "name">;
@@ -82,6 +83,7 @@ async function sendPage(
     audience?: AudienceSelection;
     campaignId?: Id<"marketingCampaigns">;
     guestSegment?: Doc<"marketingEvents">["guestSegment"];
+    track?: string;
     cursor: string | null;
     context: {
       workspaceName: string;
@@ -111,12 +113,19 @@ async function sendPage(
     text: string;
     error?: string;
     wamid?: string;
+    linkCode?: string;
+    linkTarget?: string;
   }> = [];
+  const base = process.env.TRACKING_BASE_URL ?? process.env.CONVEX_SITE_URL;
   for (const contact of page.contacts) {
-    const { text, parameters } = renderTemplate(args.context.template.body, {
+    const rendered = renderTemplate(args.context.template.body, {
       ...args.values,
       name: greetingName(contact.name),
     });
+    const { text, parameters, code, target }: ReturnType<typeof trackFirstLink> =
+      args.track && base
+        ? trackFirstLink(rendered.parameters, rendered.text, base, args.track)
+        : rendered;
     const sent = await sendTemplate(
       args.context.channel,
       contact.to,
@@ -124,7 +133,14 @@ async function sendPage(
       parameters,
       text
     );
-    results.push({ contactId: contact.contactId, to: contact.to, text, ...sent });
+    results.push({
+      contactId: contact.contactId,
+      to: contact.to,
+      text,
+      ...sent,
+      linkCode: code,
+      linkTarget: target,
+    });
   }
 
   await ctx.runMutation(internal.marketing.recordBatch, {
@@ -257,6 +273,10 @@ export const runEvent = internalAction({
       audience: context.event.audience ?? context.campaign?.audience,
       campaignId: context.event.campaignId,
       guestSegment: context.event.guestSegment,
+      track:
+        context.event.trackLinks || context.event.campaignId
+          ? slug(context.campaign?.title ?? context.event.title)
+          : undefined,
       cursor: args.cursor ?? null,
       context: {
         workspaceName: context.workspaceName,

@@ -111,6 +111,7 @@ export const save = mutation({
     date: v.string(),
     sendHour: v.number(),
     ratePerMinute: v.optional(v.number()),
+    trackLinks: v.optional(v.boolean()),
     sendNow: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -150,6 +151,7 @@ export const save = mutation({
       ratePerMinute: args.ratePerMinute
         ? Math.min(MAX_RATE, Math.max(MIN_RATE, Math.round(args.ratePerMinute)))
         : undefined,
+      trackLinks: args.trackLinks ?? true,
       status: "scheduled" as const,
       lastError: undefined,
       updatedAt: now,
