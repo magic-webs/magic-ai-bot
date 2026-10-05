@@ -35,6 +35,7 @@ import { postWebhook } from "./lib/webhookDelivery";
 import { findOrdersBook } from "./lib/ordersBook";
 import {
   requireRecord,
+  threadAccess,
   requireRecordBook,
   requireRecordWebhook,
   requireWorkspace,
@@ -558,6 +559,55 @@ export const createRecord = mutation({
     });
 
     return { recordId, reference };
+  },
+});
+
+/** What this thread or its contact has filed, for the conversation's side panel. */
+export const forConversation = query({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const access = await threadAccess(ctx, args.conversationId);
+    if (!access) return [];
+    const { conversation } = access;
+
+    const byThread = await ctx.db
+      .query("records")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .order("desc")
+      .take(20);
+    const byContact = await ctx.db
+      .query("records")
+      .withIndex("by_contact", (q) => q.eq("contactId", conversation.contactId))
+      .order("desc")
+      .take(20);
+
+    const seen = new Set<Id<"records">>();
+    const books = new Map<Id<"recordBooks">, Doc<"recordBooks"> | null>();
+    const out = [];
+    for (const record of [...byThread, ...byContact]) {
+      if (seen.has(record._id) || record.workspaceId !== conversation.workspaceId) continue;
+      seen.add(record._id);
+      if (!books.has(record.bookId)) {
+        books.set(record.bookId, await ctx.db.get("recordBooks", record.bookId));
+      }
+      const book = books.get(record.bookId);
+      if (!book || book.status === "archived") continue;
+      out.push({
+        _id: record._id,
+        reference: record.reference,
+        bookId: book._id,
+        bookName: book.name,
+        stages: book.stages,
+        stage: record.stage ?? null,
+        summary: record.values
+          .filter((pair) => pair.value.trim())
+          .slice(0, 2)
+          .map((pair) => pair.value)
+          .join(" · "),
+        createdAt: record.createdAt,
+      });
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 

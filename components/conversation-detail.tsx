@@ -12,6 +12,7 @@ import { ManualReply } from "@/components/manual-reply";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { WindowClock } from "@/components/window-clock";
+import { SelectField } from "@/components/select-field";
 import { CHANNEL_LABEL, ChannelMark } from "@/components/channel-mark";
 import {
   Countdown,
@@ -793,12 +794,6 @@ function DetailSection({
   );
 }
 
-/**
- * Everything about the thread and the person that is not the conversation
- * itself: who they are, the notes kept on them, whether the agent is
- * answering, how long WhatsApp will still take a free-form reply, and the
- * thread's own history.
- */
 function HeaderWindow({ lastInboundAt }: { lastInboundAt: number | null }) {
   const now = useNow();
   const window24 = replyWindow(lastInboundAt, now);
@@ -823,6 +818,113 @@ function HeaderWindow({ lastInboundAt }: { lastInboundAt: number | null }) {
   );
 }
 
+function Pipeline({
+  conversation,
+}: {
+  conversation: Detail["conversation"];
+}) {
+  const stages = useQuery(api.leads.stageNames, {
+    workspaceId: conversation.workspaceId,
+  });
+  const records = useQuery(api.records.forConversation, {
+    conversationId: conversation._id,
+  });
+  const setLeadStage = useMutation(api.leads.setStage);
+  const updateRecord = useMutation(api.records.updateRecord);
+
+  const run = async (work: Promise<unknown>, done: string) => {
+    try {
+      await work;
+      toast.add({ title: done, type: "success" });
+    } catch (error) {
+      toast.add({
+        title: "Could not change the stage",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    }
+  };
+
+  return (
+    <DetailSection title="Pipeline">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="thread-lead-stage" className="text-xs text-muted-foreground">
+          Lead stage
+        </Label>
+        <SelectField
+          id="thread-lead-stage"
+          size="sm"
+          value={conversation.leadStageId ?? "none"}
+          disabled={stages === undefined}
+          onValueChange={(value) =>
+            void run(
+              setLeadStage({
+                conversationId: conversation._id,
+                stageId: value === "none" ? undefined : (value as Id<"leadStages">),
+                note: conversation.leadStageNote,
+              }),
+              "Lead stage changed"
+            )
+          }
+          options={[
+            { value: "none", label: "Not staged" },
+            ...(stages ?? []).map((stage) => ({
+              value: stage._id as string,
+              label: stage.name,
+            })),
+          ]}
+        />
+      </div>
+
+      {records === undefined ? (
+        <Spinner className="size-3.5" />
+      ) : records.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Nothing filed from this thread yet.</p>
+      ) : (
+        records.map((record) => {
+          const options = record.stage && !record.stages.includes(record.stage)
+            ? [record.stage, ...record.stages]
+            : record.stages;
+          return (
+            <div key={record._id} className="flex flex-col gap-1.5 rounded-md border p-2">
+              <div className="flex min-w-0 items-baseline justify-between gap-2 text-xs">
+                <span className="truncate font-medium">{record.bookName}</span>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                  {record.reference}
+                </span>
+              </div>
+              {record.summary ? (
+                <p className="truncate text-xs text-muted-foreground">{record.summary}</p>
+              ) : null}
+              {options.length > 0 ? (
+                <SelectField
+                  size="sm"
+                  aria-label={`${record.bookName} stage`}
+                  value={record.stage ?? ""}
+                  placeholder="No stage"
+                  onValueChange={(stage) =>
+                    void run(
+                      updateRecord({ recordId: record._id, stage }),
+                      `${record.bookName} moved to ${stage}`
+                    )
+                  }
+                  options={options.map((stage) => ({ value: stage, label: stage }))}
+                />
+              ) : null}
+            </div>
+          );
+        })
+      )}
+    </DetailSection>
+  );
+}
+
+/**
+ * Everything about the thread and the person that is not the conversation
+ * itself: who they are, the notes kept on them, whether the agent is
+ * answering, how long WhatsApp will still take a free-form reply, and the
+ * thread's own history.
+ */
 function ThreadDetails({
   conversation,
   contact,
@@ -920,6 +1022,8 @@ function ThreadDetails({
           </div>
         ) : null}
       </DetailSection>
+
+      <Pipeline conversation={conversation} />
 
       <DetailSection title="Notes">
         {contact ? (
