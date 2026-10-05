@@ -54,7 +54,7 @@ export async function setDelivery(
     await ctx.db.patch(conversation._id, { lastMessageDelivery: delivery });
   }
   if (message.role === "assistant") {
-    await noteSendDelivery(ctx, message._id, delivery, now);
+    await noteSendDelivery(ctx, message._id, delivery, now, error);
   }
 }
 

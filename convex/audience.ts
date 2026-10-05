@@ -10,14 +10,11 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
-import { loadMemberSets, matchesWith, normaliseTag, reachable } from "./lib/audience";
-import { sentRecently } from "./lib/marketingStats";
+import { measureAudience, normaliseTag } from "./lib/audience";
 import { audienceSelection } from "./schema/marketing";
 
 const SIZE_SCAN_CAP = 5000;
 const MAX_BULK = 500;
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const CAP_CHECKS = 1500;
 
 async function requireAudience(ctx: QueryCtx, audienceId: Id<"audiences">) {
   const audience = await ctx.db.get("audiences", audienceId);
@@ -153,42 +150,7 @@ export const size = query({
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    const settings = await ctx.db
-      .query("marketingSettings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const cap = settings?.weeklyCap ?? 0;
-    const contacts = await ctx.db
-      .query("contacts")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .take(SIZE_SCAN_CAP);
-    const sets = await loadMemberSets(ctx, args.audience, SIZE_SCAN_CAP);
-    let matched = 0;
-    let optedOut = 0;
-    let capped = 0;
-    let capChecks = 0;
-    for (const contact of contacts) {
-      if (contact.channelType !== "whatsapp") continue;
-      if (!matchesWith(contact, args.audience, sets)) continue;
-      if (!reachable(contact)) {
-        optedOut++;
-        continue;
-      }
-      if (cap > 0 && capChecks < CAP_CHECKS) {
-        capChecks++;
-        if ((await sentRecently(ctx, contact._id, args.now - WEEK_MS)) >= cap) {
-          capped++;
-          continue;
-        }
-      }
-      matched++;
-    }
-    return {
-      reachable: matched,
-      optedOut,
-      overCap: capped,
-      partial: contacts.length >= SIZE_SCAN_CAP || capChecks >= CAP_CHECKS,
-    };
+    return await measureAudience(ctx, args.workspaceId, args.audience, args.now);
   },
 });
 

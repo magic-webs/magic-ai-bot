@@ -2,6 +2,11 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { audienceCategory, audienceSelection } from "../schema/marketing";
+import { sentRecently } from "./marketingStats";
+
+const SIZE_SCAN_CAP = 5000;
+const CAP_CHECKS = 1500;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type AudienceSelection = Infer<typeof audienceSelection>;
 export type AudienceCategory = Infer<typeof audienceCategory>;
@@ -113,4 +118,48 @@ export function reachable(contact: Doc<"contacts">): boolean {
 
 export function normaliseTag(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}\-_]/gu, "").slice(0, 40);
+}
+
+export async function measureAudience(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  selection: AudienceSelection,
+  now: number
+) {
+  const settings = await ctx.db
+    .query("marketingSettings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const cap = settings?.weeklyCap ?? 0;
+  const contacts = await ctx.db
+    .query("contacts")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .take(SIZE_SCAN_CAP);
+  const sets = await loadMemberSets(ctx, selection, SIZE_SCAN_CAP);
+  let matched = 0;
+  let optedOut = 0;
+  let overCap = 0;
+  let capChecks = 0;
+  for (const contact of contacts) {
+    if (contact.channelType !== "whatsapp") continue;
+    if (!matchesWith(contact, selection, sets)) continue;
+    if (!reachable(contact)) {
+      optedOut++;
+      continue;
+    }
+    if (cap > 0 && capChecks < CAP_CHECKS) {
+      capChecks++;
+      if ((await sentRecently(ctx, contact._id, now - WEEK_MS)) >= cap) {
+        overCap++;
+        continue;
+      }
+    }
+    matched++;
+  }
+  return {
+    reachable: matched,
+    optedOut,
+    overCap,
+    partial: contacts.length >= SIZE_SCAN_CAP || capChecks >= CAP_CHECKS,
+  };
 }

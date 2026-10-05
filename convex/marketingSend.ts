@@ -90,7 +90,7 @@ async function sendPage(
       channel: Channel;
     };
   }
-): Promise<string | null> {
+): Promise<{ cursor: string; sent: number } | null> {
   const page = await ctx.runQuery(internal.marketing.audiencePage, {
     workspaceId: args.workspaceId,
     key: args.key,
@@ -135,10 +135,12 @@ async function sendPage(
     category: args.context.template.category ?? "marketing",
     templateName: args.context.template.metaTemplateName,
     results,
+    skipped: page.skipped,
+    nextCursor: page.isDone ? null : page.continueCursor,
     done: page.isDone,
   });
 
-  return page.isDone ? null : page.continueCursor;
+  return page.isDone ? null : { cursor: page.continueCursor, sent: results.length };
 }
 
 /** Why a greeting cannot go out at all, in words the owner can act on. */
@@ -263,9 +265,11 @@ export const runEvent = internalAction({
     // The next page in a fresh action, so a workspace with thousands of
     // contacts never runs into one action's time limit.
     if (next !== null) {
-      await ctx.scheduler.runAfter(0, internal.marketingSend.runEvent, {
+      const rate = context.event.ratePerMinute;
+      const delay = rate ? Math.round((next.sent / rate) * 60_000) : 0;
+      await ctx.scheduler.runAfter(delay, internal.marketingSend.runEvent, {
         eventId: args.eventId,
-        cursor: next,
+        cursor: next.cursor,
       });
     }
     return null;
@@ -319,7 +323,7 @@ export const runBirthdays = internalAction({
     if (next !== null) {
       await ctx.scheduler.runAfter(0, internal.marketingSend.runBirthdays, {
         ...args,
-        cursor: next,
+        cursor: next.cursor,
       });
     }
     return null;

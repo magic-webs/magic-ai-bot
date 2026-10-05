@@ -59,6 +59,9 @@ const IMPORT_STATUS: Record<string, string> = {
   saved: "Saved",
 };
 
+let keySeq = 0;
+const nextKey = () => ++keySeq;
+
 export function AudienceTab({
   categories,
   weeklyCap,
@@ -142,7 +145,7 @@ export function AudienceTab({
           <Button variant="outline" onClick={onAddByHand}>
             <UserPlusIcon /> Add by hand
           </Button>
-          <Button onClick={() => setImportOpen({ id: null, key: Date.now() })}>
+          <Button onClick={() => setImportOpen({ id: null, key: nextKey() })}>
             <BroomIcon /> Bring in contacts
           </Button>
         </div>
@@ -162,7 +165,7 @@ export function AudienceTab({
             <button
               key={row._id}
               type="button"
-              onClick={() => setImportOpen({ id: row._id, key: Date.now() })}
+              onClick={() => setImportOpen({ id: row._id, key: nextKey() })}
               className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50"
             >
               {row.status === "sorting" || row.status === "saving" ? <Spinner /> : <BroomIcon className="size-4 text-primary" />}

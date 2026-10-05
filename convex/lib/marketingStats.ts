@@ -78,7 +78,8 @@ export async function noteSendDelivery(
   ctx: MutationCtx,
   messageId: Id<"messages">,
   delivery: Delivery,
-  at: number
+  at: number,
+  error?: string
 ) {
   const send = await ctx.db
     .query("marketingSends")
@@ -91,6 +92,7 @@ export async function noteSendDelivery(
   if (delivery === "failed") {
     delta.failed = 1;
     delta.sent = -1;
+    patch.error = error?.slice(0, 300);
   }
   if ((delivery === "delivered" || delivery === "read") && !send.deliveredAt) {
     patch.deliveredAt = at;

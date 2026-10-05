@@ -68,6 +68,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { EventsTab, TouchDialog } from "@/components/marketing/events";
 import { AddContactsDialog } from "@/components/marketing/add-contacts-dialog";
 import { AudienceTab } from "@/components/marketing/audience/audience-tab";
+import { CampaignsTab } from "@/components/marketing/campaigns/campaigns-tab";
 import { TestSendButton } from "@/components/marketing/test-send";
 import { toast } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/convex-server";
@@ -106,7 +107,7 @@ type Occasion = Doc<"marketingTemplates">["occasion"];
 type CalendarEvent = Doc<"marketingEvents"> & { templateName: string | null };
 type Festival = { key: string; name: string; date: string };
 
-const TABS = ["calendar", "events", "templates", "audience"];
+const TABS = ["audience", "campaigns", "events", "calendar", "templates"];
 
 type TemplateCategory = NonNullable<Doc<"marketingTemplates">["category"]>;
 
@@ -135,6 +136,8 @@ const STATUS_CHIP: Record<EventStatus, string> = {
   sending: "bg-primary/80 text-primary-foreground",
   sent: "bg-muted text-muted-foreground",
   failed: "bg-destructive/10 text-destructive",
+  paused: "border border-border text-muted-foreground",
+  cancelled: "bg-muted text-muted-foreground line-through",
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1178,7 +1181,7 @@ export default function MarketingPage() {
   const router = useRouter();
   const pathname = usePathname();
   const requested = params.get("tab") === "contacts" ? "audience" : params.get("tab");
-  const tab = requested && TABS.includes(requested) ? requested : "calendar";
+  const tab = requested && TABS.includes(requested) ? requested : "campaigns";
   const setTab = (next: string) => {
     const query = new URLSearchParams(params.toString());
     query.set("tab", next);
@@ -1353,8 +1356,9 @@ export default function MarketingPage() {
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">Marketing</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Birthday wishes, festival greetings and event reminders, sent on schedule by the
-            marketing desk as approved WhatsApp templates.
+            Your audience, broadcast campaigns, event sequences and greetings — sent by the
+            marketing desk as approved WhatsApp templates, with every delivery, read and reply
+            tracked.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1439,11 +1443,17 @@ export default function MarketingPage() {
         {/* Scrolls sideways on a phone rather than clipping the last tab. */}
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           <TabsList>
-            <TabsTrigger value="calendar">
-              <CalendarBlankIcon /> Calendar
+            <TabsTrigger value="audience">
+              <UsersIcon /> Audience
+            </TabsTrigger>
+            <TabsTrigger value="campaigns">
+              <PaperPlaneTiltIcon /> Campaigns
             </TabsTrigger>
             <TabsTrigger value="events">
               <CalendarCheckIcon /> Events
+            </TabsTrigger>
+            <TabsTrigger value="calendar">
+              <CalendarBlankIcon /> Calendar
             </TabsTrigger>
             <TabsTrigger value="templates">
               <MegaphoneIcon /> Templates
@@ -1452,9 +1462,6 @@ export default function MarketingPage() {
                   {unlinked} to apply
                 </Badge>
               ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="audience">
-              <UsersIcon /> Audience
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1652,6 +1659,14 @@ export default function MarketingPage() {
                 </button>
               ))}
             </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="campaigns" className="pt-4">
+          {overview ? (
+            <CampaignsTab templates={templates} categories={overview.categories} today={today} />
+          ) : (
+            <TableSkeleton rows={5} columns={6} />
           )}
         </TabsContent>
 

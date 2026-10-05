@@ -720,7 +720,7 @@ export const stats = query({
 
 // ---------------------------------------------------------------- the sweeps
 
-async function startEvent(
+export async function startEvent(
   ctx: MutationCtx,
   event: Doc<"marketingEvents">,
   delayMs: number
@@ -1072,6 +1072,8 @@ export const recordBatch = internalMutation({
         wamid: v.optional(v.string()),
       })
     ),
+    skipped: v.optional(v.number()),
+    nextCursor: v.optional(v.union(v.string(), v.null())),
     done: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -1144,6 +1146,8 @@ export const recordBatch = internalMutation({
         await ctx.db.patch("marketingEvents", event._id, {
           sentCount,
           failedCount,
+          skippedCount: (event.skippedCount ?? 0) + (args.skipped ?? 0),
+          cursor: args.nextCursor,
           lastError: lastError ?? event.lastError,
           updatedAt: now,
           ...(args.done

@@ -63,6 +63,8 @@ export const STATUS_VARIANT: Record<
   sending: "default",
   sent: "secondary",
   failed: "destructive",
+  paused: "outline",
+  cancelled: "outline",
 };
 
 /*

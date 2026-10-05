@@ -84,10 +84,15 @@ export const marketingTables = {
       v.literal("scheduled"),
       v.literal("sending"),
       v.literal("sent"),
-      v.literal("failed")
+      v.literal("failed"),
+      v.literal("paused"),
+      v.literal("cancelled")
     ),
     sentCount: v.number(),
     failedCount: v.number(),
+    skippedCount: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    ratePerMinute: v.optional(v.number()),
     lastError: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     finishedAt: v.optional(v.number()),
