@@ -479,12 +479,54 @@ export const resetAdminPassword = action({
   },
 });
 
+export const createUser = action({
+  args: {
+    email: v.string(),
+    name: v.optional(v.string()),
+    password: v.string(),
+    workspaceIds: v.array(v.id("workspaces")),
+  },
+  handler: async (ctx, args): Promise<{ userId: Id<"users"> }> => {
+    await ctx.runQuery(internal.authDb.assertAdmin, {});
+    const email = args.email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      throw new Error("Enter a valid email address.");
+    }
+    if (args.password.length < 12) {
+      throw new Error("Choose a password of at least 12 characters.");
+    }
+    const userId: Id<"users"> = await ctx.runMutation(internal.users.insert, {
+      email,
+      name: args.name?.trim() || undefined,
+      passwordHash: await hashPassword(args.password),
+      workspaceIds: args.workspaceIds,
+    });
+    return { userId };
+  },
+});
+
+export const resetUserPassword = action({
+  args: { userId: v.id("users"), password: v.string() },
+  handler: async (ctx, args): Promise<{ success: true }> => {
+    await ctx.runQuery(internal.authDb.assertAdmin, {});
+    if (args.password.length < 12) {
+      throw new Error("Choose a password of at least 12 characters.");
+    }
+    await ctx.runMutation(internal.users.setPassword, {
+      userId: args.userId,
+      passwordHash: await hashPassword(args.password),
+    });
+    return { success: true };
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Login / logout
 // ---------------------------------------------------------------------------
 
 type LoginPrincipal =
   | { role: "admin"; adminId: Id<"admins"> }
+  | { role: "user"; userId: Id<"users"> }
   | { role: "workspace"; workspaceId: Id<"workspaces"> }
   | {
       role: "member";
@@ -502,7 +544,7 @@ type LoginPrincipal =
 type Source = "web" | "app" | "mcp";
 
 type Profile = {
-  role: "admin" | "workspace" | "member";
+  role: "admin" | "workspace" | "member" | "user";
   label: string;
   workspaceSlug: string | null;
   mustChangePassword: boolean;
@@ -535,8 +577,11 @@ function principalFields(principal: LoginPrincipal) {
     role: principal.role,
     adminId: principal.role === "admin" ? principal.adminId : undefined,
     workspaceId:
-      principal.role === "admin" ? undefined : principal.workspaceId,
+      principal.role === "admin" || principal.role === "user"
+        ? undefined
+        : principal.workspaceId,
     memberId: principal.role === "member" ? principal.memberId : undefined,
+    userId: principal.role === "user" ? principal.userId : undefined,
   };
 }
 
@@ -544,6 +589,7 @@ function principalFields(principal: LoginPrincipal) {
 function keyOf(principal: LoginPrincipal): string {
   if (principal.role === "admin") return `admin|${principal.adminId}`;
   if (principal.role === "member") return `member|${principal.memberId}`;
+  if (principal.role === "user") return `user|${principal.userId}`;
   return `workspace|${principal.workspaceId}`;
 }
 
@@ -707,11 +753,16 @@ export const login = action({
       { email: identifier }
     );
 
-    const workspace: Doc<"workspaces"> | null = admin
+    const user: Doc<"users"> | null = admin
       ? null
-      : await ctx.runQuery(internal.authDb.workspaceBySlug, {
-          slug: identifier,
-        });
+      : await ctx.runQuery(internal.users.byEmail, { email: identifier });
+
+    const workspace: Doc<"workspaces"> | null =
+      admin || user
+        ? null
+        : await ctx.runQuery(internal.authDb.workspaceBySlug, {
+            slug: identifier,
+          });
 
     const credential: Doc<"workspaceCredentials"> | null = workspace
       ? await ctx.runQuery(internal.authDb.credentialForWorkspace, {
@@ -720,7 +771,7 @@ export const login = action({
       : null;
 
     const memberLogin: Doc<"memberCredentials"> | null =
-      admin || workspace
+      admin || user || workspace
         ? null
         : await ctx.runQuery(internal.authDb.memberCredentialByUsername, {
             username: identifier,
@@ -728,6 +779,7 @@ export const login = action({
 
     const stored =
       admin?.passwordHash ??
+      user?.passwordHash ??
       (credential?.status === "active" ? credential.passwordHash : undefined) ??
       (memberLogin?.status === "active" ? memberLogin.passwordHash : undefined);
 
@@ -739,16 +791,23 @@ export const login = action({
     // Only reachable with a matching, active credential of one of the three.
     const principal: LoginPrincipal | null = admin
       ? { role: "admin", adminId: admin._id }
-      : memberLogin
-        ? {
-            role: "member",
-            memberId: memberLogin.memberId,
-            workspaceId: memberLogin.workspaceId,
-          }
-        : workspace && credential
-          ? { role: "workspace", workspaceId: workspace._id }
-          : null;
+      : user
+        ? { role: "user", userId: user._id }
+        : memberLogin
+          ? {
+              role: "member",
+              memberId: memberLogin.memberId,
+              workspaceId: memberLogin.workspaceId,
+            }
+          : workspace && credential
+            ? { role: "workspace", workspaceId: workspace._id }
+            : null;
     if (!principal) throw new Error(generic);
+    if (principal.role === "user" && args.client === "mcp") {
+      throw new Error(
+        "The MCP server cannot sign in with a user's password. Use a connector URL from the workspace dashboard instead."
+      );
+    }
 
     // Checked after the password, so a stranger learns nothing about which
     // people exist or which workspaces are archived.
@@ -831,15 +890,17 @@ export const continueLogin = action({
     const principal: LoginPrincipal | null =
       found.role === "admin" && found.adminId
         ? { role: "admin", adminId: found.adminId }
-        : found.role === "member" && found.memberId && found.workspaceId
-          ? {
-              role: "member",
-              memberId: found.memberId,
-              workspaceId: found.workspaceId,
-            }
-          : found.role === "workspace" && found.workspaceId
-            ? { role: "workspace", workspaceId: found.workspaceId }
-            : null;
+        : found.role === "user" && found.userId
+          ? { role: "user", userId: found.userId }
+          : found.role === "member" && found.memberId && found.workspaceId
+            ? {
+                role: "member",
+                memberId: found.memberId,
+                workspaceId: found.workspaceId,
+              }
+            : found.role === "workspace" && found.workspaceId
+              ? { role: "workspace", workspaceId: found.workspaceId }
+              : null;
     if (!principal) throw new Error("This sign-in has expired. Sign in again.");
 
     const profile = await profileOf(ctx, principal);
@@ -917,7 +978,7 @@ export const mintAccessToken = action({
   ): Promise<{
     token: string;
     expiresAt: number;
-    role: "admin" | "workspace" | "member";
+    role: "admin" | "workspace" | "member" | "user";
     workspaceSlug: string | null;
   } | null> => {
     const session: Doc<"authSessions"> | null = await ctx.runQuery(
@@ -939,6 +1000,15 @@ export const mintAccessToken = action({
     if (session.role === "admin") {
       if (!session.adminId) return null;
       subject = `admin|${session.adminId}`;
+    } else if (session.role === "user") {
+      if (!session.userId) return null;
+      const profile = await ctx.runQuery(internal.authDb.principalProfile, {
+        role: "user",
+        userId: session.userId,
+      });
+      if (!profile.ok) return null;
+      workspaceSlug = profile.workspaceSlug;
+      subject = `user|${session.userId}`;
     } else if (session.role === "member") {
       if (!session.memberId) return null;
       const login: Doc<"memberCredentials"> | null = await ctx.runQuery(

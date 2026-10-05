@@ -12,6 +12,15 @@ export const authTables = {
     lastLoginAt: v.optional(v.number()),
   }).index("by_email", ["email"]),
 
+  users: defineTable({
+    email: v.string(),
+    name: v.optional(v.string()),
+    passwordHash: v.string(),
+    workspaceIds: v.array(v.id("workspaces")),
+    createdAt: v.number(),
+    lastLoginAt: v.optional(v.number()),
+  }).index("by_email", ["email"]),
+
   workspaceCredentials: defineTable({
     workspaceId: v.id("workspaces"),
     passwordHash: v.string(),
@@ -41,11 +50,13 @@ export const authTables = {
     role: v.union(
       v.literal("admin"),
       v.literal("workspace"),
-      v.literal("member")
+      v.literal("member"),
+      v.literal("user")
     ),
     adminId: v.optional(v.id("admins")),
     workspaceId: v.optional(v.id("workspaces")),
     memberId: v.optional(v.id("teamMembers")),
+    userId: v.optional(v.id("users")),
     createdAt: v.number(),
     expiresAt: v.number(),
     lastUsedAt: v.number(),
@@ -59,15 +70,22 @@ export const authTables = {
     .index("by_tokenHash", ["tokenHash"])
     .index("by_workspace", ["workspaceId"])
     .index("by_admin", ["adminId"])
-    .index("by_member", ["memberId"]),
+    .index("by_member", ["memberId"])
+    .index("by_user", ["userId"]),
 
   authChallenges: defineTable({
     tokenHash: v.string(),
     stage: v.union(v.literal("twoFactor"), v.literal("replace")),
-    role: v.union(v.literal("admin"), v.literal("workspace"), v.literal("member")),
+    role: v.union(
+      v.literal("admin"),
+      v.literal("workspace"),
+      v.literal("member"),
+      v.literal("user")
+    ),
     adminId: v.optional(v.id("admins")),
     workspaceId: v.optional(v.id("workspaces")),
     memberId: v.optional(v.id("teamMembers")),
+    userId: v.optional(v.id("users")),
     source: v.union(v.literal("web"), v.literal("app"), v.literal("mcp")),
     device: v.optional(v.string()),
     createdAt: v.number(),

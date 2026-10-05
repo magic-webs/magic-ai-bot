@@ -31,6 +31,13 @@ export type Principal =
       memberId: Id<"teamMembers">;
       workspaceId: Id<"workspaces">;
       label: string;
+    }
+  /** A customer's own login, created by an admin, owning the workspaces it is given. */
+  | {
+      role: "user";
+      userId: Id<"users">;
+      workspaceIds: Id<"workspaces">[];
+      label: string;
     };
 
 type Ctx = QueryCtx | MutationCtx;
@@ -50,12 +57,15 @@ export class AuthError extends Error {
  * finds out when its next token is refused instead.
  */
 export function parseSubject(subject: string): {
-  role: "admin" | "workspace" | "member";
+  role: "admin" | "workspace" | "member" | "user";
   id: string;
   sessionId: string | null;
 } | null {
   const [role, id, sessionId] = subject.split("|");
-  if ((role !== "admin" && role !== "workspace" && role !== "member") || !id) {
+  if (
+    (role !== "admin" && role !== "workspace" && role !== "member" && role !== "user") ||
+    !id
+  ) {
     return null;
   }
   return { role, id, sessionId: sessionId || null };
@@ -65,6 +75,7 @@ export function parseSubject(subject: string): {
 export function principalKey(principal: Principal): string {
   if (principal.role === "admin") return `admin|${principal.adminId}`;
   if (principal.role === "member") return `member|${principal.memberId}`;
+  if (principal.role === "user") return `user|${principal.userId}`;
   return `workspace|${principal.workspaceId}`;
 }
 
@@ -93,6 +104,19 @@ export async function getPrincipal(ctx: Ctx): Promise<Principal | null> {
       adminId,
       label: admin.email,
       workspaceIds: admin.role === "member" ? (admin.workspaceIds ?? []) : null,
+    };
+  }
+
+  if (parsed.role === "user") {
+    const userId = ctx.db.normalizeId("users", parsed.id);
+    if (!userId) return null;
+    const user = await ctx.db.get("users", userId);
+    if (!user) return null;
+    return {
+      role: "user",
+      userId,
+      workspaceIds: user.workspaceIds,
+      label: user.name?.trim() || user.email,
     };
   }
 
@@ -200,7 +224,7 @@ export async function requireWorkspace(
 ): Promise<Principal> {
   const principal = await getPrincipal(ctx);
   if (!principal) throw new AuthError("Sign in to continue.");
-  if (principal.role === "admin") {
+  if (principal.role === "admin" || principal.role === "user") {
     if (principal.workspaceIds && !principal.workspaceIds.includes(workspaceId)) {
       throw new AuthError("You do not have access to this workspace.");
     }

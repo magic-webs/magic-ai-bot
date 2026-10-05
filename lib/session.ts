@@ -24,8 +24,11 @@ const CHALLENGE_MAX_AGE_S = 10 * 60;
 /** Why a session stopped working, when there is something to say. */
 export type SessionEndReason = "replaced";
 
-/** `member` is a human agent: the company's workspace, and the desk. */
-export type SessionRole = "admin" | "workspace" | "member";
+/**
+ * `member` is a human agent: the company's workspace, and the desk. `user`
+ * owns the workspaces an admin assigned it, and switches between them.
+ */
+export type SessionRole = "admin" | "workspace" | "member" | "user";
 
 /** The escalations desk — a human agent's focused view of the inbox. */
 export const DESK_PATH = "/desk";

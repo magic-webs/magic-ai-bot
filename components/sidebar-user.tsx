@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { CompanyLogo } from "@/components/company-logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -31,6 +35,7 @@ import {
   Moon02Icon,
   Settings01Icon,
   Sun03Icon,
+  Tick02Icon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 
@@ -73,6 +78,12 @@ export function SidebarUser({
   const session = useSession();
   const appearance = useAppearance();
 
+  const isUser = session.me?.role === "user";
+  const workspaces = useQuery(api.users.myWorkspaces, isUser ? {} : "skip");
+  const segments = usePathname().split("/").filter(Boolean);
+  const currentSlug = segments[0] === "w" ? segments[1] : undefined;
+  const section = segments[0] === "w" && segments[2] ? `/${segments[2]}` : "";
+
   const label = session.me?.label ?? "Signed in";
   const email = session.me?.email;
   const initials = initialsOf(label);
@@ -113,7 +124,9 @@ export function SidebarUser({
                     ? "Administrator"
                     : session.isStaff
                       ? "Team member"
-                      : "Workspace"}
+                      : isUser
+                        ? "User"
+                        : "Workspace"}
                 </span>
               )}
             </div>
@@ -159,6 +172,28 @@ export function SidebarUser({
                 <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
                 All workspaces
               </DropdownMenuItem>
+            ) : null}
+            {isUser && (workspaces?.length ?? 0) > 1 ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />
+                  Switch workspace
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-52">
+                  {(workspaces ?? []).map((workspace) => (
+                    <DropdownMenuItem
+                      key={workspace._id}
+                      render={<Link href={`/w/${workspace.slug}${section}`} />}
+                    >
+                      <CompanyLogo src={workspace.logoSrc} className="size-5 rounded-md" />
+                      <span className="truncate">{workspace.name}</span>
+                      {workspace.slug === currentSlug ? (
+                        <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} className="ml-auto" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             ) : null}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>

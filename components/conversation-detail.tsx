@@ -1086,19 +1086,8 @@ function ThreadDetails({
             <div className="flex items-center gap-3">
               <WindowClock lastInboundAt={lastInboundAt} size={44} />
               {window24.open ? (
-                <p className="flex min-w-0 flex-col gap-0.5 text-xs">
-                  <span className="font-medium">
-                    Open · <Countdown to={window24.endsAt} /> left
-                  </span>
-                  <span className="text-muted-foreground">
-                    Free-form replies until{" "}
-                    {new Date(window24.endsAt).toLocaleString([], {
-                      weekday: "short",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                    .
-                  </span>
+                <p className="text-xs font-medium">
+                  Open · <Countdown to={window24.endsAt} /> left
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">

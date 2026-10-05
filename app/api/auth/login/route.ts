@@ -42,7 +42,7 @@ function signedIn(
 ) {
   // A human agent lands in the company's workspace, like the company login.
   const redirectTo =
-    (role === "workspace" || role === "member") && workspaceSlug
+    (role === "workspace" || role === "member" || role === "user") && workspaceSlug
       ? `/w/${workspaceSlug}`
       : role === "member"
         ? DESK_PATH

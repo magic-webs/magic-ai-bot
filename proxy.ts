@@ -11,7 +11,9 @@ const LOGIN_PATH = "/login";
 /** The area a session belongs to. Mirrors the redirect the login route returns. */
 function homeFor(role: string | undefined, ownSlug: string | undefined) {
   // A human agent opens the company's workspace, as the company login does.
-  if ((role === "workspace" || role === "member") && ownSlug) return `/w/${ownSlug}`;
+  if ((role === "workspace" || role === "member" || role === "user") && ownSlug) {
+    return `/w/${ownSlug}`;
+  }
   return role === "member" ? DESK_PATH : "/admin";
 }
 
@@ -62,6 +64,14 @@ export function proxy(request: NextRequest) {
     return role === "member"
       ? NextResponse.next()
       : NextResponse.redirect(new URL(homeFor(role, ownSlug), request.url));
+  }
+
+  if (role === "user" && ownSlug) {
+    // Several workspaces, which Convex checks on every request; no platform area.
+    if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+      return NextResponse.redirect(new URL(`/w/${ownSlug}`, request.url));
+    }
+    return NextResponse.next();
   }
 
   if ((role === "workspace" || role === "member") && ownSlug) {

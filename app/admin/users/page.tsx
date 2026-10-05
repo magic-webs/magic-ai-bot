@@ -4,8 +4,6 @@ import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useSession } from "@/components/use-session";
-import { SelectField } from "@/components/select-field";
 import {
   PasswordField,
   WorkspacePicker,
@@ -60,72 +58,59 @@ import {
   PencilSimpleIcon,
   PlusIcon,
   TrashIcon,
-  UsersThreeIcon,
+  UserCircleIcon,
 } from "@phosphor-icons/react";
 
-type Role = "admin" | "member";
-
-type TeamRow = {
-  _id: Id<"admins">;
+type UserRow = {
+  _id: Id<"users">;
   email: string;
   name?: string;
-  role: Role;
   workspaceIds: Id<"workspaces">[];
   createdAt: number;
   lastLoginAt: number | null;
   twoFactor: boolean;
 };
 
-const ROLE_OPTIONS = [
-  { value: "admin", label: "Admin — every workspace and this console" },
-  { value: "member", label: "Member — only the workspaces you pick" },
-];
-
-function MemberDialog({
+function UserDialog({
   workspaces,
-  member,
+  user,
 }: {
   workspaces: WorkspaceOption[];
-  member?: TeamRow;
+  user?: UserRow;
 }) {
-  const createAdmin = useAction(api.auth.createAdmin);
-  const updateAccess = useMutation(api.authDb.updateAdminAccess);
-  const { me } = useSession();
-  const isSelf = Boolean(member && me?.email === member.email);
+  const createUser = useAction(api.auth.createUser);
+  const updateUser = useMutation(api.users.update);
 
   const initial = () => ({
-    email: member?.email ?? "",
-    name: member?.name ?? "",
+    email: user?.email ?? "",
+    name: user?.name ?? "",
     password: "",
-    role: member?.role ?? ("member" as Role),
-    workspaceIds: member?.workspaceIds ?? [],
+    workspaceIds: user?.workspaceIds ?? [],
   });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(initial);
 
   const invalid =
-    (!member && (!form.email.includes("@") || form.password.length < 12)) ||
-    (form.role === "member" && form.workspaceIds.length === 0);
+    (!user && (!form.email.includes("@") || form.password.length < 12)) ||
+    form.workspaceIds.length === 0;
 
   const submit = async () => {
     setBusy(true);
     try {
-      if (member) {
-        await updateAccess({
-          adminId: member._id,
+      if (user) {
+        await updateUser({
+          userId: user._id,
           name: form.name.trim() || undefined,
-          role: form.role,
-          workspaceIds: form.role === "member" ? form.workspaceIds : [],
+          workspaceIds: form.workspaceIds,
         });
-        toast.add({ title: "Access updated", type: "success" });
+        toast.add({ title: "User updated", type: "success" });
       } else {
-        await createAdmin({
+        await createUser({
           email: form.email.trim(),
           name: form.name.trim() || undefined,
           password: form.password,
-          role: form.role,
-          workspaceIds: form.role === "member" ? form.workspaceIds : [],
+          workspaceIds: form.workspaceIds,
         });
         toast.add({
           title: `${form.email.trim()} can now sign in`,
@@ -136,7 +121,7 @@ function MemberDialog({
       setOpen(false);
     } catch (error) {
       toast.add({
-        title: member ? "Could not update access" : "Could not add the team member",
+        title: user ? "Could not update the user" : "Could not add the user",
         description: errorText(error),
         type: "error",
       });
@@ -155,36 +140,36 @@ function MemberDialog({
     >
       <DialogTrigger
         render={
-          member ? (
+          user ? (
             <Button size="sm" variant="outline">
               <PencilSimpleIcon /> Edit
             </Button>
           ) : (
             <Button>
-              <PlusIcon /> Add team member
+              <PlusIcon /> Add user
             </Button>
           )
         }
       />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{member ? `Edit ${member.email}` : "Add a team member"}</DialogTitle>
+          <DialogTitle>{user ? `Edit ${user.email}` : "Add a user"}</DialogTitle>
           <DialogDescription>
-            Admins reach every workspace and this console. Members sign in to the
-            same console but only see the workspaces assigned to them.
+            A user signs in with their email and runs the workspaces you give
+            them, switching between them from the sidebar.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {member ? null : (
+          {user ? null : (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="team-email">Email</Label>
+              <Label htmlFor="user-email">Email</Label>
               <Input
-                id="team-email"
+                id="user-email"
                 type="email"
                 autoComplete="off"
                 value={form.email}
-                placeholder="ops@example.com"
+                placeholder="owner@company.com"
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, email: event.target.value }))
                 }
@@ -193,9 +178,9 @@ function MemberDialog({
           )}
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="team-name">Name</Label>
+            <Label htmlFor="user-name">Name</Label>
             <Input
-              id="team-name"
+              id="user-name"
               value={form.name}
               placeholder="Optional"
               onChange={(event) =>
@@ -205,39 +190,19 @@ function MemberDialog({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="team-role">Role</Label>
-            <SelectField
-              id="team-role"
-              value={form.role}
-              disabled={isSelf}
-              options={ROLE_OPTIONS}
-              onValueChange={(value) =>
-                setForm((prev) => ({ ...prev, role: value as Role }))
+            <Label>Workspaces</Label>
+            <WorkspacePicker
+              workspaces={workspaces}
+              selected={form.workspaceIds}
+              onChange={(workspaceIds) =>
+                setForm((prev) => ({ ...prev, workspaceIds }))
               }
             />
-            {isSelf ? (
-              <p className="text-xs text-muted-foreground">
-                You cannot change your own role.
-              </p>
-            ) : null}
           </div>
 
-          {form.role === "member" ? (
-            <div className="flex flex-col gap-1.5">
-              <Label>Workspace access</Label>
-              <WorkspacePicker
-                workspaces={workspaces}
-                selected={form.workspaceIds}
-                onChange={(workspaceIds) =>
-                  setForm((prev) => ({ ...prev, workspaceIds }))
-                }
-              />
-            </div>
-          ) : null}
-
-          {member ? null : (
+          {user ? null : (
             <PasswordField
-              id="team-password"
+              id="user-password"
               value={form.password}
               email={form.email}
               onChange={(password) => setForm((prev) => ({ ...prev, password }))}
@@ -250,8 +215,8 @@ function MemberDialog({
             Cancel
           </Button>
           <Button disabled={busy || invalid} onClick={() => void submit()}>
-            {busy ? <Spinner /> : member ? <PencilSimpleIcon /> : <PlusIcon />}
-            {member ? "Save" : "Add team member"}
+            {busy ? <Spinner /> : user ? <PencilSimpleIcon /> : <PlusIcon />}
+            {user ? "Save" : "Add user"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -259,8 +224,8 @@ function MemberDialog({
   );
 }
 
-function ResetPasswordDialog({ member }: { member: TeamRow }) {
-  const resetPassword = useAction(api.auth.resetAdminPassword);
+function ResetPasswordDialog({ user }: { user: UserRow }) {
+  const resetPassword = useAction(api.auth.resetUserPassword);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [password, setPassword] = useState("");
@@ -268,10 +233,10 @@ function ResetPasswordDialog({ member }: { member: TeamRow }) {
   const submit = async () => {
     setBusy(true);
     try {
-      await resetPassword({ adminId: member._id, password });
+      await resetPassword({ userId: user._id, password });
       toast.add({
         title: "Password reset",
-        description: `${member.email} has been signed out everywhere.`,
+        description: `${user.email} has been signed out everywhere.`,
         type: "success",
       });
       setOpen(false);
@@ -303,16 +268,16 @@ function ResetPasswordDialog({ member }: { member: TeamRow }) {
       />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Reset the password for {member.email}</DialogTitle>
+          <DialogTitle>Reset the password for {user.email}</DialogTitle>
           <DialogDescription>
             Their open sessions end and two-factor authentication is turned off,
             so they can sign in with the new password and set it up again.
           </DialogDescription>
         </DialogHeader>
         <PasswordField
-          id="reset-password"
+          id="reset-user-password"
           value={password}
-          email={member.email}
+          email={user.email}
           onChange={setPassword}
         />
         <DialogFooter>
@@ -328,16 +293,16 @@ function ResetPasswordDialog({ member }: { member: TeamRow }) {
   );
 }
 
-function RemoveButton({ member }: { member: TeamRow }) {
-  const removeAdmin = useMutation(api.authDb.removeAdmin);
+function RemoveButton({ user }: { user: UserRow }) {
+  const removeUser = useMutation(api.users.remove);
 
   const remove = async () => {
     try {
-      await removeAdmin({ adminId: member._id });
-      toast.add({ title: `${member.email} removed`, type: "success" });
+      await removeUser({ userId: user._id });
+      toast.add({ title: `${user.email} removed`, type: "success" });
     } catch (error) {
       toast.add({
-        title: "Could not remove the team member",
+        title: "Could not remove the user",
         description: errorText(error),
         type: "error",
       });
@@ -355,10 +320,10 @@ function RemoveButton({ member }: { member: TeamRow }) {
       />
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove {member.email}?</AlertDialogTitle>
+          <AlertDialogTitle>Remove {user.email}?</AlertDialogTitle>
           <AlertDialogDescription>
-            They are signed out at once and their login, MCP connectors and
-            two-factor setup are deleted.
+            They are signed out at once and their login is deleted. Their
+            workspaces and everything in them stay as they are.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -376,10 +341,9 @@ function RemoveButton({ member }: { member: TeamRow }) {
   );
 }
 
-export default function AdminTeamPage() {
-  const team = useQuery(api.authDb.listAdmins, {});
+export default function AdminUsersPage() {
+  const users = useQuery(api.users.list, {});
   const workspaces = useQuery(api.workspaces.list, {});
-  const { me } = useSession();
 
   const options: WorkspaceOption[] = (workspaces ?? []).map((workspace) => ({
     _id: workspace._id,
@@ -393,96 +357,80 @@ export default function AdminTeamPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
-            Team
+            Users
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            The people who run the platform. Give someone the Member role to let
-            them into specific workspaces only.
+            Your customers&apos; own logins. Each one signs in with an email and
+            password and owns the workspaces you assign.
           </p>
         </div>
-        <MemberDialog workspaces={options} />
+        <UserDialog workspaces={options} />
       </header>
 
       <Card className="shrink-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <UsersThreeIcon className="size-4" /> Team members
+            <UserCircleIcon className="size-4" /> Users
           </CardTitle>
           <CardDescription>
-            Changes to a role or its workspaces apply on their next request.
+            Changes to a user&apos;s workspaces apply on their next request.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {team === undefined || workspaces === undefined ? (
-            <TableSkeleton columns={5} rows={3} />
+          {users === undefined || workspaces === undefined ? (
+            <TableSkeleton columns={4} rows={3} />
+          ) : users.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No users yet. Add one to hand a customer their own login.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Person</TableHead>
-                    <TableHead>Role</TableHead>
+                    <TableHead>User</TableHead>
                     <TableHead>Workspaces</TableHead>
                     <TableHead className="hidden lg:table-cell">Last sign-in</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {team.map((member) => {
-                    const isSelf = me?.email === member.email;
-                    return (
-                      <TableRow key={member._id}>
-                        <TableCell>
-                          <div className="flex min-w-0 flex-col">
-                            <span className="flex items-center gap-1.5 truncate font-medium">
-                              {member.name || member.email}
-                              {isSelf ? <Badge variant="outline">you</Badge> : null}
-                              {member.twoFactor ? (
-                                <Badge variant="outline">2FA</Badge>
-                              ) : null}
+                  {users.map((user) => (
+                    <TableRow key={user._id}>
+                      <TableCell>
+                        <div className="flex min-w-0 flex-col">
+                          <span className="flex items-center gap-1.5 truncate font-medium">
+                            {user.name || user.email}
+                            {user.twoFactor ? <Badge variant="outline">2FA</Badge> : null}
+                          </span>
+                          {user.name ? (
+                            <span className="truncate text-xs text-muted-foreground">
+                              {user.email}
                             </span>
-                            {member.name ? (
-                              <span className="truncate text-xs text-muted-foreground">
-                                {member.email}
-                              </span>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={member.role === "admin" ? "default" : "secondary"}>
-                            {member.role === "admin" ? "Admin" : "Member"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-72">
-                          {member.role === "admin" ? (
-                            <span className="text-sm text-muted-foreground">
-                              All workspaces
-                            </span>
-                          ) : member.workspaceIds.length === 0 ? (
-                            <span className="text-sm text-muted-foreground">None</span>
-                          ) : (
-                            <div className="flex flex-wrap gap-1">
-                              {member.workspaceIds.map((id) => (
-                                <Badge key={id} variant="outline">
-                                  {nameById.get(id) ?? "Deleted workspace"}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell text-muted-foreground">
-                          {relative(member.lastLoginAt)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-1">
-                            <MemberDialog workspaces={options} member={member} />
-                            <ResetPasswordDialog member={member} />
-                            {isSelf ? null : <RemoveButton member={member} />}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="max-w-72">
+                        <div className="flex flex-wrap gap-1">
+                          {user.workspaceIds.map((id) => (
+                            <Badge key={id} variant="outline">
+                              {nameById.get(id) ?? "Deleted workspace"}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground lg:table-cell">
+                        {relative(user.lastLoginAt)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
+                          <UserDialog workspaces={options} user={user} />
+                          <ResetPasswordDialog user={user} />
+                          <RemoveButton user={user} />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>

@@ -96,6 +96,7 @@ import type * as subscriptions from "../subscriptions.js";
 import type * as team from "../team.js";
 import type * as tools from "../tools.js";
 import type * as usage from "../usage.js";
+import type * as users from "../users.js";
 import type * as wallet from "../wallet.js";
 import type * as webhooks from "../webhooks.js";
 import type * as whatsapp from "../whatsapp.js";
@@ -197,6 +198,7 @@ declare const fullApi: ApiFromModules<{
   team: typeof team;
   tools: typeof tools;
   usage: typeof usage;
+  users: typeof users;
   wallet: typeof wallet;
   webhooks: typeof webhooks;
   whatsapp: typeof whatsapp;

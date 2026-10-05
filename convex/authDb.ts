@@ -27,7 +27,8 @@ import { maskSecret, slugify } from "./lib/shared";
 const roleValidator = v.union(
   v.literal("admin"),
   v.literal("workspace"),
-  v.literal("member")
+  v.literal("member"),
+  v.literal("user")
 );
 
 const sourceValidator = v.union(
@@ -42,13 +43,15 @@ const principalFields = {
   adminId: v.optional(v.id("admins")),
   workspaceId: v.optional(v.id("workspaces")),
   memberId: v.optional(v.id("teamMembers")),
+  userId: v.optional(v.id("users")),
 };
 
 type PrincipalRow = {
-  role: "admin" | "workspace" | "member";
+  role: "admin" | "workspace" | "member" | "user";
   adminId?: Id<"admins">;
   workspaceId?: Id<"workspaces">;
   memberId?: Id<"teamMembers">;
+  userId?: Id<"users">;
 };
 
 /** Every session a login has — of any source, ended or not. */
@@ -66,6 +69,12 @@ async function sessionsOf(
     return await ctx.db
       .query("authSessions")
       .withIndex("by_member", (q) => q.eq("memberId", row.memberId))
+      .collect();
+  }
+  if (row.role === "user" && row.userId) {
+    return await ctx.db
+      .query("authSessions")
+      .withIndex("by_user", (q) => q.eq("userId", row.userId))
       .collect();
   }
   if (row.role === "workspace" && row.workspaceId) {
@@ -107,6 +116,19 @@ async function dropFactor(ctx: MutationCtx, principal: string): Promise<void> {
   if (factor) await ctx.db.delete("twoFactor", factor._id);
 }
 
+/** A user's workspaces that still exist and are not archived, in the order they were given. */
+export async function userWorkspaceSlugs(
+  ctx: QueryCtx | MutationCtx,
+  workspaceIds: Id<"workspaces">[]
+): Promise<string[]> {
+  const slugs: string[] = [];
+  for (const id of workspaceIds) {
+    const workspace = await ctx.db.get("workspaces", id);
+    if (workspace && workspace.status !== "archived") slugs.push(workspace.slug);
+  }
+  return slugs;
+}
+
 // ---------------------------------------------------------------------------
 // Public reads
 // ---------------------------------------------------------------------------
@@ -143,6 +165,19 @@ export const me = query({
         workspaceSlugs: assigned
           ? assigned.flatMap((workspace) => (workspace ? [workspace.slug] : []))
           : null,
+      };
+    }
+
+    if (principal.role === "user") {
+      const user = await ctx.db.get("users", principal.userId);
+      const slugs = await userWorkspaceSlugs(ctx, principal.workspaceIds);
+      return {
+        role: "user" as const,
+        label: principal.label,
+        email: user?.email,
+        workspaceSlug: slugs[0] ?? null,
+        scoped: true,
+        workspaceSlugs: slugs,
       };
     }
 
@@ -722,10 +757,15 @@ export const insertAdmin = internalMutation({
       }
     }
 
-    const clash = await ctx.db
-      .query("admins")
-      .withIndex("by_email", (q) => q.eq("email", args.email))
-      .unique();
+    const clash =
+      (await ctx.db
+        .query("admins")
+        .withIndex("by_email", (q) => q.eq("email", args.email))
+        .unique()) ??
+      (await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", args.email))
+        .unique());
     if (clash) throw new Error("That email address is already registered.");
 
     const role = args.requireFirst ? "admin" : (args.role ?? "admin");
@@ -945,6 +985,9 @@ export const createSession = internalMutation({
     if (args.role === "admin" && args.adminId) {
       await ctx.db.patch(args.adminId, { lastLoginAt: now });
     }
+    if (args.role === "user" && args.userId) {
+      await ctx.db.patch(args.userId, { lastLoginAt: now });
+    }
     if (args.role === "workspace" && args.workspaceId) {
       const credential = await ctx.db
         .query("workspaceCredentials")
@@ -963,6 +1006,7 @@ export const createSession = internalMutation({
       adminId: args.adminId,
       workspaceId: args.workspaceId,
       memberId: args.memberId,
+      userId: args.userId,
       createdAt: now,
       expiresAt: args.expiresAt,
       lastUsedAt: now,
@@ -1038,6 +1082,8 @@ export const callerPrincipal = internalQuery({
     } else if (principal.role === "workspace") {
       account =
         (await ctx.db.get("workspaces", principal.workspaceId))?.slug ?? account;
+    } else if (principal.role === "user") {
+      account = (await ctx.db.get("users", principal.userId))?.email ?? account;
     } else {
       const login = await ctx.db
         .query("memberCredentials")
@@ -1368,6 +1414,21 @@ export const principalProfile = internalQuery({
         ok: true,
         label: admin.name?.trim() || admin.email,
         workspaceSlug: null,
+        mustChangePassword: false,
+      };
+    }
+
+    if (args.role === "user") {
+      const user = args.userId ? await ctx.db.get("users", args.userId) : null;
+      if (!user) return generic;
+      const slugs = await userWorkspaceSlugs(ctx, user.workspaceIds);
+      if (slugs.length === 0) {
+        return { ok: false, error: "No workspace has been assigned to this login yet." };
+      }
+      return {
+        ok: true,
+        label: user.name?.trim() || user.email,
+        workspaceSlug: slugs[0]!,
         mustChangePassword: false,
       };
     }

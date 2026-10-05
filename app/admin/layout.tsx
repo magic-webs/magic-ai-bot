@@ -43,6 +43,7 @@ import {
   Key01Icon,
   PlugSocketIcon,
   Tag01Icon,
+  UserAccountIcon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 
@@ -75,6 +76,7 @@ const NAV: Array<{
   { href: "/plans", label: "Plans & pricing", icon: Tag01Icon },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCardIcon },
   { href: "/billing", label: "Message billing", icon: Invoice01Icon },
+  { href: "/users", label: "Users", icon: UserAccountIcon },
   { href: "/team", label: "Team", icon: UserGroupIcon },
   { href: "/access", label: "Access", icon: Key01Icon, team: true },
 ];
