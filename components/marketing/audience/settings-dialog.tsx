@@ -21,6 +21,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
+import { isBuiltIn } from "@/convex/lib/audience";
 import { fail, type Category } from "./shared";
 
 const CAP_OPTIONS = [
@@ -44,7 +45,8 @@ export function AudienceSettingsDialog({
 }) {
   const workspace = useWorkspace();
   const saveSettings = useMutation(api.marketing.saveAudienceSettings);
-  const [categories, setCategories] = useState(initialCategories);
+  const builtIn = initialCategories.filter((c) => isBuiltIn(c.key));
+  const [categories, setCategories] = useState(initialCategories.filter((c) => !isBuiltIn(c.key)));
   const [cap, setCap] = useState(String(initialCap));
   const [busy, setBusy] = useState(false);
 
@@ -94,9 +96,22 @@ export function AudienceSettingsDialog({
           <div className="flex flex-col gap-2">
             <Label>Categories</Label>
             <p className="text-xs text-muted-foreground">
-              Describe each one the way you would explain it to a new colleague — the description
-              is what sorting reads.
+              Every contact is Valid or Not valid to begin with. Add your own groups — customers,
+              leads, suppliers — and describe each the way you would explain it to a new colleague:
+              the description is what Jev reads to sort valid contacts into them.
             </p>
+            {builtIn.map((category) => (
+              <div
+                key={category.key}
+                className="flex items-start gap-3 rounded-md border border-dashed border-border bg-muted/40 p-3"
+              >
+                <span className="w-44 shrink-0 text-sm font-medium">{category.label}</span>
+                <span className="flex-1 text-xs text-muted-foreground">{category.description}</span>
+                <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Built in
+                </span>
+              </div>
+            ))}
             {categories.map((category, index) => (
               <div
                 key={index}
@@ -117,7 +132,6 @@ export function AudienceSettingsDialog({
                   size="icon"
                   variant="ghost"
                   aria-label="Remove category"
-                  disabled={categories.length <= 2}
                   onClick={() => setCategories(categories.filter((_, i) => i !== index))}
                 >
                   <TrashIcon />
@@ -128,7 +142,7 @@ export function AudienceSettingsDialog({
               variant="outline"
               size="sm"
               className="w-fit"
-              disabled={categories.length >= 12}
+              disabled={categories.length >= 10}
               onClick={() => setCategories([...categories, { key: "", label: "", description: "" }])}
             >
               <PlusIcon /> Add a category

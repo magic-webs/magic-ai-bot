@@ -13,7 +13,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
 import { refreshContactSearch } from "./lib/inbox";
-import { DEFAULT_CATEGORIES } from "./lib/audience";
+import { NOT_VALID, VALID, isBuiltIn, validityOf, withBuiltIns } from "./lib/audience";
 import { cleanContact, describeForSorting, type RawContact } from "./lib/contactClean";
 import { choiceOf, evaluate, JEV_MODEL, probabilityOf } from "./lib/jev";
 import { importCounts, importRowStatus } from "./schema/marketing";
@@ -63,7 +63,7 @@ async function categoriesFor(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
     .query("marketingSettings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return settings?.categories ?? DEFAULT_CATEGORIES;
+  return withBuiltIns(settings?.categories);
 }
 
 function shift(counts: Counts, moves: Array<[RowStatus | null, RowStatus]>): Counts {
@@ -222,6 +222,7 @@ export const addRows = mutation({
         problem,
         fixes,
         status,
+        category: problem ? NOT_VALID : undefined,
         duplicateOfLine: first?.line,
         existingContactId: existing?._id,
         optedOut: existing?.optedOutAt ? true : undefined,
@@ -388,31 +389,31 @@ export const sortBatch = internalAction({
       return null;
     }
 
-    const fallback =
-      context.categories.find((category) => category.key === "unknown")?.key ??
-      context.categories[context.categories.length - 1].key;
-    const criteria = Object.fromEntries(
-      context.categories.map((category) => [
-        category.key,
-        `${category.label}: ${category.description}`,
-      ])
+    const custom = context.categories.filter((category) => !isBuiltIn(category.key));
+    const criteria: Record<string, string> = Object.fromEntries(
+      custom.map((category) => [category.key, `${category.label}: ${category.description}`])
     );
+    criteria[VALID] = "None of the other groups fit";
 
     let inputTokens = 0;
     let outputTokens = 0;
     let fatal: string | undefined;
     const results = await inParallel(context.rows, SORT_PARALLEL, async (row) => {
       const details = describeForSorting({ ...row, notes: row.notes });
-      if (!details) return { rowId: row._id, category: fallback };
+      if (!details) return { rowId: row._id, category: NOT_VALID };
       try {
         const answer = await evaluate(
           `A contact from the address book of ${context.business || "a business"}.\n${details}`,
           {
-            category: {
-              type: "choice",
-              instructions: "Which group does this contact belong to for the business",
-              criteria,
-            },
+            ...(custom.length > 0
+              ? {
+                  category: {
+                    type: "choice" as const,
+                    instructions: "Which group does this contact belong to for the business",
+                    criteria,
+                  },
+                }
+              : {}),
             junk: {
               type: "boolean",
               instructions:
@@ -445,11 +446,13 @@ export const sortBatch = internalAction({
         outputTokens += answer.outputTokens;
         const choice = choiceOf(answer.answers.category);
         const interest = answer.answers.interest;
+        const junk = probabilityOf(answer.answers.junk) ?? undefined;
+        const valid = Boolean(row.name) && (junk ?? 0) < JUNK_PROBABILITY;
         return {
           rowId: row._id,
-          category: choice && criteria[choice.choice] ? choice.choice : fallback,
-          confidence: choice?.confidence,
-          junk: probabilityOf(answer.answers.junk) ?? undefined,
+          category: !valid ? NOT_VALID : choice && criteria[choice.choice] ? choice.choice : VALID,
+          confidence: valid ? choice?.confidence : undefined,
+          junk,
           business: (probabilityOf(answer.answers.business) ?? 0) >= FLAG_PROBABILITY || undefined,
           doNotContact:
             (probabilityOf(answer.answers.doNotContact) ?? 0) >= FLAG_PROBABILITY || undefined,
@@ -465,7 +468,7 @@ export const sortBatch = internalAction({
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (/AI_GATEWAY_API_KEY|401|403/.test(message)) fatal = message;
-        return { rowId: row._id, category: fallback, sortError: message.slice(0, 200) };
+        return { rowId: row._id, category: validityOf(row.name), sortError: message.slice(0, 200) };
       }
     });
 
@@ -597,7 +600,7 @@ export const updateRow = mutation({
         fixes,
         problem,
         status,
-        category: row.category ?? args.category ?? "unknown",
+        category: row.category && row.category !== NOT_VALID ? row.category : (args.category ?? validityOf(clean.name)),
         existingContactId: existing?._id,
         optedOut: existing?.optedOutAt ? true : undefined,
         updatedAt: now,
@@ -645,7 +648,7 @@ export const setRowsStatus = mutation({
       }
       await ctx.db.patch("audienceImportRows", row._id, {
         status: args.status,
-        category: row.category ?? "unknown",
+        category: row.category ?? validityOf(row.name),
         updatedAt: now,
       });
       const list = moves.get(row.importId) ?? [];
@@ -693,7 +696,7 @@ export const moveAll = internalMutation({
     for (const row of batch) {
       await ctx.db.patch("audienceImportRows", row._id, {
         status: args.to,
-        category: row.category ?? "unknown",
+        category: row.category ?? validityOf(row.name),
         updatedAt: now,
       });
     }
@@ -771,8 +774,11 @@ export const saveBatch = internalMutation({
         if (!existing.email && row.email) patch.email = row.email;
         if (!existing.company && row.company) patch.company = row.company;
         if (!existing.birthday && row.birthday) patch.birthday = row.birthday;
-        if (row.category && (!existing.category || existing.category === "unknown")) {
-          patch.category = row.category;
+        if (
+          row.category &&
+          (!existing.category || existing.category === "unknown" || isBuiltIn(existing.category))
+        ) {
+          patch.category = row.category === validityOf(existing.name ?? row.name) ? undefined : row.category;
         }
         const tags = [...new Set([...(existing.tags ?? []), ...row.tags])].slice(0, 30);
         if (tags.length !== (existing.tags ?? []).length) patch.tags = tags;
@@ -795,7 +801,7 @@ export const saveBatch = internalMutation({
           email: row.email,
           company: row.company,
           birthday: row.birthday,
-          category: row.category,
+          category: row.category === validityOf(row.name) ? undefined : row.category,
           tags: row.tags,
           attributes: [],
           source: "import",

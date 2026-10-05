@@ -53,7 +53,7 @@ import {
   audienceSelection as audienceSelectionValidator,
   guestSegment as guestSegmentValidator,
 } from "./schema/marketing";
-import { DEFAULT_CATEGORIES, inSelection, reachable } from "./lib/audience";
+import { inSelection, isBuiltIn, reachable, withBuiltIns } from "./lib/audience";
 
 /** How many contacts one send batch covers. */
 export const SEND_BATCH = 40;
@@ -203,7 +203,7 @@ export const overview = query({
         withBirthday: withBirthday.filter(reachable).length,
       },
       weeklyCap: settings?.weeklyCap ?? 0,
-      categories: settings?.categories ?? DEFAULT_CATEGORIES,
+      categories: withBuiltIns(settings?.categories),
     };
   },
 });
@@ -679,8 +679,7 @@ export const saveAudienceSettings = mutation({
         label: category.label.trim().slice(0, 40),
         description: category.description.trim().slice(0, 300),
       }))
-      .filter((category) => category.key && category.label);
-    if (categories.length < 2) throw new Error("Keep at least two categories.");
+      .filter((category) => category.key && category.label && !isBuiltIn(category.key));
     if (categories.length > MAX_CATEGORIES) {
       throw new Error(`Use at most ${MAX_CATEGORIES} categories.`);
     }

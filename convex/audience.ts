@@ -10,7 +10,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
-import { measureAudience, normaliseTag } from "./lib/audience";
+import { categoryOf, isBuiltIn, measureAudience, normaliseTag } from "./lib/audience";
 import { audienceSelection } from "./schema/marketing";
 
 const SIZE_SCAN_CAP = 5000;
@@ -31,7 +31,7 @@ function personOf(contact: Doc<"contacts">) {
     email: contact.email ?? null,
     company: contact.company ?? null,
     birthday: contact.birthday ?? null,
-    category: contact.category ?? null,
+    category: categoryOf(contact),
     tags: contact.tags ?? [],
     source: contact.source ?? null,
     optedOutAt: contact.optedOutAt ?? null,
@@ -66,7 +66,7 @@ export const tags = query({
     for (const contact of contacts) {
       if (contact.channelType !== "whatsapp") continue;
       for (const tag of contact.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-      const category = contact.category ?? "";
+      const category = categoryOf(contact);
       categories.set(category, (categories.get(category) ?? 0) + 1);
     }
     return {
@@ -96,7 +96,7 @@ export const people = query({
     const keep = (contact: Doc<"contacts"> | null): contact is Doc<"contacts"> => {
       if (!contact || contact.workspaceId !== args.workspaceId) return false;
       if (contact.channelType !== "whatsapp") return false;
-      if (args.category !== undefined && (contact.category ?? "") !== args.category) return false;
+      if (args.category !== undefined && categoryOf(contact) !== args.category) return false;
       if (args.tag && !(contact.tags ?? []).includes(args.tag)) return false;
       if (args.subscription === "subscribed" && contact.optedOutAt) return false;
       if (args.subscription === "unsubscribed" && !contact.optedOutAt) return false;
@@ -124,7 +124,7 @@ export const people = query({
       return { ...page, page: contacts.filter(keep).map(personOf) };
     }
 
-    const category = args.category;
+    const category = args.category && !isBuiltIn(args.category) ? args.category : undefined;
     const page = category
       ? await ctx.db
           .query("contacts")

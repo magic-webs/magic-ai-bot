@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { audienceCategory, audienceSelection } from "../schema/marketing";
 import { sentRecently } from "./marketingStats";
+import { tidyName } from "./contactClean";
 
 const SIZE_SCAN_CAP = 5000;
 const CAP_CHECKS = 1500;
@@ -18,33 +19,38 @@ export const EVERYONE: AudienceSelection = {
   excludeAudienceIds: [],
 };
 
-export const DEFAULT_CATEGORIES: AudienceCategory[] = [
+export const VALID = "valid";
+export const NOT_VALID = "invalid";
+
+export const BUILT_IN_CATEGORIES: AudienceCategory[] = [
   {
-    key: "customer",
-    label: "Customers",
-    description: "Has bought from the business or uses its service now.",
+    key: VALID,
+    label: "Valid",
+    description: "Has a real name and a WhatsApp number that can receive messages.",
   },
   {
-    key: "lead",
-    label: "Leads",
-    description: "Showed interest or asked about buying, but has not bought yet.",
-  },
-  {
-    key: "partner",
-    label: "Partners & vendors",
-    description: "A supplier, vendor, agent, dealer or business the company works with.",
-  },
-  {
-    key: "personal",
-    label: "Personal",
-    description: "Family, friends, staff or someone known personally rather than as a customer.",
-  },
-  {
-    key: "unknown",
-    label: "Unsorted",
-    description: "Nothing in the details says which of the others this person is.",
+    key: NOT_VALID,
+    label: "Not valid",
+    description: "The name is missing, fake or a placeholder, or the number cannot be used.",
   },
 ];
+
+export function isBuiltIn(key: string) {
+  return key === VALID || key === NOT_VALID;
+}
+
+export function withBuiltIns(stored: AudienceCategory[] | undefined): AudienceCategory[] {
+  return [...BUILT_IN_CATEGORIES, ...(stored ?? []).filter((category) => !isBuiltIn(category.key))];
+}
+
+export function validityOf(name: string | undefined): string {
+  return tidyName(name).value ? VALID : NOT_VALID;
+}
+
+export function categoryOf(contact: Pick<Doc<"contacts">, "category" | "name">): string {
+  if (contact.category && contact.category !== "unknown") return contact.category;
+  return validityOf(contact.name);
+}
 
 export function isEveryone(selection: AudienceSelection | undefined): boolean {
   return (
@@ -77,7 +83,7 @@ export async function inSelection(
   const lists = needsLists ? await membershipsOf(ctx, contact._id) : new Set();
   if (selection.excludeAudienceIds.some((id) => lists.has(id))) return false;
   if (isEveryone(selection)) return true;
-  if (contact.category && selection.categories.includes(contact.category)) return true;
+  if (selection.categories.includes(categoryOf(contact))) return true;
   if (contact.tags?.some((tag) => selection.tags.includes(tag))) return true;
   return selection.audienceIds.some((id) => lists.has(id));
 }
@@ -107,7 +113,7 @@ export function matchesWith(
   const member = (id: Id<"audiences">) => sets.get(id)?.has(contact._id) ?? false;
   if (selection.excludeAudienceIds.some(member)) return false;
   if (isEveryone(selection)) return true;
-  if (contact.category && selection.categories.includes(contact.category)) return true;
+  if (selection.categories.includes(categoryOf(contact))) return true;
   if (contact.tags?.some((tag) => selection.tags.includes(tag))) return true;
   return selection.audienceIds.some(member);
 }

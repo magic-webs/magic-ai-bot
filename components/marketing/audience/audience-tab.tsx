@@ -153,7 +153,7 @@ export function AudienceTab({
         <Tile label="Can be messaged" value={reachable} />
         <Tile label="Unsubscribed" value={optedOut} />
         <Tile label="Lists" value={audiences?.length ?? 0} />
-        <Tile label="Sorted into a category" value={sortedCount(summary?.categories)} />
+        <Tile label="Valid contacts" value={summary?.categories.valid ?? 0} />
       </div>
 
       {pending.length > 0 ? (
@@ -418,13 +418,6 @@ export function AudienceTab({
       ) : null}
     </div>
   );
-}
-
-function sortedCount(categories: Record<string, number> | undefined) {
-  if (!categories) return 0;
-  return Object.entries(categories)
-    .filter(([key]) => key && key !== "unknown")
-    .reduce((sum, [, count]) => sum + count, 0);
 }
 
 function Tile({ label, value }: { label: string; value: number }) {
