@@ -47,12 +47,27 @@ export const conversationsTables = {
     remark: v.optional(v.string()),
     birthday: v.optional(v.string()),
     attributes: v.array(kvPair),
+    source: v.optional(
+      v.union(
+        v.literal("whatsapp"),
+        v.literal("web"),
+        v.literal("manual"),
+        v.literal("import")
+      )
+    ),
+    category: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    optedOutAt: v.optional(v.number()),
+    optOutReason: v.optional(
+      v.union(v.literal("keyword"), v.literal("manual"), v.literal("import"))
+    ),
     lastSeenAt: v.number(),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_external", ["workspaceId", "externalId"])
-    .index("by_workspace_and_birthday", ["workspaceId", "birthday"]),
+    .index("by_workspace_and_birthday", ["workspaceId", "birthday"])
+    .index("by_workspace_and_category", ["workspaceId", "category"]),
 
   conversations: defineTable({
     workspaceId: v.id("workspaces"),

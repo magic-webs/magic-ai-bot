@@ -30,6 +30,8 @@ import {
   patchConversation,
   refreshContactSearch,
 } from "./lib/inbox";
+import { optInReply, optKeyword, optOutReply } from "./lib/optOut";
+import { noteOptOut, noteReply } from "./lib/marketingStats";
 import {
   BOT_REPEAT_LIMIT,
   HANDBACK_AFTER_MINUTES,
@@ -1009,6 +1011,7 @@ export const startTurn = internalMutation({
         name: args.contactName,
         phone: args.contactPhone,
         attributes: [],
+        source: args.channelType,
         lastSeenAt: now,
         createdAt: now,
       });
@@ -1126,7 +1129,7 @@ export const startTurn = internalMutation({
         : 1;
     const caughtAsBot = repeatCount > BOT_REPEAT_LIMIT;
 
-    await noteMessage(
+    const noted = await noteMessage(
       ctx,
       conversation,
       { from: "customer", preview: args.text, at: now },
@@ -1151,6 +1154,41 @@ export const startTurn = internalMutation({
         createdAt: now,
       });
       return { blocked: true as const, conversationId: conversation._id };
+    }
+
+    if (args.channelType === "whatsapp") {
+      const keyword = optKeyword(args.text);
+      const changes =
+        (keyword === "stop" && !contact.optedOutAt) ||
+        (keyword === "start" && !!contact.optedOutAt);
+      if (keyword && changes) {
+        const workspace = await ctx.db.get("workspaces", args.workspaceId);
+        const business = workspace?.name ?? "We";
+        await ctx.db.patch(contact._id, {
+          optedOutAt: keyword === "stop" ? now : undefined,
+          optOutReason: keyword === "stop" ? "keyword" : undefined,
+        });
+        if (keyword === "stop") await noteOptOut(ctx, contact._id, now);
+        const reply = keyword === "stop" ? optOutReply(business) : optInReply(business);
+        const replyAt = now + 1;
+        const agentId = conversation.activeAgentId ?? conversation.agentId;
+        const replyMessageId = await ctx.db.insert("messages", {
+          workspaceId: args.workspaceId,
+          conversationId: conversation._id,
+          role: "assistant",
+          kind: "text",
+          text: reply,
+          agentId,
+          createdAt: replyAt,
+        });
+        await noteMessage(ctx, noted, { from: "system", preview: reply, at: replyAt });
+        return {
+          blocked: true as const,
+          conversationId: conversation._id,
+          optReply: { text: reply, messageId: replyMessageId },
+        };
+      }
+      await noteReply(ctx, contact._id, now);
     }
 
     const sessionOver =

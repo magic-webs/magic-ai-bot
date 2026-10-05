@@ -25,6 +25,7 @@ export const addMany = mutation({
     workspaceId: v.id("workspaces"),
     /** Put in front of a number typed without one, e.g. "91". */
     countryCode: v.optional(v.string()),
+    source: v.optional(v.union(v.literal("manual"), v.literal("import"))),
     contacts: v.array(
       v.object({
         name: v.optional(v.string()),
@@ -101,6 +102,7 @@ export const addMany = mutation({
         email,
         company,
         attributes: [],
+        source: args.source ?? "manual",
         // Required, and there is no "never" to put: the day they were added
         // is the closest thing to when the business last heard of them.
         lastSeenAt: now,
@@ -298,6 +300,18 @@ export const update = mutation({
 
     await ctx.db.patch(contactId, patch);
     await refreshContactSearch(ctx, contactId);
+    return { success: true };
+  },
+});
+
+export const setSubscribed = mutation({
+  args: { contactId: v.id("contacts"), subscribed: v.boolean() },
+  handler: async (ctx, args) => {
+    const contact = await requireContact(ctx, args.contactId);
+    await ctx.db.patch("contacts", contact._id, {
+      optedOutAt: args.subscribed ? undefined : Date.now(),
+      optOutReason: args.subscribed ? undefined : "manual",
+    });
     return { success: true };
   },
 });

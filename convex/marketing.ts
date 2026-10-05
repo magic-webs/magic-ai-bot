@@ -42,6 +42,17 @@ import {
   zonedToInstant,
 } from "./lib/marketing";
 import { noteSent } from "./lib/delivery";
+import {
+  bumpStats,
+  sentRecently,
+  statsFor,
+  type MarketingCounts,
+} from "./lib/marketingStats";
+import {
+  audienceCategory as audienceCategoryValidator,
+  audienceSelection as audienceSelectionValidator,
+} from "./schema/marketing";
+import { DEFAULT_CATEGORIES, inSelection, reachable } from "./lib/audience";
 
 /** How many contacts one send batch covers. */
 export const SEND_BATCH = 40;
@@ -50,6 +61,7 @@ const AUDIENCE_SCAN_CAP = 2000;
 /** The longest window the calendar query answers for — a month and a bit. */
 const MAX_CALENDAR_DAYS = 62;
 const DEFAULT_BIRTHDAY_HOUR = 9;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const occasion = v.union(
   v.literal("birthday"),
@@ -183,11 +195,14 @@ export const overview = query({
           }
         : null,
       audience: {
-        whatsapp: scanned.filter((c) => c.channelType === "whatsapp").length,
-        capped: scanned.length >= AUDIENCE_SCAN_CAP,
-        withBirthday: withBirthday.filter((c) => c.channelType === "whatsapp")
+        whatsapp: scanned.filter(reachable).length,
+        optedOut: scanned.filter((c) => c.channelType === "whatsapp" && c.optedOutAt)
           .length,
+        capped: scanned.length >= AUDIENCE_SCAN_CAP,
+        withBirthday: withBirthday.filter(reachable).length,
       },
+      weeklyCap: settings?.weeklyCap ?? 0,
+      categories: settings?.categories ?? DEFAULT_CATEGORIES,
     };
   },
 });
@@ -647,6 +662,62 @@ export const saveSettings = mutation({
   },
 });
 
+const MAX_CATEGORIES = 12;
+
+export const saveAudienceSettings = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    weeklyCap: v.number(),
+    categories: v.array(audienceCategoryValidator),
+  },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const categories = args.categories
+      .map((category) => ({
+        key: category.key.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").slice(0, 32),
+        label: category.label.trim().slice(0, 40),
+        description: category.description.trim().slice(0, 300),
+      }))
+      .filter((category) => category.key && category.label);
+    if (categories.length < 2) throw new Error("Keep at least two categories.");
+    if (categories.length > MAX_CATEGORIES) {
+      throw new Error(`Use at most ${MAX_CATEGORIES} categories.`);
+    }
+    if (new Set(categories.map((c) => c.key)).size !== categories.length) {
+      throw new Error("Two categories have the same name.");
+    }
+    const fields = {
+      weeklyCap: Math.max(0, Math.min(14, Math.round(args.weeklyCap))),
+      categories,
+      updatedAt: Date.now(),
+    };
+    const existing = await settingsFor(ctx, args.workspaceId);
+    if (existing) {
+      await ctx.db.patch("marketingSettings", existing._id, fields);
+    } else {
+      await ctx.db.insert("marketingSettings", {
+        workspaceId: args.workspaceId,
+        birthdayEnabled: false,
+        birthdayHour: DEFAULT_BIRTHDAY_HOUR,
+        ...fields,
+      });
+    }
+    return { success: true };
+  },
+});
+
+export const stats = query({
+  args: { workspaceId: v.id("workspaces"), keys: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const result: Record<string, MarketingCounts> = {};
+    for (const key of args.keys.slice(0, 100)) {
+      result[key] = await statsFor(ctx, key);
+    }
+    return result;
+  },
+});
+
 // ---------------------------------------------------------------- the sweeps
 
 async function startEvent(
@@ -826,6 +897,8 @@ export const audiencePage = internalQuery({
     workspaceId: v.id("workspaces"),
     key: v.string(),
     monthDay: v.optional(v.string()),
+    audience: v.optional(audienceSelectionValidator),
+    now: v.optional(v.number()),
     cursor: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
@@ -843,13 +916,18 @@ export const audiencePage = internalQuery({
           .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
           .paginate(options);
 
+    const settings = await settingsFor(ctx, args.workspaceId);
+    const cap = !monthDay && args.now ? (settings?.weeklyCap ?? 0) : 0;
+
     const contacts: Array<{
       contactId: Id<"contacts">;
       to: string;
       name?: string;
     }> = [];
+    let skipped = 0;
     for (const contact of page.page) {
-      if (contact.channelType !== "whatsapp") continue;
+      if (!reachable(contact)) continue;
+      if (!(await inSelection(ctx, contact, args.audience))) continue;
       const already = await ctx.db
         .query("marketingSends")
         .withIndex("by_contact_and_key", (q) =>
@@ -857,6 +935,10 @@ export const audiencePage = internalQuery({
         )
         .first();
       if (already?.status === "sent") continue;
+      if (cap > 0 && (await sentRecently(ctx, contact._id, args.now! - WEEK_MS)) >= cap) {
+        skipped++;
+        continue;
+      }
       contacts.push({
         contactId: contact._id,
         to: contact.externalId,
@@ -866,6 +948,7 @@ export const audiencePage = internalQuery({
 
     return {
       contacts,
+      skipped,
       continueCursor: page.continueCursor,
       isDone: page.isDone,
     };
@@ -957,6 +1040,7 @@ async function writeMarketingMessage(
     at: args.now,
     delivery,
   });
+  return messageId;
 }
 
 /**
@@ -997,7 +1081,7 @@ export const recordBatch = internalMutation({
     let lastError: string | undefined;
 
     for (const result of args.results) {
-      await ctx.db.insert("marketingSends", {
+      const sendId = await ctx.db.insert("marketingSends", {
         workspaceId: args.workspaceId,
         contactId: result.contactId,
         eventId: args.eventId,
@@ -1006,6 +1090,7 @@ export const recordBatch = internalMutation({
         error: result.error,
         text: result.ok ? result.text : undefined,
         agentId: args.agentId,
+        delivery: result.ok ? "sent" : "failed",
         createdAt: now,
       });
 
@@ -1038,12 +1123,17 @@ export const recordBatch = internalMutation({
         });
       }
       if (!thread) continue;
-      await writeMarketingMessage(ctx, thread, {
+      const messageId = await writeMarketingMessage(ctx, thread, {
         text: result.text,
         agentId: args.agentId,
         now,
         wamid: result.wamid,
       });
+      await ctx.db.patch("marketingSends", sendId, { messageId });
+    }
+
+    if (sent > 0 || failed > 0) {
+      await bumpStats(ctx, args.workspaceId, args.key, { sent, failed });
     }
 
     if (args.eventId) {

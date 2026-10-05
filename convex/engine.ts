@@ -1702,6 +1702,16 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         workspace.maxMessagesPerConversation ?? DEFAULT_MESSAGES_PER_SESSION,
     });
 
+    if (session.blocked && "optReply" in session && session.optReply) {
+      return {
+        ok: true,
+        text: session.optReply.text,
+        conversationId: session.conversationId,
+        replyMessageId: session.optReply.messageId,
+        toolCalls: [],
+      };
+    }
+
     if (session.blocked) {
       return {
         ok: true,

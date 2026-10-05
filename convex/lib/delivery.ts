@@ -1,5 +1,6 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { noteSendDelivery } from "./marketingStats";
 
 export type Delivery = NonNullable<Doc<"messages">["delivery"]>;
 
@@ -51,6 +52,9 @@ export async function setDelivery(
   const conversation = await ctx.db.get("conversations", message.conversationId);
   if (conversation && conversation.lastMessageAt === message.createdAt) {
     await ctx.db.patch(conversation._id, { lastMessageDelivery: delivery });
+  }
+  if (message.role === "assistant") {
+    await noteSendDelivery(ctx, message._id, delivery, now);
   }
 }
 

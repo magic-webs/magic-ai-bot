@@ -19,6 +19,7 @@ import {
   templateBlocker,
   type TemplateVariable,
 } from "./lib/marketing";
+import type { AudienceSelection } from "./lib/audience";
 
 /** Every variable but the customer's own name, which is filled per contact. */
 type SharedValues = Omit<Record<TemplateVariable, string>, "name">;
@@ -78,6 +79,7 @@ async function sendPage(
     values: SharedValues;
     key: string;
     monthDay?: string;
+    audience?: AudienceSelection;
     cursor: string | null;
     context: {
       workspaceName: string;
@@ -93,6 +95,8 @@ async function sendPage(
     workspaceId: args.workspaceId,
     key: args.key,
     monthDay: args.monthDay,
+    audience: args.audience,
+    now: Date.now(),
     cursor: args.cursor,
   });
 
@@ -244,6 +248,7 @@ export const runEvent = internalAction({
       eventId: args.eventId,
       values,
       key: `event:${args.eventId}`,
+      audience: context.event.audience ?? context.campaign?.audience,
       cursor: args.cursor ?? null,
       context: {
         workspaceName: context.workspaceName,
