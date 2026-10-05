@@ -11,6 +11,7 @@ import { TranscriptView, type TranscriptAgent } from "@/components/transcript";
 import { ManualReply } from "@/components/manual-reply";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { DeliveryTicks } from "@/components/delivery-ticks";
+import { WindowClock } from "@/components/window-clock";
 import { CHANNEL_LABEL, ChannelMark } from "@/components/channel-mark";
 import {
   Countdown,
@@ -69,8 +70,6 @@ import {
   PauseIcon,
   CaretLeftIcon,
   CaretRightIcon,
-  TimerIcon,
-  WarningIcon,
   ProhibitIcon,
 } from "@phosphor-icons/react";
 
@@ -583,6 +582,9 @@ export function ConversationDetail({
                 <ClockIcon className="size-3.5 shrink-0" />
                 Last activity {relative(conversation.lastMessageAt)}
               </span>
+              {conversation.channelType === "whatsapp" ? (
+                <HeaderWindow lastInboundAt={detail.lastInboundAt} />
+              ) : null}
             </div>
           </div>
 
@@ -797,6 +799,30 @@ function DetailSection({
  * answering, how long WhatsApp will still take a free-form reply, and the
  * thread's own history.
  */
+function HeaderWindow({ lastInboundAt }: { lastInboundAt: number | null }) {
+  const now = useNow();
+  const window24 = replyWindow(lastInboundAt, now);
+  if (!window24) return null;
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-1",
+        !window24.open && "text-destructive",
+        window24.open && window24.left < 60 * 60_000 && "text-amber-600 dark:text-amber-400"
+      )}
+    >
+      <WindowClock lastInboundAt={lastInboundAt} size={14} />
+      {window24.open ? (
+        <span>
+          <Countdown to={window24.endsAt} /> to reply
+        </span>
+      ) : (
+        "Reply window closed"
+      )}
+    </span>
+  );
+}
+
 function ThreadDetails({
   conversation,
   contact,
@@ -953,34 +979,30 @@ function ThreadDetails({
       {conversation.channelType === "whatsapp" ? (
         <DetailSection title="Reply window">
           {window24 ? (
-            window24.open ? (
-              <p className="flex flex-col gap-0.5 text-xs">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <TimerIcon className="size-3.5 shrink-0 text-primary" />
-                  {/* One text run, so the flex gap does not land between the
-                      words as well as after the icon. */}
-                  <span>
-                    Open ·{" "}
-                    <Countdown to={window24.endsAt} /> left
+            <div className="flex items-center gap-3">
+              <WindowClock lastInboundAt={lastInboundAt} size={44} />
+              {window24.open ? (
+                <p className="flex min-w-0 flex-col gap-0.5 text-xs">
+                  <span className="font-medium">
+                    Open · <Countdown to={window24.endsAt} /> left
                   </span>
-                </span>
-                <span className="text-muted-foreground">
-                  Free-form replies until{" "}
-                  {new Date(window24.endsAt).toLocaleString([], {
-                    weekday: "short",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                  .
-                </span>
-              </p>
-            ) : (
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <WarningIcon className="size-3.5 shrink-0" />
-                Closed — only an approved template gets through until they
-                write again.
-              </p>
-            )
+                  <span className="text-muted-foreground">
+                    Free-form replies until{" "}
+                    {new Date(window24.endsAt).toLocaleString([], {
+                      weekday: "short",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                    .
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Closed — only an approved template gets through until they
+                  write again.
+                </p>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground">
               They have not written on WhatsApp yet.

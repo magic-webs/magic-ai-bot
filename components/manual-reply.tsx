@@ -27,9 +27,9 @@ import {
   PauseIcon,
   LightningIcon,
   SmileyIcon,
-  TimerIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+import { WindowClock } from "@/components/window-clock";
 
 /**
  * The pause the last reply used, remembered per browser — a convenience for
@@ -337,7 +337,11 @@ export function ManualReply({
               : `WhatsApp only delivers a free-form reply within 24 hours of the customer's last message. ${contactLabel} last wrote before that, so this will likely be rejected.`
           }
         >
-          <WarningIcon className="size-3.5 shrink-0" />
+          {neverWritten ? (
+            <WarningIcon className="size-3.5 shrink-0" />
+          ) : (
+            <WindowClock lastInboundAt={lastInboundAt} size={16} />
+          )}
           {neverWritten ? "No inbound message yet" : "Reply window closed"}
         </p>
       ) : window24 ? (
@@ -351,7 +355,7 @@ export function ManualReply({
           }
           title={`WhatsApp delivers a free-form reply until ${new Date(window24.endsAt).toLocaleString()} — 24 hours after ${contactLabel}'s last message. After that only an approved template gets through.`}
         >
-          <TimerIcon className="size-3.5 shrink-0" />
+          <WindowClock lastInboundAt={lastInboundAt} size={16} />
           <span>
             Reply window open ·{" "}
             <Countdown to={window24.endsAt} /> left

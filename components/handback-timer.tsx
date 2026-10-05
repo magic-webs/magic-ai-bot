@@ -66,7 +66,7 @@ export function useNow(): number {
   );
 }
 
-function useNowSeconds(): number {
+export function useNowSeconds(): number {
   return useSyncExternalStore(
     secondClock.subscribe,
     secondClock.getSnapshot,
