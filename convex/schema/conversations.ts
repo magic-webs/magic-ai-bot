@@ -115,7 +115,7 @@ export const conversationsTables = {
     .index("by_marketingOnly_and_lastMessageAt", ["marketingOnly", "lastMessageAt"])
     .searchIndex("search_inbox", {
       searchField: "searchText",
-      filterFields: ["workspaceId", "status", "channelType"],
+      filterFields: ["workspaceId", "status", "channelType", "channelId"],
     }),
 
   inboxCounts: defineTable({

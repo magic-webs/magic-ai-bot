@@ -14,6 +14,7 @@ import {
   STATUS_OPTIONS,
 } from "@/components/conversation-detail";
 import { NewConversationDialog } from "@/components/new-conversation-dialog";
+import { ChannelMark } from "@/components/channel-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,6 +40,12 @@ import {
   FunnelSimpleIcon,
   SirenIcon,
 } from "@phosphor-icons/react";
+
+const CHANNEL_TYPES = new Set(["all", "whatsapp", "web"]);
+
+function channelLabel(channel: { name: string; phone: string | null }) {
+  return channel.phone ? `${channel.name} · ${channel.phone}` : channel.name;
+}
 
 /**
  * The four buckets across the top of the list.
@@ -113,6 +120,10 @@ export default function ConversationsPage() {
   const pathname = usePathname();
 
   const stages = useQuery(api.leads.stageNames, { workspaceId: workspace._id });
+  const channels = useQuery(api.channels.inboxChannels, {
+    workspaceId: workspace._id,
+  });
+  const manyChannels = (channels?.length ?? 0) > 1;
   const counts = useQuery(api.conversations.inboxCounts, {
     workspaceId: workspace._id,
   });
@@ -163,7 +174,12 @@ export default function ConversationsPage() {
       bucket: statusFilter === "escalated" ? "all" : statusFilter,
       agentId: agentFilter === "all" ? undefined : (agentFilter as Id<"agents">),
       channelType:
-        channelFilter === "all" ? undefined : (channelFilter as "whatsapp" | "web"),
+        channelFilter === "whatsapp" || channelFilter === "web"
+          ? channelFilter
+          : undefined,
+      channelId: CHANNEL_TYPES.has(channelFilter)
+        ? undefined
+        : (channelFilter as Id<"channels">),
       stageId: stageFilter === "all" ? undefined : (stageFilter as Id<"leadStages">),
       handling:
         handlingFilter === "you"
@@ -221,7 +237,7 @@ export default function ConversationsPage() {
           <p className="mt-1 hidden max-w-2xl text-sm text-muted-foreground sm:block">
             {view === "escalations"
               ? "Threads an agent has handed to your team. Set one back to open, or close it, once it is dealt with."
-              : "Threads across WhatsApp and the web playground."}
+              : "Threads across every WhatsApp number and the web chat."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -301,6 +317,41 @@ export default function ConversationsPage() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {manyChannels ? (
+            <div
+              role="tablist"
+              aria-label="Filter by channel"
+              className="flex shrink-0 gap-1.5 overflow-x-auto px-3 pt-2"
+            >
+              {[{ _id: "all", name: "All channels", type: null, phone: null }, ...(channels ?? [])].map(
+                (channel) => {
+                  const isActive = channelFilter === channel._id;
+                  return (
+                    <button
+                      key={channel._id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      title={channel.phone ?? undefined}
+                      className={cn(
+                        "flex max-w-44 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                        isActive
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted"
+                      )}
+                      onClick={() => setChannelFilter(channel._id)}
+                    >
+                      {channel.type ? (
+                        <ChannelMark type={channel.type} size={16} />
+                      ) : null}
+                      <span className="truncate">{channel.name}</span>
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          ) : null}
 
           <div
             role="tablist"
@@ -387,8 +438,12 @@ export default function ConversationsPage() {
                     onValueChange={setChannelFilter}
                     options={[
                       { value: "all", label: "Every channel" },
-                      { value: "whatsapp", label: "WhatsApp" },
-                      { value: "web", label: "Web playground" },
+                      { value: "whatsapp", label: "Any WhatsApp number" },
+                      { value: "web", label: "Web chat" },
+                      ...(manyChannels ? (channels ?? []) : []).map((channel) => ({
+                        value: channel._id as string,
+                        label: channelLabel(channel),
+                      })),
                     ]}
                   />
                 </div>
@@ -511,6 +566,7 @@ export default function ConversationsPage() {
                     row={row}
                     active={row._id === activeId}
                     showStatus={view === "conversations"}
+                    showChannel={manyChannels}
                     onSelect={() => setSelected(row._id)}
                   />
                 ))}

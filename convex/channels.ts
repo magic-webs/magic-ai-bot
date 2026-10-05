@@ -84,6 +84,27 @@ export const listByWorkspace = query({
   },
 });
 
+/** Just enough to tell one number from another, for the inbox. */
+export const inboxChannels = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    const channels = await ctx.db
+      .query("channels")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .take(100);
+    return channels
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((channel) => ({
+        _id: channel._id,
+        name: channel.name,
+        type: channel.type,
+        status: channel.status,
+        phone: channel.whatsapp?.displayPhoneNumber ?? null,
+      }));
+  },
+});
+
 export const get = query({
   args: { channelId: v.id("channels") },
   handler: async (ctx, args) => {

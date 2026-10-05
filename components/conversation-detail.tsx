@@ -11,6 +11,7 @@ import { TranscriptView, type TranscriptAgent } from "@/components/transcript";
 import { ManualReply } from "@/components/manual-reply";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { DeliveryTicks } from "@/components/delivery-ticks";
+import { CHANNEL_LABEL, ChannelMark } from "@/components/channel-mark";
 import {
   Countdown,
   HandbackCountdown,
@@ -51,8 +52,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/toast";
 import {
-  WhatsappLogoIcon,
-  GlobeIcon,
   TrashIcon,
   ArrowLeftIcon,
   EnvelopeIcon,
@@ -168,12 +167,15 @@ export function ConversationRow({
   row,
   active,
   showStatus,
+  showChannel = false,
   onSelect,
 }: {
   row: InboxRow;
   active: boolean;
   /** Off where every row has the same status and the badge would say nothing. */
   showStatus: boolean;
+  /** Which number it came in on, for a workspace with more than one. */
+  showChannel?: boolean;
   onSelect: () => void;
 }) {
   const unread = isUnread(row);
@@ -191,12 +193,18 @@ export function ConversationRow({
       )}
       onClick={onSelect}
     >
-      <ContactAvatar
-        label={row.contactLabel}
-        channelType={row.channelType}
-        size={40}
-        className="mt-0.5"
-      />
+      <span className="relative mt-0.5 shrink-0">
+        <ContactAvatar
+          label={row.contactLabel}
+          channelType={row.channelType}
+          size={40}
+        />
+        <ChannelMark
+          type={row.channelType}
+          size={17}
+          className="absolute -right-0.5 -bottom-0.5 ring-2 ring-background"
+        />
+      </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span
@@ -216,6 +224,11 @@ export function ConversationRow({
             <Badge variant="destructive" className="shrink-0">
               bot
             </Badge>
+          ) : null}
+          {showChannel && row.channelName ? (
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+              · {row.channelName}
+            </span>
           ) : null}
           <span
             className={cn(
@@ -388,7 +401,7 @@ export function ConversationDetail({
     );
   }
 
-  const { conversation, contact, agent } = detail;
+  const { conversation, contact, agent, channel } = detail;
   const rawLabel =
     contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown";
   const label = displayContact({
@@ -461,6 +474,7 @@ export function ConversationDetail({
     <ThreadDetails
       conversation={conversation}
       contact={contact}
+      channel={channel}
       rawLabel={rawLabel}
       label={label}
       arrivedAt={agent?.botName ?? "— deleted —"}
@@ -557,16 +571,13 @@ export function ConversationDetail({
                 supposed to be about. */}
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
-                {conversation.channelType === "whatsapp" ? (
-                  <WhatsappLogoIcon className="size-3.5 shrink-0" />
-                ) : (
-                  <GlobeIcon className="size-3.5 shrink-0" />
-                )}
+                <ChannelMark type={conversation.channelType} size={14} />
                 {contact?.phone ? (
                   <span className="font-mono">{contact.phone}</span>
                 ) : (
-                  <span>Web playground</span>
+                  <span>Web chat</span>
                 )}
+                {channel ? <span>· via {channel.name}</span> : null}
               </span>
               <span className="flex items-center gap-1">
                 <ClockIcon className="size-3.5 shrink-0" />
@@ -789,6 +800,7 @@ function DetailSection({
 function ThreadDetails({
   conversation,
   contact,
+  channel,
   rawLabel,
   label,
   arrivedAt,
@@ -799,6 +811,7 @@ function ThreadDetails({
 }: {
   conversation: Detail["conversation"];
   contact: Detail["contact"];
+  channel: Detail["channel"];
   rawLabel: string;
   label: string;
   arrivedAt: string;
@@ -820,15 +833,23 @@ function ThreadDetails({
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-3 border-b px-4 py-4">
-        <ContactAvatar
-          label={rawLabel}
-          channelType={conversation.channelType}
-          size={48}
-        />
+        <span className="relative shrink-0">
+          <ContactAvatar
+            label={rawLabel}
+            channelType={conversation.channelType}
+            size={48}
+          />
+          <ChannelMark
+            type={conversation.channelType}
+            size={19}
+            className="absolute -right-0.5 -bottom-0.5 ring-2 ring-background"
+          />
+        </span>
         <div className="min-w-0">
           <p className="truncate font-heading text-sm font-semibold">{label}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {conversation.channelType === "whatsapp" ? "WhatsApp" : "Web chat"}
+            {channel?.name ?? CHANNEL_LABEL[conversation.channelType]}
+            {channel?.phone ? ` · ${channel.phone}` : null}
             {contact?.company ? ` · ${contact.company}` : null}
           </p>
         </div>

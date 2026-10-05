@@ -117,6 +117,7 @@ export const inboxArgs = {
     )
   ),
   channelType: v.optional(v.union(v.literal("whatsapp"), v.literal("web"))),
+  channelId: v.optional(v.id("channels")),
   agentId: v.optional(v.id("agents")),
   stageId: v.optional(v.id("leadStages")),
   handling: v.optional(v.union(v.literal("team"), v.literal("agent"))),
@@ -152,9 +153,10 @@ export async function inboxPage(
     ? conversations.withSearchIndex("search_inbox", (q) => {
         const matched = q.search("searchText", term).eq("workspaceId", workspaceId);
         const byStatus = status ? matched.eq("status", status) : matched;
-        return args.channelType
+        const byType = args.channelType
           ? byStatus.eq("channelType", args.channelType)
           : byStatus;
+        return args.channelId ? byType.eq("channelId", args.channelId) : byType;
       })
     : unread
       ? conversations
@@ -192,6 +194,9 @@ export async function inboxPage(
       }
       if (args.channelType && !term) {
         all.push(q.eq(q.field("channelType"), args.channelType));
+      }
+      if (args.channelId && !term) {
+        all.push(q.eq(q.field("channelId"), args.channelId));
       }
       if (args.agentId) all.push(q.eq(q.field("activeAgentId"), args.agentId));
       if (args.stageId) all.push(q.eq(q.field("leadStageId"), args.stageId));
@@ -256,6 +261,19 @@ export async function inboxRows(
     return agentNames.get(agentId)!;
   };
 
+  const channelNames = new Map<Id<"channels">, string | null>();
+  const channelOf = async (channelId: Id<"channels"> | undefined) => {
+    if (!channelId) return null;
+    if (!channelNames.has(channelId)) {
+      const channel = await ctx.db.get("channels", channelId);
+      channelNames.set(
+        channelId,
+        channel?.workspaceId === workspaceId ? channel.name : null
+      );
+    }
+    return channelNames.get(channelId)!;
+  };
+
   const out = [];
   for (const stored of rows) {
     const row = { ...stored, searchText: undefined };
@@ -270,6 +288,7 @@ export async function inboxRows(
       // routed the conversation on.
       activeAgentName,
       handedOff: holderId !== row.agentId,
+      channelName: await channelOf(row.channelId),
       contactLabel:
         contact?.name ?? contact?.phone ?? contact?.externalId ?? "Unknown",
       contactExternalId: contact?.externalId,
@@ -445,7 +464,25 @@ export const getWithContact = query({
         Date.now() - lastInboundAt >
           WHATSAPP_FREE_FORM_WINDOW_HOURS * 60 * 60_000);
 
-    return { conversation, contact, agent, lastInboundAt, freeFormWindowClosed };
+    const channelDoc = conversation.channelId
+      ? await ctx.db.get("channels", conversation.channelId)
+      : null;
+    const channel =
+      channelDoc && channelDoc.workspaceId === conversation.workspaceId
+        ? {
+            name: channelDoc.name,
+            phone: channelDoc.whatsapp?.displayPhoneNumber ?? null,
+          }
+        : null;
+
+    return {
+      conversation,
+      contact,
+      agent,
+      channel,
+      lastInboundAt,
+      freeFormWindowClosed,
+    };
   },
 });
 
