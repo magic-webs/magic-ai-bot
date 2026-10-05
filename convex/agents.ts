@@ -41,6 +41,7 @@ import {
   requireWorkspace,
 } from "./lib/auth";
 import { deleteConversation } from "./lib/inbox";
+import { deleteMessage } from "./lib/delivery";
 
 export const DEFAULT_TONE = {
   traits: ["professional", "warm", "clear", "consultative"],
@@ -726,7 +727,7 @@ export const remove = mutation({
           q.eq("conversationId", conversation._id)
         )
         .collect();
-      for (const message of messages) await ctx.db.delete(message._id);
+      for (const message of messages) await deleteMessage(ctx, message);
       await deleteConversation(ctx, conversation);
     }
 

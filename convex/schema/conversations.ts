@@ -1,6 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import { kvPair } from "./validators";
+import { deliveryStatus, kvPair } from "./validators";
 
 export const conversationsTables = {
   channels: defineTable({
@@ -90,6 +90,7 @@ export const conversationsTables = {
       )
     ),
     lastMessageSender: v.optional(v.string()),
+    lastMessageDelivery: v.optional(deliveryStatus),
     unreadCount: v.optional(v.number()),
     searchText: v.optional(v.string()),
     leadStageId: v.optional(v.id("leadStages")),
@@ -163,10 +164,23 @@ export const conversationsTables = {
     toolOutput: v.optional(v.string()),
     toolOk: v.optional(v.boolean()),
     latencyMs: v.optional(v.number()),
+    delivery: v.optional(deliveryStatus),
+    deliveryError: v.optional(v.string()),
+    deliveryAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_conversation", ["conversationId"])
     .index("by_workspace", ["workspaceId"]),
+
+  whatsappMessageIds: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    messageId: v.id("messages"),
+    wamid: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_wamid", ["wamid"])
+    .index("by_messageId", ["messageId"]),
 
   leadStages: defineTable({
     workspaceId: v.id("workspaces"),

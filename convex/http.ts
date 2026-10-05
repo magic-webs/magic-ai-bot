@@ -70,6 +70,46 @@ function channelKeyFrom(url: string): string | null {
   return key && !key.includes("/") ? key : null;
 }
 
+type WebhookValue = {
+  messages?: unknown[];
+  statuses?: Array<{
+    id?: string;
+    status?: string;
+    errors?: Array<{ title?: string; message?: string; error_data?: { details?: string } }>;
+  }>;
+};
+
+function webhookValues(shape: Record<string, unknown>): WebhookValue[] {
+  const entries = Array.isArray(shape.entry) ? shape.entry : [];
+  return entries.flatMap((entry: { changes?: Array<{ value?: WebhookValue }> }) =>
+    (entry?.changes ?? []).flatMap((change) => (change?.value ? [change.value] : []))
+  );
+}
+
+function hasMessages(shape: Record<string, unknown>): boolean {
+  return webhookValues(shape).some((value) => (value.messages?.length ?? 0) > 0);
+}
+
+const RECEIPTS = new Set(["sent", "delivered", "read", "failed"]);
+
+function deliveryStatuses(shape: Record<string, unknown>) {
+  return webhookValues(shape).flatMap((value) =>
+    (value.statuses ?? []).flatMap((status) => {
+      if (!status.id || !status.status || !RECEIPTS.has(status.status)) return [];
+      const problem = status.errors?.[0];
+      const error =
+        problem?.error_data?.details ?? problem?.message ?? problem?.title;
+      return [
+        {
+          wamid: status.id,
+          status: status.status as "sent" | "delivered" | "read" | "failed",
+          ...(error ? { error: error.slice(0, 300) } : {}),
+        },
+      ];
+    })
+  );
+}
+
 // --- Verification handshake --------------------------------------------------
 http.route({
   pathPrefix: "/whatsapp/",
@@ -160,12 +200,22 @@ http.route({
       }
     }
 
+    const statuses = deliveryStatuses(shape);
+    if (statuses.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.deliveries.applyStatuses, {
+        channelKey,
+        statuses,
+      });
+    }
+
     // Meta retries anything that is slow or non-2xx, so acknowledge straight
     // away and do the model work in a scheduled action.
-    await ctx.scheduler.runAfter(0, internal.whatsapp.handleInbound, {
-      channelKey,
-      payload,
-    });
+    if (statuses.length === 0 || hasMessages(shape)) {
+      await ctx.scheduler.runAfter(0, internal.whatsapp.handleInbound, {
+        channelKey,
+        payload,
+      });
+    }
 
     return new Response(JSON.stringify({ status: "accepted" }), {
       status: 200,

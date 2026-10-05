@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { AgentAvatar, type AgentGender } from "@/components/agent-avatar";
+import { DeliveryTicks } from "@/components/delivery-ticks";
 import {
   Message,
   MessageAvatar,
@@ -34,7 +35,6 @@ import {
   WrenchIcon,
   CaretRightIcon,
   ArrowsSplitIcon,
-  ChecksIcon,
   ClipboardTextIcon,
   UserIcon,
 } from "@phosphor-icons/react";
@@ -431,9 +431,10 @@ export function TranscriptView({
                     className="flex items-center gap-0.5"
                   >
                     {timeOf(message.createdAt)}
-                    {/* WhatsApp's blue, not a theme token: this is their
-                        read receipt, drawn as they draw it. */}
-                    <ChecksIcon className="size-3 shrink-0 text-[#53bdeb]" />
+                    <DeliveryTicks
+                      status={message.delivery}
+                      error={message.deliveryError}
+                    />
                   </span>
                 ) : null}
                 {rich ? (

@@ -44,6 +44,7 @@ import {
   trimSample,
   type NotificationEvent,
 } from "./lib/notifications";
+import { noteSent } from "./lib/delivery";
 
 const eventValidator = v.union(
   v.literal("record_filed"),
@@ -1245,7 +1246,7 @@ export const recordResults = internalMutation({
       });
 
       if (toThread && thread && result.preview && !result.kind) {
-        await ctx.db.insert("messages", {
+        const messageId = await ctx.db.insert("messages", {
           workspaceId: args.workspaceId,
           conversationId: thread._id,
           role: "assistant",
@@ -1253,11 +1254,15 @@ export const recordResults = internalMutation({
           text: result.preview,
           createdAt: now,
         });
+        const delivery = await noteSent(ctx, messageId, {
+          wamid: result.messageId,
+        });
         thread = await noteMessage(ctx, thread, {
           from: "system",
           sender: "Alert",
           preview: result.preview,
           at: now,
+          delivery,
         });
       }
     }

@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { TranscriptView, type TranscriptAgent } from "@/components/transcript";
 import { ManualReply } from "@/components/manual-reply";
 import { ContactAvatar } from "@/components/contact-avatar";
+import { DeliveryTicks } from "@/components/delivery-ticks";
 import {
   Countdown,
   HandbackCountdown,
@@ -72,7 +73,6 @@ import {
   TimerIcon,
   WarningIcon,
   ProhibitIcon,
-  ChecksIcon,
 } from "@phosphor-icons/react";
 
 /**
@@ -236,7 +236,7 @@ export function ConversationRow({
           >
             {speaker ? (
               <>
-                <ChecksIcon className="size-3.5 shrink-0 text-sky-500" weight="bold" />
+                <DeliveryTicks status={row.lastMessageDelivery} className="size-3.5" />
                 <span className="shrink-0 font-medium">{speaker}:</span>
               </>
             ) : null}

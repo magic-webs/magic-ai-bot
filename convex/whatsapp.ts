@@ -32,7 +32,7 @@ async function send(
   to: string,
   message: Outbound,
   replyTo?: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; wamid?: string }> {
   const response = await fetch(messagesUrl(config), {
     method: "POST",
     headers: {
@@ -42,7 +42,13 @@ async function send(
     body: JSON.stringify(buildMessage(to, message, replyTo)),
   });
 
-  if (response.ok) return { ok: true };
+  if (response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      messages?: Array<{ id?: unknown }>;
+    } | null;
+    const id = body?.messages?.[0]?.id;
+    return { ok: true, wamid: typeof id === "string" ? id : undefined };
+  }
   const text = await response.text().catch(() => "");
   return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };
 }
@@ -246,7 +252,10 @@ export const sendOutbound = internalAction({
     ),
     conversationId: v.optional(v.id("conversations")),
   },
-  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ ok: boolean; error?: string; wamid?: string }> => {
     const resolved = await ctx.runQuery(internal.channels.resolveById, {
       channelId: args.channelId,
     });
@@ -411,6 +420,7 @@ type TurnOutcome = {
   ok: boolean;
   text: string | null;
   conversationId: Id<"conversations"> | null;
+  replyMessageId?: Id<"messages">;
   toolCalls: string[];
   heldForHuman?: boolean;
   answeredWithControl?: boolean;
@@ -460,6 +470,13 @@ async function deliverReply(
   for (const part of splitForWhatsApp(result.text)) {
     const message: Outbound = { kind: "text", body: part };
     const sent = await send(config, to, message);
+    if (result.replyMessageId) {
+      await ctx.runMutation(internal.deliveries.markSent, {
+        messageId: result.replyMessageId,
+        wamids: sent.wamid ? [sent.wamid] : [],
+        error: sent.ok ? undefined : (sent.error ?? "WhatsApp rejected the message."),
+      });
+    }
     if (!sent.ok) {
       console.error("[whatsapp] send failed", sent.error);
       await ctx.runMutation(internal.channels.touchInbound, {

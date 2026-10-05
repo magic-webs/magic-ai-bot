@@ -273,19 +273,19 @@ export const review = internalAction({
       deliverable && decision.sendFollowUp && !terminal && followUpText.length > 0;
 
     let followedUp = false;
+    let whatsapp: { wamid?: string } | undefined;
     if (shouldSend) {
       if (context.channelType === "whatsapp" && context.channelId && context.externalId) {
-        const sent: { ok: boolean; error?: string } = await ctx.runAction(
-          internal.whatsapp.sendOutbound,
-          {
+        const sent: { ok: boolean; error?: string; wamid?: string } =
+          await ctx.runAction(internal.whatsapp.sendOutbound, {
             channelId: context.channelId,
             to: context.externalId,
             message: { kind: "text", body: followUpText },
             source: "follow_up",
             conversationId: args.conversationId,
-          }
-        );
+          });
         followedUp = sent.ok;
+        whatsapp = { wamid: sent.wamid };
       } else {
         // On the web widget there is nothing to post to: recording the message
         // is the delivery, and the visitor's open subscription renders it.
@@ -298,6 +298,7 @@ export const review = internalAction({
           conversationId: args.conversationId,
           agentId: deskAgent?._id,
           text: followUpText,
+          whatsapp,
         });
       }
     }

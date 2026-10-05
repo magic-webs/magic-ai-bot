@@ -36,7 +36,7 @@ async function sendTemplate(
   template: Doc<"marketingTemplates">,
   parameters: string[],
   preview: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; wamid?: string }> {
   const url = `${channel.apiBaseUrl.replace(/\/$/, "")}/${channel.apiVersion}/${channel.phoneNumberId}/messages`;
   try {
     const response = await fetch(url, {
@@ -55,7 +55,13 @@ async function sendTemplate(
         })
       ),
     });
-    if (response.ok) return { ok: true };
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        messages?: Array<{ id?: unknown }>;
+      } | null;
+      const id = body?.messages?.[0]?.id;
+      return { ok: true, wamid: typeof id === "string" ? id : undefined };
+    }
     const text = await response.text().catch(() => "");
     return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };
   } catch (error) {
@@ -99,6 +105,7 @@ async function sendPage(
     ok: boolean;
     text: string;
     error?: string;
+    wamid?: string;
   }> = [];
   for (const contact of page.contacts) {
     const { text, parameters } = renderTemplate(args.context.template.body, {
@@ -390,6 +397,7 @@ export const sendTest = action({
       category: template.category ?? "marketing",
       text,
       templateName: template.metaTemplateName,
+      wamid: sent.wamid,
       contactId: context.contactId ?? undefined,
       agentId: context.agentId ?? undefined,
       channelId: context.channelId ?? undefined,

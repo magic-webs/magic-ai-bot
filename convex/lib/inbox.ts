@@ -144,6 +144,7 @@ export async function noteMessage(
     preview: string;
     at: number;
     latencyMs?: number;
+    delivery?: Doc<"messages">["delivery"];
   },
   extra: Partial<ConversationFields> = {}
 ): Promise<Conversation> {
@@ -158,6 +159,7 @@ export async function noteMessage(
     lastMessageRole: fromCustomer ? "user" : "assistant",
     lastMessageFrom: message.from,
     lastMessageSender: message.sender,
+    lastMessageDelivery: message.delivery,
     unreadCount: fromCustomer ? (conversation.unreadCount ?? 0) + 1 : 0,
     searchText: searchTextFor(contact, preview),
     ...extra,

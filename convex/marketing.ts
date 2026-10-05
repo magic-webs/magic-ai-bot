@@ -41,6 +41,7 @@ import {
   zonedParts,
   zonedToInstant,
 } from "./lib/marketing";
+import { noteSent } from "./lib/delivery";
 
 /** How many contacts one send batch covers. */
 export const SEND_BATCH = 40;
@@ -932,9 +933,9 @@ async function marketingThread(
 async function writeMarketingMessage(
   ctx: MutationCtx,
   thread: Doc<"conversations">,
-  args: { text: string; agentId?: Id<"agents">; now: number }
+  args: { text: string; agentId?: Id<"agents">; now: number; wamid?: string }
 ) {
-  await ctx.db.insert("messages", {
+  const messageId = await ctx.db.insert("messages", {
     workspaceId: thread.workspaceId,
     conversationId: thread._id,
     role: "assistant",
@@ -943,6 +944,7 @@ async function writeMarketingMessage(
     agentId: args.agentId,
     createdAt: args.now,
   });
+  const delivery = await noteSent(ctx, messageId, { wamid: args.wamid });
   await recordAgentReply(ctx, thread.workspaceId, args.agentId, {
     at: args.now,
     text: args.text,
@@ -953,6 +955,7 @@ async function writeMarketingMessage(
     sender: desk?.botName,
     preview: args.text,
     at: args.now,
+    delivery,
   });
 }
 
@@ -982,6 +985,7 @@ export const recordBatch = internalMutation({
         ok: v.boolean(),
         text: v.string(),
         error: v.optional(v.string()),
+        wamid: v.optional(v.string()),
       })
     ),
     done: v.boolean(),
@@ -1038,6 +1042,7 @@ export const recordBatch = internalMutation({
         text: result.text,
         agentId: args.agentId,
         now,
+        wamid: result.wamid,
       });
     }
 
@@ -1168,6 +1173,7 @@ export const recordTest = internalMutation({
     category: templateCategory,
     text: v.string(),
     templateName: v.optional(v.string()),
+    wamid: v.optional(v.string()),
     contactId: v.optional(v.id("contacts")),
     agentId: v.optional(v.id("agents")),
     channelId: v.optional(v.id("channels")),
@@ -1198,6 +1204,7 @@ export const recordTest = internalMutation({
         text: args.text,
         agentId: args.agentId,
         now,
+        wamid: args.wamid,
       });
     }
     return null;

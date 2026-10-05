@@ -28,6 +28,7 @@ import {
   requireConversation,
   requireWorkspace,
 } from "./lib/auth";
+import { noteSent } from "./lib/delivery";
 
 const outcome = v.union(v.literal("open"), v.literal("won"), v.literal("lost"));
 
@@ -503,10 +504,11 @@ export const recordFollowUp = internalMutation({
     conversationId: v.id("conversations"),
     agentId: v.optional(v.id("agents")),
     text: v.string(),
+    whatsapp: v.optional(v.object({ wamid: v.optional(v.string()) })),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ctx.db.insert("messages", {
+    const messageId = await ctx.db.insert("messages", {
       workspaceId: args.workspaceId,
       conversationId: args.conversationId,
       role: "assistant",
@@ -515,6 +517,7 @@ export const recordFollowUp = internalMutation({
       agentId: args.agentId,
       createdAt: now,
     });
+    const delivery = await noteSent(ctx, messageId, args.whatsapp);
     await recordAgentReply(ctx, args.workspaceId, args.agentId, {
       at: now,
       text: args.text,
@@ -528,6 +531,7 @@ export const recordFollowUp = internalMutation({
         sender: desk?.botName,
         preview: args.text,
         at: now,
+        delivery,
       });
     }
     return { success: true };

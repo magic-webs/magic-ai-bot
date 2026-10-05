@@ -531,19 +531,25 @@ function makeDeliver(ctx: ActionCtx, turn: TurnContext) {
 
     // Send first, record second. A payload the provider rejected must not sit
     // in the transcript as something the customer saw.
+    let wamid: string | undefined;
     if (channelType === "whatsapp") {
       if (!channelId || !externalId) {
         throw new Error("This conversation has no WhatsApp channel to send on.");
       }
-      const result: { ok: boolean; error?: string } = await ctx.runAction(
-        internal.whatsapp.sendOutbound,
-        { channelId, to: externalId, message, source: "agent", conversationId }
-      );
+      const result: { ok: boolean; error?: string; wamid?: string } =
+        await ctx.runAction(internal.whatsapp.sendOutbound, {
+          channelId,
+          to: externalId,
+          message,
+          source: "agent",
+          conversationId,
+        });
       if (!result.ok) {
         throw new Error(
           result.error ?? "WhatsApp would not accept that message."
         );
       }
+      wamid = result.wamid;
     }
 
     await ctx.runMutation(internal.conversations.recordRichMessage, {
@@ -552,6 +558,7 @@ function makeDeliver(ctx: ActionCtx, turn: TurnContext) {
       agentId: agent._id,
       summary: summarise(message),
       payload: JSON.stringify(message),
+      whatsapp: channelType === "whatsapp" ? { wamid } : undefined,
     });
 
     return {
@@ -1596,6 +1603,7 @@ export type TurnResult = {
   ok: boolean;
   text: string | null;
   conversationId: Id<"conversations"> | null;
+  replyMessageId?: Id<"messages">;
   toolCalls: string[];
   /** Which agent actually produced `text`. */
   agentId?: Id<"agents">;
@@ -1969,7 +1977,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         "Sorry — something went wrong on my side. Could you send that again?";
     }
 
-    await ctx.runMutation(internal.conversations.finishTurn, {
+    const finished = await ctx.runMutation(internal.conversations.finishTurn, {
       workspaceId: workspace._id,
       conversationId: turn.conversationId,
       agentId: agent._id,
@@ -1986,6 +1994,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       // that answered perfectly well with a menu.
       answeredWithControl: askedItself,
       conversationId: turn.conversationId,
+      replyMessageId: finished.replyMessageId,
       toolCalls: turn.trace.map((t) => t.toolName),
       agentId: agent._id,
       agentBotName: agent.botName,

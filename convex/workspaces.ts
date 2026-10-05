@@ -20,6 +20,7 @@ import {
   isValidLocale,
   isValidTimezone,
 } from "./lib/regional";
+import { deleteMessage } from "./lib/delivery";
 
 const workspaceFields = {
   name: v.string(),
@@ -367,7 +368,7 @@ export const remove = mutation({
           q.eq("conversationId", conversation._id)
         )
         .collect();
-      for (const message of messages) await ctx.db.delete(message._id);
+      for (const message of messages) await deleteMessage(ctx, message);
       await ctx.db.delete(conversation._id);
     }
 

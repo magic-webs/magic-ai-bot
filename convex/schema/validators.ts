@@ -76,3 +76,11 @@ export const orderStatus = v.union(
   v.literal("completed"),
   v.literal("cancelled")
 );
+
+export const deliveryStatus = v.union(
+  v.literal("pending"),
+  v.literal("sent"),
+  v.literal("delivered"),
+  v.literal("read"),
+  v.literal("failed")
+);

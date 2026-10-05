@@ -13,6 +13,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair } from "./schema";
+import { deleteMessage, noteSent } from "./lib/delivery";
 import { historyText, type Outbound } from "./lib/whatsappSend";
 import { normaliseBirthday } from "./lib/marketing";
 import { recordAgentReply, REPLY_PREVIEW_CHARS } from "./lib/agentStats";
@@ -463,7 +464,7 @@ export const reset = mutation({
         q.eq("conversationId", args.conversationId)
       )
       .collect();
-    for (const message of messages) await ctx.db.delete(message._id);
+    for (const message of messages) await deleteMessage(ctx, message);
 
     await patchConversation(ctx, conversation, {
       messageCount: 0,
@@ -518,7 +519,7 @@ export const remove = mutation({
         q.eq("conversationId", args.conversationId)
       )
       .collect();
-    for (const message of messages) await ctx.db.delete(message._id);
+    for (const message of messages) await deleteMessage(ctx, message);
     await deleteConversation(ctx, conversation);
     return { success: true };
   },
@@ -575,6 +576,8 @@ export const recordManualReply = internalMutation({
     teamMemberId: v.optional(v.id("teamMembers")),
     /** How long this reply keeps the agent quiet. An hour when absent. */
     pauseMinutes: v.optional(v.number()),
+    /** Present when it went out over WhatsApp, with the provider's id. */
+    whatsapp: v.optional(v.object({ wamid: v.optional(v.string()) })),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -587,7 +590,7 @@ export const recordManualReply = internalMutation({
     const sender =
       member && member.workspaceId === args.workspaceId ? member : null;
 
-    await ctx.db.insert("messages", {
+    const messageId = await ctx.db.insert("messages", {
       workspaceId: args.workspaceId,
       conversationId: args.conversationId,
       role: "assistant",
@@ -598,6 +601,7 @@ export const recordManualReply = internalMutation({
       teamMemberId: sender?._id,
       createdAt: now,
     });
+    const delivery = await noteSent(ctx, messageId, args.whatsapp);
 
     if (sender) {
       const text = args.text.trim();
@@ -615,7 +619,7 @@ export const recordManualReply = internalMutation({
       await noteMessage(
         ctx,
         conversation,
-        { from: "team", sender: sender?.name, preview: args.text, at: now },
+        { from: "team", sender: sender?.name, preview: args.text, at: now, delivery },
         {
         // Replying by hand is the takeover. Anything else would have the agent
         // answer the customer's next message over the top of a colleague who
@@ -835,6 +839,7 @@ export const sendManualReply = action({
       return { ok: false, error: "This conversation is no longer available." };
     }
 
+    let whatsapp: { wamid?: string } | undefined;
     if (context.channelType === "whatsapp") {
       if (!context.channelId || !context.externalId) {
         return {
@@ -843,22 +848,21 @@ export const sendManualReply = action({
             "This thread has no WhatsApp channel attached, so there is nowhere to send it.",
         };
       }
-      const sent: { ok: boolean; error?: string } = await ctx.runAction(
-        internal.whatsapp.sendOutbound,
-        {
+      const sent: { ok: boolean; error?: string; wamid?: string } =
+        await ctx.runAction(internal.whatsapp.sendOutbound, {
           channelId: context.channelId,
           to: context.externalId,
           message: { kind: "text", body },
           source: "human",
           conversationId: args.conversationId,
-        }
-      );
+        });
       if (!sent.ok) {
         return {
           ok: false,
           error: sent.error ?? "WhatsApp rejected the message.",
         };
       }
+      whatsapp = { wamid: sent.wamid };
     }
     // On the web widget there is nothing to post to: recording the message is
     // the delivery, and the visitor's open subscription renders it. Same
@@ -871,6 +875,7 @@ export const sendManualReply = action({
       text: body,
       teamMemberId: context.memberId ?? args.teamMemberId,
       pauseMinutes: args.pauseMinutes,
+      whatsapp,
     });
 
     return { ok: true };
@@ -1198,8 +1203,15 @@ export const finishTurn = internalMutation({
       });
     }
 
+    let replyMessageId: Id<"messages"> | undefined;
     if (args.replyText) {
-      await ctx.db.insert("messages", {
+      const conversation = await ctx.db.get(
+        "conversations",
+        args.conversationId
+      );
+      const delivery =
+        conversation?.channelType === "whatsapp" ? ("pending" as const) : undefined;
+      replyMessageId = await ctx.db.insert("messages", {
         workspaceId: args.workspaceId,
         conversationId: args.conversationId,
         role: "assistant",
@@ -1207,6 +1219,8 @@ export const finishTurn = internalMutation({
         text: args.replyText,
         agentId: args.agentId,
         latencyMs: args.latencyMs,
+        delivery,
+        deliveryAt: delivery ? now : undefined,
         createdAt: now,
       });
       await recordAgentReply(ctx, args.workspaceId, args.agentId, {
@@ -1214,10 +1228,6 @@ export const finishTurn = internalMutation({
         text: args.replyText,
         latencyMs: args.latencyMs,
       });
-      const conversation = await ctx.db.get(
-        "conversations",
-        args.conversationId
-      );
       if (conversation) {
         const agent = args.agentId ? await ctx.db.get("agents", args.agentId) : null;
         await noteMessage(ctx, conversation, {
@@ -1226,11 +1236,12 @@ export const finishTurn = internalMutation({
           preview: args.replyText,
           at: now,
           latencyMs: args.latencyMs,
+          delivery,
         });
       }
     }
 
-    return { success: true };
+    return { success: true, replyMessageId };
   },
 });
 
@@ -1301,10 +1312,11 @@ export const recordRichMessage = internalMutation({
     /** One line, for the transcript preview and for history replay. */
     summary: v.string(),
     payload: v.string(),
+    whatsapp: v.optional(v.object({ wamid: v.optional(v.string()) })),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ctx.db.insert("messages", {
+    const messageId = await ctx.db.insert("messages", {
       workspaceId: args.workspaceId,
       conversationId: args.conversationId,
       role: "assistant",
@@ -1314,6 +1326,7 @@ export const recordRichMessage = internalMutation({
       agentId: args.agentId,
       createdAt: now,
     });
+    const delivery = await noteSent(ctx, messageId, args.whatsapp);
     await recordAgentReply(ctx, args.workspaceId, args.agentId, { at: now });
 
     const conversation = await ctx.db.get("conversations", args.conversationId);
@@ -1324,6 +1337,7 @@ export const recordRichMessage = internalMutation({
         sender: agent?.botName,
         preview: args.summary,
         at: now,
+        delivery,
       });
     }
     return { success: true };
