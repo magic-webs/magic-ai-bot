@@ -4,6 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import {
+  DEFAULT_MESSAGES_PER_SESSION,
+  MESSAGE_LIMIT_SESSION_HOURS,
+} from "@/convex/lib/shared";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceAccessCard } from "@/components/workspace-access";
 import { TwoFactorCard } from "@/components/two-factor-card";
@@ -119,7 +123,9 @@ export default function WorkspaceSettingsPage() {
   const [form, setForm] = useState({
     theme: workspace.theme ?? "",
     webhookUrl: workspace.webhookUrl ?? "",
-    maxMessages: workspace.maxMessagesPerConversation?.toString() ?? "",
+    maxMessages: (
+      workspace.maxMessagesPerConversation ?? DEFAULT_MESSAGES_PER_SESSION
+    ).toString(),
   });
 
   // Re-seed the form if a different workspace is opened. Adjusting state during
@@ -130,7 +136,9 @@ export default function WorkspaceSettingsPage() {
     setForm({
       theme: workspace.theme ?? "",
       webhookUrl: workspace.webhookUrl ?? "",
-      maxMessages: workspace.maxMessagesPerConversation?.toString() ?? "",
+      maxMessages: (
+      workspace.maxMessagesPerConversation ?? DEFAULT_MESSAGES_PER_SESSION
+    ).toString(),
     });
   }
 
@@ -149,7 +157,9 @@ export default function WorkspaceSettingsPage() {
         // stored theme would never clear.
         theme: form.theme,
         webhookUrl: form.webhookUrl,
-        maxMessagesPerConversation: Number(form.maxMessages.trim() || 0),
+        maxMessagesPerConversation: Number(
+          form.maxMessages.trim() || DEFAULT_MESSAGES_PER_SESSION
+        ),
       });
       toast.add({ title: "Workspace saved", type: "success" });
     } catch (error) {
@@ -220,14 +230,18 @@ export default function WorkspaceSettingsPage() {
               <CardHeader>
                 <CardTitle>Message limit</CardTitle>
                 <CardDescription>
-                  Once a conversation holds this many messages, the agents stop
-                  replying to it. Customer messages are still recorded, and your
-                  team can keep answering by hand. Leave empty for no limit.
+                  Once a conversation holds this many messages within a{" "}
+                  {MESSAGE_LIMIT_SESSION_HOURS}-hour session, the agents stop
+                  replying until the session runs out. Customer messages are
+                  still recorded, and your team can keep answering by hand. Set
+                  0 for no limit.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-1.5 sm:max-w-xs">
-                  <Label htmlFor="s-max-messages">Messages per conversation</Label>
+                  <Label htmlFor="s-max-messages">
+                    Messages per {MESSAGE_LIMIT_SESSION_HOURS} hours
+                  </Label>
                   <Input
                     id="s-max-messages"
                     type="number"
@@ -235,7 +249,7 @@ export default function WorkspaceSettingsPage() {
                     min={0}
                     step={1}
                     value={form.maxMessages}
-                    placeholder="No limit"
+                    placeholder={String(DEFAULT_MESSAGES_PER_SESSION)}
                     onChange={(event) => set("maxMessages", event.target.value)}
                   />
                 </div>

@@ -368,6 +368,14 @@ export const MAX_FOLLOW_UPS = 2;
 export const WHATSAPP_FREE_FORM_WINDOW_HOURS = 24;
 
 /**
+ * A workspace's message limit counts messages within one session of this many
+ * hours, starting at the first message after the last session ran out.
+ * Unset means the default; 0 means no limit.
+ */
+export const MESSAGE_LIMIT_SESSION_HOURS = 24;
+export const DEFAULT_MESSAGES_PER_SESSION = 50;
+
+/**
  * WhatsApp's own ceiling on a text message body. Applied when a person types
  * a reply by hand, which is the only path where the length is not already
  * bounded by a model's output.

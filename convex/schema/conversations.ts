@@ -72,6 +72,8 @@ export const conversationsTables = {
     ),
     messageCount: v.number(),
     messageLimitReachedAt: v.optional(v.number()),
+    limitSessionStartedAt: v.optional(v.number()),
+    limitSessionStartCount: v.optional(v.number()),
     markedBot: v.optional(v.boolean()),
     markedBotAt: v.optional(v.number()),
     repeatText: v.optional(v.string()),

@@ -248,7 +248,7 @@ export const update = mutation({
       if (!Number.isInteger(limit) || limit < 0) {
         throw new Error("The message limit must be a whole number, or 0 for no limit");
       }
-      patch.maxMessagesPerConversation = limit || undefined;
+      patch.maxMessagesPerConversation = limit;
     }
     await ctx.db.patch(workspaceId, patch);
     return { success: true };

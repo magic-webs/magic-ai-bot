@@ -26,6 +26,7 @@ import {
   type TeammateShape,
 } from "./lib/prompt";
 import {
+  DEFAULT_MESSAGES_PER_SESSION,
   MAX_HANDOFFS_PER_TURN,
   MAX_WIDGET_MESSAGE_CHARS,
   randomKey,
@@ -1697,7 +1698,8 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
       contactPhone: args.contactPhone,
       text: message,
       historyLimit: entryAgent.historyLimit,
-      messageLimit: workspace.maxMessagesPerConversation,
+      messageLimit:
+        workspace.maxMessagesPerConversation ?? DEFAULT_MESSAGES_PER_SESSION,
     });
 
     if (session.blocked) {

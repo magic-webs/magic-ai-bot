@@ -34,6 +34,7 @@ import {
   BOT_REPEAT_LIMIT,
   HANDBACK_AFTER_MINUTES,
   WHATSAPP_FREE_FORM_WINDOW_HOURS,
+  MESSAGE_LIMIT_SESSION_HOURS,
   WHATSAPP_TEXT_LIMIT,
   clampPause,
   pauseLabel,
@@ -1152,8 +1153,22 @@ export const startTurn = internalMutation({
       return { blocked: true as const, conversationId: conversation._id };
     }
 
+    const sessionOver =
+      !conversation.limitSessionStartedAt ||
+      now - conversation.limitSessionStartedAt >=
+        MESSAGE_LIMIT_SESSION_HOURS * 60 * 60_000;
+    const sessionStartCount = sessionOver
+      ? conversation.messageCount
+      : (conversation.limitSessionStartCount ?? 0);
+    if (sessionOver) {
+      await ctx.db.patch(conversation._id, {
+        limitSessionStartedAt: now,
+        limitSessionStartCount: sessionStartCount,
+      });
+    }
     const limitReached =
-      !!args.messageLimit && conversation.messageCount >= args.messageLimit;
+      !!args.messageLimit &&
+      conversation.messageCount - sessionStartCount >= args.messageLimit;
     if (limitReached && !conversation.messageLimitReachedAt) {
       await ctx.db.patch(conversation._id, { messageLimitReachedAt: now });
       await ctx.db.insert("messages", {
@@ -1161,7 +1176,7 @@ export const startTurn = internalMutation({
         conversationId: conversation._id,
         role: "system",
         kind: "note",
-        text: `This conversation reached the workspace limit of ${args.messageLimit} messages, so the agent has stopped replying. Answer by hand, or raise the limit in Settings.`,
+        text: `This conversation reached the workspace limit of ${args.messageLimit} messages in ${MESSAGE_LIMIT_SESSION_HOURS} hours, so the agent has stopped replying. It answers again once the session runs out — answer by hand meanwhile, or raise the limit in Settings.`,
         createdAt: now,
       });
     } else if (!limitReached && conversation.messageLimitReachedAt) {
