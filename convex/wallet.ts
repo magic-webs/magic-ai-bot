@@ -290,6 +290,11 @@ export const createTopUp = internalMutation({
     const now = Date.now();
 
     if (args.mandate) {
+      if (args.mandate.method === "upi" && settings.currency !== "INR") {
+        throw new Error(
+          "UPI Autopay is for rupee accounts. Set up auto-recharge with a card."
+        );
+      }
       const recharge = args.mandate.rechargeAmountMicros;
       if (!(recharge >= settings.minTopUpMicros)) {
         throw new Error("The recharge amount is below the minimum top-up.");

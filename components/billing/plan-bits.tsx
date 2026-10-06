@@ -202,7 +202,13 @@ export function IncludedAgents({
 }: {
   plan: { name: string; includedAiAgents: number; includedHumanAgents: number };
   /** One extra agent, when the page knows what it sells at. */
-  seat?: { priceMicros: number; listMicros: number; currency?: string };
+  seat?: {
+    priceMicros: number;
+    listMicros: number;
+    currency?: string;
+    /** False when the currency carries no GST. */
+    taxed?: boolean;
+  };
   selected?: boolean;
   className?: string;
 }) {
@@ -271,7 +277,7 @@ export function IncludedAgents({
               currency={seat.currency}
               className="font-medium text-foreground"
             />{" "}
-            each a month + GST
+            each a month{seat.taxed === false ? "" : " + GST"}
           </p>
         ) : null}
       </PopoverContent>

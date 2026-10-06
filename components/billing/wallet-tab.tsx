@@ -16,7 +16,6 @@ import { toMicros } from "@/convex/lib/billing";
 import {
   APPROVAL_LIMIT_MICROS,
   MAX_TOPUP_MICROS,
-  PLATFORM_LOCALE,
   roundToPaise,
   withGst,
 } from "@/convex/lib/plans";
@@ -92,7 +91,8 @@ import {
 type Summary = NonNullable<FunctionReturnType<typeof api.wallet.summary>>;
 
 const PAGE = 20;
-const QUICK_PICKS = [1000, 2500, 5000, 10000];
+/** Top-up chips, as multiples of the minimum: ₹1,000–₹10,000, or $10–$100. */
+const QUICK_MULTIPLES = [2, 5, 10, 20];
 /**
  * The most one automatic debit may be, GST included. Above it every debit
  * needs the customer's approval, cards and UPI alike — convex/wallet.ts
@@ -305,11 +305,14 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
 // ---------------------------------------------------------------------------
 
 function TopUpCard({ data }: { data: Summary }) {
-  const { money } = useMoney(useWorkspace()._id);
+  const { money, symbol } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const startTopUp = useAction(api.razorpay.startTopUp);
   const confirmPayment = useAction(api.razorpay.confirmPayment);
-  const [amount, setAmount] = useState(String(QUICK_PICKS[0]));
+  const quickPicks = QUICK_MULTIPLES.map(
+    (times) => (data.minTopUpMicros / 1_000_000) * times
+  );
+  const [amount, setAmount] = useState(String(quickPicks[0]));
   const [busy, setBusy] = useState(false);
 
   const value = rupeesIn(amount);
@@ -363,7 +366,7 @@ function TopUpCard({ data }: { data: Summary }) {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="topup-amount">Amount</Label>
           <InputGroup>
-            <InputGroupAddon>₹</InputGroupAddon>
+            <InputGroupAddon>{symbol}</InputGroupAddon>
             <InputGroupInput
               id="topup-amount"
               type="number"
@@ -381,7 +384,7 @@ function TopUpCard({ data }: { data: Summary }) {
           </InputGroup>
         </div>
         <div className="flex flex-wrap gap-2">
-          {QUICK_PICKS.map((pick) => (
+          {quickPicks.map((pick) => (
             <Button
               key={pick}
               variant={value === pick ? "secondary" : "outline"}
@@ -389,8 +392,7 @@ function TopUpCard({ data }: { data: Summary }) {
               disabled={busy}
               onClick={() => setAmount(String(pick))}
             >
-              {/* Whole rupees on a chip: "₹10,000", not "₹10,000.00". */}₹
-              {pick.toLocaleString(PLATFORM_LOCALE)}
+              {money(toMicros(pick))}
             </Button>
           ))}
         </div>
@@ -404,7 +406,14 @@ function TopUpCard({ data }: { data: Summary }) {
           </p>
         ) : value !== null ? (
           <p className="text-sm text-muted-foreground tabular-nums">
-            {money(amounts.subtotalMicros)} + {money(amounts.gstMicros)} GST ={" "}
+            {amounts.gstMicros > 0 ? (
+              <>
+                {money(amounts.subtotalMicros)} + {money(amounts.gstMicros)} GST
+                ={" "}
+              </>
+            ) : (
+              "You pay "
+            )}
             <span className="font-medium text-foreground">
               {money(amounts.totalMicros)}
             </span>
@@ -470,7 +479,7 @@ function mandateState(tokenStatus: string | null): {
  * them. Keyed on the saved values by its parent.
  */
 function AutoRechargeCard({ data }: { data: Summary }) {
-  const { money } = useMoney(useWorkspace()._id);
+  const { money, symbol } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
   const updatePreferences = useMutation(api.wallet.updatePreferences);
@@ -571,8 +580,8 @@ function AutoRechargeCard({ data }: { data: Summary }) {
         title: "Auto-recharge is set up",
         description:
           method === "upi"
-            ? "The ₹1 is in your wallet. Your bank confirms a UPI mandate in its own time, so it can show as awaiting confirmation for a while."
-            : "The ₹1 is in your wallet. Recharges start the next time the balance drops below the line.",
+            ? `The ${money(toMicros(1))} is in your wallet. Your bank confirms a UPI mandate in its own time, so it can show as awaiting confirmation for a while.`
+            : `The ${money(toMicros(1))} is in your wallet. Recharges start the next time the balance drops below the line.`,
         type: "success",
       });
     } catch (error) {
@@ -632,7 +641,7 @@ function AutoRechargeCard({ data }: { data: Summary }) {
           <div className="flex min-w-0 flex-col gap-1.5">
             <Label htmlFor="recharge-threshold">Low-balance line</Label>
             <InputGroup>
-              <InputGroupAddon>₹</InputGroupAddon>
+              <InputGroupAddon>{symbol}</InputGroupAddon>
               <InputGroupInput
                 id="recharge-threshold"
                 type="number"
@@ -657,7 +666,7 @@ function AutoRechargeCard({ data }: { data: Summary }) {
           <div className="flex min-w-0 flex-col gap-1.5">
             <Label htmlFor="recharge-amount">Recharge amount</Label>
             <InputGroup>
-              <InputGroupAddon>₹</InputGroupAddon>
+              <InputGroupAddon>{symbol}</InputGroupAddon>
               <InputGroupInput
                 id="recharge-amount"
                 type="number"
@@ -682,15 +691,23 @@ function AutoRechargeCard({ data }: { data: Summary }) {
               </p>
             ) : amountValid ? (
               <p className="text-xs text-muted-foreground tabular-nums">
-                Each recharge credits {money(debit.subtotalMicros)} and debits{" "}
-                {money(debit.totalMicros)} with GST.
+                {debit.gstMicros > 0 ? (
+                  <>
+                    Each recharge credits {money(debit.subtotalMicros)} and
+                    debits {money(debit.totalMicros)} with GST.
+                  </>
+                ) : (
+                  <>
+                    Each recharge credits and debits {money(debit.totalMicros)}.
+                  </>
+                )}
               </p>
             ) : null}
             {overCap ? (
               <p className="text-xs text-destructive">
-                An automatic debit can be at most {money(MANDATE_CAP_MICROS)}{" "}
-                with GST — above that the bank asks for your approval every
-                time. Pick a smaller amount.
+                An automatic debit can be at most {money(MANDATE_CAP_MICROS)}
+                {data.gstPercent > 0 ? " with GST" : ""} — above that the bank
+                asks for your approval every time. Pick a smaller amount.
               </p>
             ) : null}
             {overMandate && autoRecharge.maxAmountMicros !== null ? (
@@ -782,10 +799,13 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             ) : null}
             {canEdit ? (
               <div className="flex flex-wrap gap-2">
-                {(["upi", "card"] as const).map((option) => (
+                {(data.currency === "INR"
+                  ? (["upi", "card"] as const)
+                  : (["card"] as const)
+                ).map((option, index) => (
                   <Button
                     key={option}
-                    variant={option === "upi" ? "default" : "outline"}
+                    variant={index === 0 ? "default" : "outline"}
                     disabled={
                       busy !== null ||
                       !payable ||

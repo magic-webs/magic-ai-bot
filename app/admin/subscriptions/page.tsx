@@ -17,6 +17,7 @@ import {
   formatDay,
   rupeesOf,
   subscriptionLabel,
+  currencySymbol,
   moneyIn,
 } from "@/components/billing/plan-bits";
 import {
@@ -596,7 +597,7 @@ function PricingSection({ account }: { account: AccountRow }) {
         >
           <div className="relative">
             <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
-              ₹
+              {currencySymbol(account.currency)}
             </span>
             <Input
               id="manage-seat-price"
@@ -1060,7 +1061,7 @@ function WalletSection({ account }: { account: AccountRow }) {
         <Field id="manage-adjust" label="Amount">
           <div className="relative">
             <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
-              ₹
+              {currencySymbol(account.currency)}
             </span>
             <Input
               id="manage-adjust"

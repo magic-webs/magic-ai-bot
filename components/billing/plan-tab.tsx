@@ -215,6 +215,7 @@ export function PlanTab() {
         key={JSON.stringify(profile)}
         saved={profile}
         canEdit={data.isOwner}
+        indian={data.pricing.currency === "INR"}
       />
 
       <PaymentHistory />
@@ -375,15 +376,19 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
               <span className="font-heading text-4xl leading-none font-semibold tracking-tight tabular-nums">
                 {money(monthly.total)}
               </span>
-              <span className="text-sm text-muted-foreground">with GST</span>
+              {monthly.gst > 0 ? (
+                <span className="text-sm text-muted-foreground">with GST</span>
+              ) : null}
             </p>
             <p className="text-sm text-muted-foreground tabular-nums">
               {plan?.name ?? "Plan"}
               {extras > 0
                 ? ` + ${extras} extra ${extras === 1 ? "agent" : "agents"}`
                 : ""}{" "}
-              {money(monthly.subtotal)} · {monthly.gstLabel}{" "}
-              {money(monthly.gst)}
+              {money(monthly.subtotal)}
+              {monthly.gst > 0
+                ? ` · ${monthly.gstLabel} ${money(monthly.gst)}`
+                : ""}
             </p>
           </div>
         ) : null}
@@ -397,6 +402,7 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
                     priceMicros: priced.seatMicros,
                     listMicros: priced.seatListMicros,
                     currency: data.pricing.currency,
+                    taxed: data.pricing.gstPercent > 0,
                   }
                 : undefined
             }
@@ -724,6 +730,7 @@ function PlanPicker({ data }: { data: Enabled }) {
     priceMicros: summary.seatMicros,
     listMicros: summary.seatListMicros,
     currency: data.pricing.currency,
+    taxed: data.pricing.gstPercent > 0,
   };
 
   const same =
@@ -769,7 +776,7 @@ function PlanPicker({ data }: { data: Enabled }) {
           ? `Switched to the ${chosen.name} plan`
           : `You're on the ${chosen.name} plan`,
         description: startAt
-          ? `Its limits apply now. Nothing is charged until ${formatDay(startAt)}, and the ₹5 authorisation is refunded.`
+          ? `Its limits apply now. Nothing is charged until ${formatDay(startAt)}, and the small authorisation charge is refunded.`
           : "Its limits apply now, and Razorpay charges it each month from here.",
         type: "success",
       });
@@ -835,7 +842,7 @@ function PlanPicker({ data }: { data: Enabled }) {
                       listClassName="text-[0.6em]"
                     />
                     <span className="text-sm text-muted-foreground">
-                      / month + GST
+                      / month{data.pricing.gstPercent > 0 ? " + GST" : ""}
                     </span>
                   </p>
                   {plan.description ? (
@@ -874,7 +881,7 @@ function PlanPicker({ data }: { data: Enabled }) {
                   currency={data.pricing.currency}
                   className="font-medium text-foreground"
                 />{" "}
-                each a month + GST
+                each a month{data.pricing.gstPercent > 0 ? " + GST" : ""}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -963,10 +970,12 @@ function PlanPicker({ data }: { data: Enabled }) {
                 value={money(summary.subtotalMicros)}
                 className="border-t pt-1.5"
               />
-              <SummaryRow
-                label={`GST ${summary.gstPercent}%`}
-                value={money(summary.gstMicros)}
-              />
+              {summary.gstMicros > 0 ? (
+                <SummaryRow
+                  label={`GST ${summary.gstPercent}%`}
+                  value={money(summary.gstMicros)}
+                />
+              ) : null}
               <div className="flex items-baseline justify-between gap-3 border-t pt-1.5">
                 <dt className="font-medium">Total / month</dt>
                 <dd className="font-heading text-xl font-semibold tabular-nums">
@@ -994,10 +1003,11 @@ function PlanPicker({ data }: { data: Enabled }) {
               ) : startsLater ? (
                 <p>You won&apos;t be charged until {formatDay(startsLater)}.</p>
               ) : null}
-              {summary.totalMicros > APPROVAL_LIMIT_MICROS ? (
+              {data.pricing.currency === "INR" &&
+              summary.totalMicros > APPROVAL_LIMIT_MICROS ? (
                 <p>
-                  At over ₹15,000 a month, card and UPI Autopay debits need your
-                  approval each time.
+                  At over {money(APPROVAL_LIMIT_MICROS)} a month, card and UPI
+                  Autopay debits need your approval each time.
                 </p>
               ) : null}
             </div>
@@ -1036,9 +1046,12 @@ function SummaryRow({
 function BillingDetails({
   saved,
   canEdit,
+  indian,
 }: {
   saved: Profile;
   canEdit: boolean;
+  /** Only an Indian business has a GSTIN to give. */
+  indian: boolean;
 }) {
   const workspace = useWorkspace();
   const updateBillingProfile = useMutation(
@@ -1089,7 +1102,7 @@ function BillingDetails({
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
         {field("billingName", "Legal name", { autoComplete: "organization" })}
-        <div className="flex min-w-0 flex-col gap-1.5">
+        <div className={indian ? "flex min-w-0 flex-col gap-1.5" : "hidden"}>
           <Label htmlFor="billing-gstin">GSTIN</Label>
           <Input
             id="billing-gstin"

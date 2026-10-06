@@ -877,7 +877,12 @@ function PlanCard({
   onMove,
 }: {
   plan: PlanRow;
-  seat: { priceMicros: number; listMicros: number; currency?: string };
+  seat: {
+    priceMicros: number;
+    listMicros: number;
+    currency?: string;
+    taxed?: boolean;
+  };
   first: boolean;
   last: boolean;
   isTrialPlan: boolean;
@@ -1149,6 +1154,7 @@ export default function AdminPlansPage() {
                       priceMicros: termsHere?.extraAgentPriceMicros ?? 0,
                       listMicros: termsHere?.extraAgentListMicros ?? 0,
                       currency,
+                      taxed: (termsHere?.gstPercent ?? 0) > 0,
                     }}
                     first={index === 0}
                     last={index === plans.length - 1}
