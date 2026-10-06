@@ -17,7 +17,7 @@ import {
   formatDay,
   rupeesOf,
   subscriptionLabel,
-  useMoney,
+  moneyIn,
 } from "@/components/billing/plan-bits";
 import {
   AlertDialog,
@@ -159,7 +159,11 @@ function useRun() {
       toast.add({ ...done, type: "success" });
       return true;
     } catch (error) {
-      toast.add({ title: failTitle, description: message(error), type: "error" });
+      toast.add({
+        title: failTitle,
+        description: message(error),
+        type: "error",
+      });
       return false;
     } finally {
       setBusy(false);
@@ -178,21 +182,32 @@ function standingLine(row: AccountRow, now: number): string | null {
   const until = access.until;
   switch (access.state) {
     case "trial":
-      return until ? `Trial ends ${formatDay(until)} · ${daysFrom(until, now)}` : null;
+      return until
+        ? `Trial ends ${formatDay(until)} · ${daysFrom(until, now)}`
+        : null;
     case "grace":
-      return until ? `Locks ${formatDay(until)} · ${daysFrom(until, now)}` : null;
+      return until
+        ? `Locks ${formatDay(until)} · ${daysFrom(until, now)}`
+        : null;
     case "active":
       if (row.mode === "manual") {
         return until ? `Paid through ${formatDay(until)}` : "Open-ended";
       }
       if (!until) return null;
-      if (subscription && CHARGING.has(subscription.status) && !subscription.cancelAtCycleEnd) {
+      if (
+        subscription &&
+        CHARGING.has(subscription.status) &&
+        !subscription.cancelAtCycleEnd
+      ) {
         return `${subscription.paidCount === 0 ? "First charge" : "Renews"} ${formatDay(until)}`;
       }
       return `Ends ${formatDay(until)} · ${daysFrom(until, now)}`;
     case "locked":
       if (row.mode === "manual") return "Arranged period ended";
-      if (subscription && (subscription.status === "pending" || subscription.status === "halted")) {
+      if (
+        subscription &&
+        (subscription.status === "pending" || subscription.status === "halted")
+      ) {
         return "Payment failed";
       }
       return subscription ? "Plan ended" : "Trial ended";
@@ -373,8 +388,61 @@ function Note({
   );
 }
 
-function PlanSection({ account, plans }: { account: AccountRow; plans: Plan[] }) {
-  const { money } = useMoney();
+function CurrencySection({
+  account,
+  currencies,
+}: {
+  account: AccountRow;
+  currencies: string[];
+}) {
+  const update = useMutation(api.subscriptions.adminUpdateAccount);
+  const [busy, run] = useRun();
+  const [currency, setCurrency] = useState(account.currency);
+
+  const save = () =>
+    void run("Could not change the currency", async () => {
+      await update({ workspaceId: account.workspaceId, currency });
+      return {
+        title: `${account.name} is billed in ${currency}`,
+        description:
+          "Its plan moved to the same plan in that currency, where there is one.",
+      };
+    });
+
+  return (
+    <Section
+      title="Billing currency"
+      description="Its plans, wallet and message charges are all in it. Changes only while the wallet is at zero and Razorpay is not charging it."
+    >
+      <SelectField
+        id="manage-currency"
+        className="w-full sm:w-48"
+        value={currency}
+        onValueChange={setCurrency}
+        options={currencies.map((code) => ({ value: code, label: code }))}
+      />
+      <SaveButton
+        busy={busy}
+        disabled={currency === account.currency}
+        onClick={save}
+      >
+        Change currency
+      </SaveButton>
+    </Section>
+  );
+}
+
+function PlanSection({
+  account,
+  plans: all,
+}: {
+  account: AccountRow;
+  plans: Plan[];
+}) {
+  const money = moneyIn(account.currency);
+  const plans = all.filter(
+    (row) => (row.currency ?? "INR") === account.currency
+  );
   const update = useMutation(api.subscriptions.adminUpdateAccount);
   const [busy, run] = useRun();
   const [planId, setPlanId] = useState<string>(account.planId ?? "");
@@ -463,7 +531,9 @@ function PricingSection({ account }: { account: AccountRow }) {
     account.discountPercent ? String(account.discountPercent) : ""
   );
   const [seatPrice, setSeatPrice] = useState(
-    account.extraAgentPriceMicros === null ? "" : rupeesOf(account.extraAgentPriceMicros)
+    account.extraAgentPriceMicros === null
+      ? ""
+      : rupeesOf(account.extraAgentPriceMicros)
   );
 
   const percent = discount.trim() === "" ? 0 : num(discount);
@@ -572,7 +642,11 @@ function TrialSection({ account, now }: { account: AccountRow; now: number }) {
   const save = () => {
     if (endsAt === null) return;
     void run("Could not change the trial", async () => {
-      await update({ workspaceId: account.workspaceId, mode: "trial", trialEndsAt: endsAt });
+      await update({
+        workspaceId: account.workspaceId,
+        mode: "trial",
+        trialEndsAt: endsAt,
+      });
       return {
         title: `${account.name}'s trial ends ${formatDay(endsAt)}`,
         description:
@@ -590,9 +664,9 @@ function TrialSection({ account, now }: { account: AccountRow; now: number }) {
     >
       {governed ? (
         <Note>
-          Its Razorpay subscription decides whether the dashboard is open, so
-          a trial date would change nothing. Cancel the subscription first to
-          give it more time.
+          Its Razorpay subscription decides whether the dashboard is open, so a
+          trial date would change nothing. Cancel the subscription first to give
+          it more time.
         </Note>
       ) : (
         <>
@@ -658,8 +732,7 @@ function ArrangementSection({
 
   const throughAt = through ? endOfDay(through) : null;
   const dirty =
-    manual !== wasManual ||
-    (manual && throughAt !== account.manualPaidThrough);
+    manual !== wasManual || (manual && throughAt !== account.manualPaidThrough);
 
   const save = () =>
     void run("Could not change the arrangement", async () => {
@@ -721,8 +794,8 @@ function ArrangementSection({
       ) : null}
       {manual && !wasManual && isStanding(account) ? (
         <Note tone="warn">
-          Razorpay is charging this account, and would bill it twice. Cancel
-          its subscription below first.
+          Razorpay is charging this account, and would bill it twice. Cancel its
+          subscription below first.
         </Note>
       ) : null}
       {!manual && wasManual ? (
@@ -731,8 +804,8 @@ function ArrangementSection({
           {account.trialEndsAt
             ? `, which ${account.trialEndsAt < now ? "ended" : "ends"} ${formatDay(account.trialEndsAt)}`
             : ""}
-          . If that has passed the dashboard locks until the company checks
-          out — extend the trial as well to give it time.
+          . If that has passed the dashboard locks until the company checks out
+          — extend the trial as well to give it time.
         </Note>
       ) : null}
       <SaveButton busy={busy} disabled={!dirty} onClick={save}>
@@ -749,7 +822,7 @@ function SubscriptionSection({
   account: AccountRow;
   now: number;
 }) {
-  const { money } = useMoney();
+  const money = moneyIn(account.currency);
   const cancel = useAction(api.razorpay.cancelSubscription);
   const refresh = useAction(api.razorpay.refresh);
   const [cancelling, runCancel] = useRun();
@@ -791,7 +864,9 @@ function SubscriptionSection({
       const { refreshed } = await refresh({ workspaceId: account.workspaceId });
       return {
         title:
-          refreshed === 0 ? "Nothing to read back" : "Brought up to date from Razorpay",
+          refreshed === 0
+            ? "Nothing to read back"
+            : "Brought up to date from Razorpay",
         description:
           refreshed === 0
             ? "This account has no subscription on record at Razorpay."
@@ -899,9 +974,9 @@ function SubscriptionSection({
                 <AlertDialogDescription>
                   Once it has been charged, it stops at the end of the period
                   already paid for and the dashboard stays open until then.
-                  Otherwise it stops now. Either way Razorpay does not charge
-                  it again, and the company can check out afresh from its
-                  Billing page.
+                  Otherwise it stops now. Either way Razorpay does not charge it
+                  again, and the company can check out afresh from its Billing
+                  page.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -925,14 +1000,15 @@ function SubscriptionSection({
 }
 
 function WalletSection({ account }: { account: AccountRow }) {
-  const { money } = useMoney();
+  const money = moneyIn(account.currency);
   const adjust = useMutation(api.wallet.adminAdjust);
   const [busy, run] = useRun();
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
   const value = num(amount);
-  const badAmount = amount.trim() !== "" && (!Number.isFinite(value) || value === 0);
+  const badAmount =
+    amount.trim() !== "" && (!Number.isFinite(value) || value === 0);
   const ready = Number.isFinite(value) && value !== 0 && note.trim() !== "";
 
   const save = async () => {
@@ -971,7 +1047,9 @@ function WalletSection({ account }: { account: AccountRow }) {
           >
             {money(account.balanceMicros)}
           </span>
-          {account.autoRecharge ? ", and recharges itself when it runs low" : ""}
+          {account.autoRecharge
+            ? ", and recharges itself when it runs low"
+            : ""}
           . A positive amount adds credit and a negative one takes it off — no
           payment is taken. The reason shows in the account&apos;s wallet
           history.
@@ -1053,10 +1131,12 @@ function NoteSection({ account }: { account: AccountRow }) {
 function ManageBody({
   account,
   plans,
+  currencies,
   now,
 }: {
   account: AccountRow;
   plans: Plan[];
+  currencies: string[];
   now: number;
 }) {
   const line = standingLine(account, now);
@@ -1079,6 +1159,7 @@ function ManageBody({
       </DialogHeader>
 
       <DialogBody>
+        <CurrencySection account={account} currencies={currencies} />
         <PlanSection account={account} plans={plans} />
         <PricingSection account={account} />
         <TrialSection account={account} now={now} />
@@ -1109,7 +1190,6 @@ function ManageBody({
  * open, what Razorpay charges it, and what its wallet holds.
  */
 export default function AdminSubscriptionsPage() {
-  const { money } = useMoney();
   const now = useHourBucket();
   const data = useQuery(api.subscriptions.adminAccounts, { now });
 
@@ -1128,7 +1208,8 @@ export default function AdminSubscriptionsPage() {
   };
 
   const accounts = data?.accounts ?? [];
-  const selected = accounts.find((row) => row.workspaceId === selectedId) ?? null;
+  const selected =
+    accounts.find((row) => row.workspaceId === selectedId) ?? null;
 
   const counts: Record<Filter, number> = {
     all: accounts.length,
@@ -1142,11 +1223,23 @@ export default function AdminSubscriptionsPage() {
   }
 
   const recurring = accounts.filter(isCharging);
-  const recurringMicros = recurring.reduce(
-    (sum, row) => sum + (row.monthlyMicros ?? 0),
-    0
-  );
-  const walletMicros = accounts.reduce((sum, row) => sum + row.balanceMicros, 0);
+  // Each currency on its own: rupees and dollars do not add up.
+  const byCurrency = (
+    pick: (row: AccountRow) => number,
+    from: AccountRow[]
+  ) => {
+    const totals = new Map<string, number>();
+    for (const row of from)
+      totals.set(row.currency, (totals.get(row.currency) ?? 0) + pick(row));
+    const parts = [...totals.entries()].map(([code, micros]) =>
+      moneyIn(code)(micros)
+    );
+    return parts.length > 0
+      ? parts.join(" · ")
+      : moneyIn(data?.currency ?? "INR")(0);
+  };
+  const recurringTotal = byCurrency((row) => row.monthlyMicros ?? 0, recurring);
+  const walletTotal = byCurrency((row) => row.balanceMicros, accounts);
   const belowZero = accounts.filter((row) => row.balanceMicros < 0).length;
   const endingSoon = accounts.filter(
     (row) =>
@@ -1198,8 +1291,8 @@ export default function AdminSubscriptionsPage() {
             <EmptyTitle>Billing is off</EmptyTitle>
             <EmptyDescription>
               No account is on a plan or a trial yet, and no dashboard locks.
-              Switch billing on from Plans &amp; pricing to start everyone&apos;s
-              free trial.
+              Switch billing on from Plans &amp; pricing to start
+              everyone&apos;s free trial.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -1219,13 +1312,21 @@ export default function AdminSubscriptionsPage() {
             <Tile
               label="Free trial"
               value={counts.trial.toLocaleString()}
-              hint={endingSoon > 0 ? `${endingSoon} end within a week` : "None ending this week"}
+              hint={
+                endingSoon > 0
+                  ? `${endingSoon} end within a week`
+                  : "None ending this week"
+              }
             />
             <Tile
               label="Payment due"
               value={counts.grace.toLocaleString()}
               hint="In the grace period"
-              tone={counts.grace > 0 ? "text-amber-700 dark:text-amber-300" : undefined}
+              tone={
+                counts.grace > 0
+                  ? "text-amber-700 dark:text-amber-300"
+                  : undefined
+              }
             />
             <Tile
               label="Locked"
@@ -1235,13 +1336,17 @@ export default function AdminSubscriptionsPage() {
             />
             <Tile
               label="Monthly recurring (Razorpay)"
-              value={money(recurringMicros)}
+              value={recurringTotal}
               hint={`${recurring.length} ${recurring.length === 1 ? "subscription" : "subscriptions"} · incl. GST`}
             />
             <Tile
               label="Wallet balances"
-              value={money(walletMicros)}
-              hint={belowZero > 0 ? `${belowZero} below zero` : "Across every account"}
+              value={walletTotal}
+              hint={
+                belowZero > 0
+                  ? `${belowZero} below zero`
+                  : "Across every account"
+              }
             />
           </div>
 
@@ -1285,7 +1390,9 @@ export default function AdminSubscriptionsPage() {
                     <TableRow>
                       <TableHead className="min-w-48">Account</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="hidden md:table-cell">Agents</TableHead>
+                      <TableHead className="hidden md:table-cell">
+                        Agents
+                      </TableHead>
                       <TableHead className="hidden text-right md:table-cell">
                         Monthly
                       </TableHead>
@@ -1336,7 +1443,8 @@ export default function AdminSubscriptionsPage() {
                               ) : null}
                               {row.subscription ? (
                                 <span className="text-[11px] whitespace-nowrap text-muted-foreground">
-                                  Razorpay: {subscriptionLabel(row.subscription.status)}
+                                  Razorpay:{" "}
+                                  {subscriptionLabel(row.subscription.status)}
                                   {row.subscription.cancelAtCycleEnd
                                     ? " · cancels at period end"
                                     : ""}
@@ -1357,13 +1465,17 @@ export default function AdminSubscriptionsPage() {
                                     checkout would come to today. */}
                                 <span
                                   className={
-                                    isCharging(row) ? "font-medium" : "text-muted-foreground"
+                                    isCharging(row)
+                                      ? "font-medium"
+                                      : "text-muted-foreground"
                                   }
                                 >
-                                  {money(row.monthlyMicros)}
+                                  {moneyIn(row.currency)(row.monthlyMicros)}
                                 </span>
                                 <span className="block text-[11px] text-muted-foreground">
-                                  {isCharging(row) ? "incl. GST" : "quote · incl. GST"}
+                                  {isCharging(row)
+                                    ? "incl. GST"
+                                    : "quote · incl. GST"}
                                 </span>
                               </>
                             )}
@@ -1375,7 +1487,7 @@ export default function AdminSubscriptionsPage() {
                                 row.balanceMicros < 0 && "text-destructive"
                               )}
                             >
-                              {money(row.balanceMicros)}
+                              {moneyIn(row.currency)(row.balanceMicros)}
                             </span>
                             {row.autoRecharge ? (
                               <span className="block text-[11px] text-muted-foreground">
@@ -1419,6 +1531,7 @@ export default function AdminSubscriptionsPage() {
                   key={session}
                   account={selected}
                   plans={data.plans}
+                  currencies={data.currencies.map((row) => row.currency)}
                   now={now}
                 />
               ) : (

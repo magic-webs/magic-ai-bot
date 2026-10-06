@@ -29,6 +29,7 @@ import {
   ensureAccount,
   liveSubscription,
   standingOf,
+  billingTermsFor,
 } from "./lib/account";
 import { toMicros } from "./lib/billing";
 import { logoSrcFor } from "./lib/branding";
@@ -42,6 +43,8 @@ import {
   quote,
   toPaise,
   type Quote,
+  allCurrencyTerms,
+  planCurrency,
 } from "./lib/plans";
 import { walletFor } from "./lib/wallet";
 
@@ -96,7 +99,7 @@ export const access = query({
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (!workspace) return null;
-    const settings = await billingSettings(ctx);
+    const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
     if (!settings) return null;
     const account = await accountFor(ctx, args.workspaceId);
     const subscription = await liveSubscription(ctx, account);
@@ -156,14 +159,18 @@ export const overview = query({
       plan,
       // On sale, plus whatever this account is on even if it is now hidden.
       plans: plans.filter(
-        (row) => row.status === "active" || row._id === plan?._id
+        (row) =>
+          (row.status === "active" &&
+            planCurrency(row) === settings.currency) ||
+          row._id === plan?._id
       ),
       account: {
         mode: account?.mode ?? ("trial" as const),
         extraAgents,
         discountPercent: account?.discountPercent ?? 0,
         extraAgentPriceMicros: account?.extraAgentPriceMicros ?? null,
-        trialEndsAt: standing.access.state === "trial" ? standing.access.until : null,
+        trialEndsAt:
+          standing.access.state === "trial" ? standing.access.until : null,
         manualPaidThrough: account?.manualPaidThrough ?? null,
         billingName: contact.name,
         gstin: account?.gstin ?? "",
@@ -174,7 +181,10 @@ export const overview = query({
       },
       accountPricing: pricing,
       subscription: subscriptionView(subscription),
-      pending: pending && pending.status === "created" ? subscriptionView(pending) : null,
+      pending:
+        pending && pending.status === "created"
+          ? subscriptionView(pending)
+          : null,
       // What the account's plan and extras come to at today's prices —
       // what the next checkout would be created at.
       quote: plan
@@ -185,7 +195,10 @@ export const overview = query({
       // Where a checkout made now would start charging — the date the page
       // promises before Razorpay is asked.
       nextStartAt: nextStartAt({
-        live: subscription && isLiveStatus(subscription.status) ? subscription : null,
+        live:
+          subscription && isLiveStatus(subscription.status)
+            ? subscription
+            : null,
         access: standing.access,
         now: args.now,
       }),
@@ -234,7 +247,9 @@ export const updateBillingProfile = mutation({
     }
     const phone = args.billingPhone.replace(/[\s-]/g, "");
     if (phone && !/^\+?[0-9]{8,15}$/.test(phone)) {
-      throw new Error("Enter a phone number with its country code, e.g. +919876543210.");
+      throw new Error(
+        "Enter a phone number with its country code, e.g. +919876543210."
+      );
     }
 
     const account = await ensureAccount(ctx, args.workspaceId);
@@ -261,19 +276,24 @@ export const adminAccounts = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const settings = await billingSettings(ctx);
-    const workspaces = await ctx.db.query("workspaces").order("desc").take(1000);
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .order("desc")
+      .take(1000);
 
     const rows = await Promise.all(
       workspaces.map(async (workspace) => {
-        const standing = await standingOf(ctx, workspace, args.now, { settings });
+        const standing = await standingOf(ctx, workspace, args.now, {
+          settings,
+        });
         const { account, plan, subscription } = standing;
         const wallet = await walletFor(ctx, workspace._id);
         const monthly: Quote | null =
-          settings && plan
+          standing.settings && plan
             ? quote({
                 plan,
                 extraAgents: account?.extraAgents ?? 0,
-                settings,
+                settings: standing.settings,
                 account,
               })
             : null;
@@ -283,6 +303,7 @@ export const adminAccounts = query({
           slug: workspace.slug,
           status: workspace.status,
           logoSrc: await logoSrcFor(ctx, workspace),
+          currency: standing.settings?.currency ?? settings?.currency ?? "INR",
           access: standing.access,
           mode: account?.mode ?? ("trial" as const),
           planId: plan?._id ?? null,
@@ -301,9 +322,10 @@ export const adminAccounts = query({
           subscription: subscriptionView(subscription),
           // What it is charged: the live subscription's fixed amount, or what
           // it would be charged at today's prices.
-          monthlyMicros: subscription && LIVE.has(subscription.status)
-            ? subscription.totalMicros
-            : (monthly?.totalMicros ?? null),
+          monthlyMicros:
+            subscription && LIVE.has(subscription.status)
+              ? subscription.totalMicros
+              : (monthly?.totalMicros ?? null),
           used: standing.used,
           seats: standing.seats,
           balanceMicros: wallet?.balanceMicros ?? 0,
@@ -320,6 +342,7 @@ export const adminAccounts = query({
       gstPercent: settings?.gstPercent ?? null,
       extraAgentPriceMicros: settings?.extraAgentPriceMicros ?? null,
       plans: settings ? await allPlans(ctx) : [],
+      currencies: settings ? allCurrencyTerms(settings) : [],
       accounts: rows,
     };
   },
@@ -344,10 +367,12 @@ export const adminUpdateAccount = mutation({
     discountPercent: v.optional(v.number()),
     extraAgentPrice: v.optional(v.union(v.number(), v.null())),
     adminNote: v.optional(v.string()),
+    currency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    if (!(await billingSettings(ctx))) throw new Error("Switch billing on first.");
+    const settings = await billingSettings(ctx);
+    if (!settings) throw new Error("Switch billing on first.");
     const account = await ensureAccount(ctx, args.workspaceId);
     const live = await liveSubscription(ctx, account);
     // Retrying and halted count too: either can still take a payment, and
@@ -355,15 +380,65 @@ export const adminUpdateAccount = mutation({
     const charging = live !== null && CHARGEABLE.has(live.status);
 
     const patch: Partial<Doc<"billingAccounts">> = { updatedAt: Date.now() };
+    const before =
+      (await billingTermsFor(ctx, args.workspaceId))?.currency ??
+      settings.currency;
+    const currency = args.currency ?? before;
+    if (currency !== before) {
+      const offered = allCurrencyTerms(settings).map((terms) => terms.currency);
+      if (!offered.includes(currency)) {
+        throw new Error(
+          `${currency} has no terms yet. Add it on Plans & pricing first.`
+        );
+      }
+      if (charging) {
+        throw new Error(
+          "Razorpay is still charging this account. Cancel its subscription before changing its currency."
+        );
+      }
+      const wallet = await walletFor(ctx, args.workspaceId);
+      if (wallet && wallet.balanceMicros !== 0) {
+        throw new Error(
+          "The wallet still holds a balance in the old currency. Bring it to zero first."
+        );
+      }
+      if (wallet)
+        await ctx.db.patch("wallets", wallet._id, {
+          currency,
+          updatedAt: Date.now(),
+        });
+      patch.currency = currency;
+      // The same plan in the new currency, when there is one.
+      const current = account.planId
+        ? await ctx.db.get("billingPlans", account.planId)
+        : null;
+      if (current && args.planId === undefined) {
+        const twin = (await allPlans(ctx)).find(
+          (plan) =>
+            plan.code === current.code && planCurrency(plan) === currency
+        );
+        patch.planId = twin?._id;
+      }
+    }
     if (args.planId !== undefined) {
-      if (!(await ctx.db.get("billingPlans", args.planId))) {
-        throw new Error("Plan not found");
+      const plan = await ctx.db.get("billingPlans", args.planId);
+      if (!plan) throw new Error("Plan not found");
+      if (planCurrency(plan) !== currency) {
+        throw new Error(
+          `That plan is priced in ${planCurrency(plan)}, and this account is billed in ${currency}.`
+        );
       }
       patch.planId = args.planId;
     }
     if (args.extraAgents !== undefined) {
-      if (!Number.isInteger(args.extraAgents) || args.extraAgents < 0 || args.extraAgents > MAX_EXTRA_AGENTS) {
-        throw new Error(`Extra agents must be a whole number from 0 to ${MAX_EXTRA_AGENTS}.`);
+      if (
+        !Number.isInteger(args.extraAgents) ||
+        args.extraAgents < 0 ||
+        args.extraAgents > MAX_EXTRA_AGENTS
+      ) {
+        throw new Error(
+          `Extra agents must be a whole number from 0 to ${MAX_EXTRA_AGENTS}.`
+        );
       }
       patch.extraAgents = args.extraAgents;
     }
@@ -384,17 +459,26 @@ export const adminUpdateAccount = mutation({
       patch.manualPaidThrough = args.manualPaidThrough ?? undefined;
     }
     if (args.discountPercent !== undefined) {
-      if (!Number.isFinite(args.discountPercent) || args.discountPercent < 0 || args.discountPercent > 100) {
+      if (
+        !Number.isFinite(args.discountPercent) ||
+        args.discountPercent < 0 ||
+        args.discountPercent > 100
+      ) {
         throw new Error("A discount is a percentage from 0 to 100.");
       }
       patch.discountPercent = args.discountPercent || undefined;
     }
     if (args.extraAgentPrice !== undefined) {
-      if (args.extraAgentPrice !== null && (!Number.isFinite(args.extraAgentPrice) || args.extraAgentPrice < 0)) {
+      if (
+        args.extraAgentPrice !== null &&
+        (!Number.isFinite(args.extraAgentPrice) || args.extraAgentPrice < 0)
+      ) {
         throw new Error("An extra agent's price must be zero or more.");
       }
       patch.extraAgentPriceMicros =
-        args.extraAgentPrice === null ? undefined : toMicros(args.extraAgentPrice);
+        args.extraAgentPrice === null
+          ? undefined
+          : toMicros(args.extraAgentPrice);
     }
     if (args.adminNote !== undefined) {
       patch.adminNote = args.adminNote.trim() || undefined;
@@ -440,14 +524,29 @@ export const checkoutContext = internalQuery({
     // A hidden plan is still sold to whoever is on it — by choice, or as the
     // plan their trial runs on.
     const plan = await ctx.db.get("billingPlans", args.planId);
-    if (!plan || (plan.status !== "active" && plan._id !== standing.plan?._id)) {
+    if (
+      !plan ||
+      (plan.status !== "active" && plan._id !== standing.plan?._id)
+    ) {
       throw new Error("That plan is not available.");
     }
-    if (!Number.isInteger(args.extraAgents) || args.extraAgents < 0 || args.extraAgents > MAX_EXTRA_AGENTS) {
-      throw new Error(`Extra agents must be a whole number from 0 to ${MAX_EXTRA_AGENTS}.`);
+    if (planCurrency(plan) !== settings.currency) {
+      throw new Error(
+        `That plan is priced in ${planCurrency(plan)}, and your account is billed in ${settings.currency}.`
+      );
+    }
+    if (
+      !Number.isInteger(args.extraAgents) ||
+      args.extraAgents < 0 ||
+      args.extraAgents > MAX_EXTRA_AGENTS
+    ) {
+      throw new Error(
+        `Extra agents must be a whole number from 0 to ${MAX_EXTRA_AGENTS}.`
+      );
     }
 
-    const live = subscription && LIVE.has(subscription.status) ? subscription : null;
+    const live =
+      subscription && LIVE.has(subscription.status) ? subscription : null;
     if (
       live &&
       !live.cancelAtCycleEnd &&
@@ -467,7 +566,11 @@ export const checkoutContext = internalQuery({
       throw new Error("A subscription must come to at least ₹1 a month.");
     }
 
-    const startAt = nextStartAt({ live, access: standing.access, now: args.now });
+    const startAt = nextStartAt({
+      live,
+      access: standing.access,
+      now: args.now,
+    });
 
     const razorpayPlanKey = `${plan.code}:${args.extraAgents}:${toPaise(priced.totalMicros)}:${settings.currency}`;
     const cached = await ctx.db
@@ -490,7 +593,9 @@ export const checkoutContext = internalQuery({
       razorpayPlanId: cached?.razorpayPlanId ?? null,
       // An unfinished checkout from before, to be withdrawn at Razorpay.
       abandonedRazorpayId:
-        pending && pending.status === "created" ? pending.razorpaySubscriptionId : null,
+        pending && pending.status === "created"
+          ? pending.razorpaySubscriptionId
+          : null,
       prefill: (({ name, email, phone }) => ({ name, email, contact: phone }))(
         billingContact(account, workspace)
       ),
@@ -611,7 +716,10 @@ export const refreshContext = internalQuery({
     await requireOwner(ctx, args.workspaceId);
     const account = await accountFor(ctx, args.workspaceId);
     const ids: string[] = [];
-    for (const id of [account?.subscriptionId, account?.pendingSubscriptionId]) {
+    for (const id of [
+      account?.subscriptionId,
+      account?.pendingSubscriptionId,
+    ]) {
       if (!id) continue;
       const row = await ctx.db.get("billingSubscriptions", id);
       if (row) ids.push(row.razorpaySubscriptionId);

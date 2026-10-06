@@ -167,12 +167,11 @@ function RecordDetail({ book, row }: { book: Book; row: RecordRow }) {
                     <dt className="text-muted-foreground">{field.label}</dt>
                     <dd>{details[field.key]}</dd>
                   </div>
-                ),
+                )
               )}
               {row.values
                 .filter(
-                  (pair) =>
-                    !book.fields.some((field) => field.key === pair.key),
+                  (pair) => !book.fields.some((field) => field.key === pair.key)
                 )
                 .map((pair) => (
                   <div key={pair.key} className="contents">
@@ -435,7 +434,7 @@ function WebhookDialog({
           events: existing.events,
           headers: existing.headers,
         }
-      : BLANK_HOOK,
+      : BLANK_HOOK
   );
   const [saving, setSaving] = useState(false);
 

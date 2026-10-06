@@ -7,15 +7,18 @@
 // plan's included agents — the limits every account on it is held to.
 
 import { v } from "convex/values";
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAdmin, requireWorkspace } from "./lib/auth";
-import { allPlans, billingSettings } from "./lib/account";
-import { toMicros } from "./lib/billing";
+import { allPlans, billingSettings, billingTermsFor } from "./lib/account";
+import { toMicros, workspaceCurrency } from "./lib/billing";
 import {
   DEFAULT_PLANS,
   DEFAULT_SETTINGS,
+  DEFAULT_CURRENCY_TERMS,
   PLATFORM_CURRENCY,
-  isLiveStatus,
+  allCurrencyTerms,
+  planCurrency,
+  type CurrencyTerms,
 } from "./lib/plans";
 import { isValidCurrency } from "./lib/regional";
 import { slugify } from "./lib/shared";
@@ -57,46 +60,43 @@ export const adminCatalogue = query({
 
     return {
       settings,
-      plans: plans.map((plan) => ({ ...plan, accounts: counts.get(plan._id) ?? 0 })),
+      terms: settings ? allCurrencyTerms(settings) : [],
+      plans: plans.map((plan) => ({
+        ...plan,
+        currency: planCurrency(plan),
+        accounts: counts.get(plan._id) ?? 0,
+      })),
     };
   },
 });
 
-/** The currency plans and wallets are billed in, for formatting money. */
+/**
+ * The currency money is shown in: a workspace's own account currency, or the
+ * default a new account starts on.
+ */
 export const currency = query({
-  args: {},
-  handler: async (ctx): Promise<string> => {
+  args: { workspaceId: v.optional(v.id("workspaces")) },
+  handler: async (ctx, args): Promise<string> => {
+    if (args.workspaceId) {
+      await requireWorkspace(ctx, args.workspaceId);
+      return await workspaceCurrency(ctx, args.workspaceId);
+    }
     const settings = await billingSettings(ctx);
     return settings?.currency ?? PLATFORM_CURRENCY;
   },
 });
-
-/**
- * Why the billing currency cannot change now, or null. Balances and
- * subscriptions are amounts in the old currency, and nothing converts them.
- */
-async function currencyLock(ctx: MutationCtx): Promise<string | null> {
-  const wallets = await ctx.db.query("wallets").take(5000);
-  const held = wallets.filter((wallet) => wallet.balanceMicros !== 0).length;
-  if (held > 0) {
-    return `${held} ${held === 1 ? "wallet still holds" : "wallets still hold"} a balance. Bring them to zero first.`;
-  }
-  const subscriptions = await ctx.db.query("billingSubscriptions").take(5000);
-  const live = subscriptions.filter((row) => isLiveStatus(row.status)).length;
-  if (live > 0) {
-    return `${live} ${live === 1 ? "subscription is" : "subscriptions are"} still running in the old currency.`;
-  }
-  return null;
-}
 
 /** The plans a workspace may choose between, and what an extra agent costs. */
 export const catalogue = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    const settings = await billingSettings(ctx);
-    if (!settings) return null;
-    const plans = await allPlans(ctx);
+    const terms = await billingTermsFor(ctx, args.workspaceId);
+    if (!terms) return null;
+    const { settings } = terms;
+    const plans = (await allPlans(ctx)).filter(
+      (plan) => planCurrency(plan) === settings.currency
+    );
     return {
       currency: settings.currency,
       gstPercent: settings.gstPercent,
@@ -144,71 +144,117 @@ export const enable = mutation({
   },
 });
 
-/** The terms. Amounts arrive in whole rupees, the way they are typed. */
+/**
+ * The terms: the trial and grace that every account shares, the currency a
+ * new account defaults to, and each currency's own GST, extra agent price,
+ * wallet minimums and welcome bonus. Amounts arrive in whole units.
+ */
 export const updateSettings = mutation({
   args: {
-    gstPercent: v.number(),
     trialDays: v.number(),
     graceDays: v.number(),
-    extraAgentList: v.number(),
-    extraAgentPrice: v.number(),
-    minTopUp: v.number(),
-    defaultThreshold: v.number(),
     trialPlanId: v.optional(v.id("billingPlans")),
-    currency: v.optional(v.string()),
-    welcomeBonus: v.optional(
-      v.array(v.object({ currency: v.string(), amount: v.number() }))
+    currency: v.string(),
+    terms: v.array(
+      v.object({
+        currency: v.string(),
+        gstPercent: v.number(),
+        extraAgentList: v.number(),
+        extraAgentPrice: v.number(),
+        minTopUp: v.number(),
+        defaultThreshold: v.number(),
+        welcomeBonus: v.number(),
+      })
     ),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const settings = await billingSettings(ctx);
     if (!settings) throw new Error("Switch billing on first.");
-
-    if (!Number.isFinite(args.gstPercent) || args.gstPercent < 0 || args.gstPercent > 50) {
-      throw new Error("GST must be a percentage from 0 to 50.");
-    }
-    const extraAgentPriceMicros = money("An extra agent's price", args.extraAgentPrice);
-    const extraAgentListMicros = money("An extra agent's list price", args.extraAgentList);
-    const minTopUpMicros = money("The minimum top-up", args.minTopUp);
-    if (minTopUpMicros < toMicros(1)) {
-      throw new Error("The minimum top-up must be at least ₹1 — Razorpay's floor.");
-    }
-    if (args.trialPlanId && !(await ctx.db.get("billingPlans", args.trialPlanId))) {
+    if (
+      args.trialPlanId &&
+      !(await ctx.db.get("billingPlans", args.trialPlanId))
+    ) {
       throw new Error("That plan no longer exists.");
     }
 
-    const currency = (args.currency ?? settings.currency).trim().toUpperCase();
-    if (!isValidCurrency(currency)) {
-      throw new Error("Pick a three-letter currency code, e.g. INR or USD.");
+    const seen = new Set<string>();
+    const terms: CurrencyTerms[] = [];
+    const welcomeBonus: Array<{ currency: string; amountMicros: number }> = [];
+    for (const entry of args.terms) {
+      const code = entry.currency.trim().toUpperCase();
+      if (!isValidCurrency(code))
+        throw new Error(`${entry.currency} is not a currency code.`);
+      if (seen.has(code)) throw new Error(`${code} is listed twice.`);
+      seen.add(code);
+      if (
+        !Number.isFinite(entry.gstPercent) ||
+        entry.gstPercent < 0 ||
+        entry.gstPercent > 50
+      ) {
+        throw new Error(`${code} GST must be a percentage from 0 to 50.`);
+      }
+      const extraAgentPriceMicros = money(
+        `The ${code} extra agent price`,
+        entry.extraAgentPrice
+      );
+      const minTopUpMicros = money(
+        `The ${code} minimum top-up`,
+        entry.minTopUp
+      );
+      if (minTopUpMicros < toMicros(1)) {
+        throw new Error(
+          `The ${code} minimum top-up must be at least 1 — Razorpay's floor.`
+        );
+      }
+      terms.push({
+        currency: code,
+        gstPercent: entry.gstPercent,
+        extraAgentPriceMicros,
+        // A list price below the price would show a discount that is not one.
+        extraAgentListMicros: Math.max(
+          money(`The ${code} extra agent list price`, entry.extraAgentList),
+          extraAgentPriceMicros
+        ),
+        minTopUpMicros,
+        defaultThresholdMicros: money(
+          `The ${code} low-balance line`,
+          entry.defaultThreshold
+        ),
+      });
+      welcomeBonus.push({
+        currency: code,
+        amountMicros: money(`The ${code} welcome bonus`, entry.welcomeBonus),
+      });
     }
+
+    const currency = args.currency.trim().toUpperCase();
+    const base = terms.find((entry) => entry.currency === currency);
+    if (!base)
+      throw new Error(
+        `Add terms for ${currency} before making it the default.`
+      );
+
+    // Accounts made before currencies were per account follow the default;
+    // pin them to it so a new default does not move their wallets.
     if (currency !== settings.currency) {
-      const locked = await currencyLock(ctx);
-      if (locked) throw new Error(`The billing currency cannot change yet: ${locked}`);
-      const wallets = await ctx.db.query("wallets").take(5000);
-      for (const wallet of wallets) {
-        await ctx.db.patch("wallets", wallet._id, { currency, updatedAt: Date.now() });
+      const accounts = await ctx.db.query("billingAccounts").take(5000);
+      for (const account of accounts) {
+        if (!account.currency) {
+          await ctx.db.patch("billingAccounts", account._id, {
+            currency: settings.currency,
+          });
+        }
       }
     }
 
-    const welcomeBonus = args.welcomeBonus?.map((entry) => {
-      const code = entry.currency.trim().toUpperCase();
-      if (!isValidCurrency(code)) throw new Error(`${entry.currency} is not a currency code.`);
-      return { currency: code, amountMicros: money(`The ${code} welcome bonus`, entry.amount) };
-    });
-
     await ctx.db.patch("billingSettings", settings._id, {
-      gstPercent: args.gstPercent,
+      ...base,
+      currencies: terms.filter((entry) => entry.currency !== currency),
+      welcomeBonus,
       trialDays: wholeNumber("Trial days", args.trialDays, 365),
       graceDays: wholeNumber("Grace days", args.graceDays, 60),
-      extraAgentPriceMicros,
-      // A list price below the price would show a discount that is not one.
-      extraAgentListMicros: Math.max(extraAgentListMicros, extraAgentPriceMicros),
-      minTopUpMicros,
-      defaultThresholdMicros: money("The default low-balance line", args.defaultThreshold),
       trialPlanId: args.trialPlanId ?? settings.trialPlanId,
-      currency,
-      welcomeBonus: welcomeBonus ?? settings.welcomeBonus,
       updatedAt: Date.now(),
     });
     return null;
@@ -229,7 +275,11 @@ const planFields = {
 
 /** Create a plan, or edit one when `planId` is given. */
 export const savePlan = mutation({
-  args: { planId: v.optional(v.id("billingPlans")), ...planFields },
+  args: {
+    planId: v.optional(v.id("billingPlans")),
+    currency: v.optional(v.string()),
+    ...planFields,
+  },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const name = args.name.trim();
@@ -240,19 +290,46 @@ export const savePlan = mutation({
       name,
       description: args.description?.trim() || undefined,
       priceMicros,
-      listPriceMicros: Math.max(money("The list price", args.listPrice), priceMicros),
-      includedAiAgents: wholeNumber("Custom agents", args.includedAiAgents, 1000),
-      includedHumanAgents: wholeNumber("Human agents", args.includedHumanAgents, 1000),
-      features: args.features.map((line) => line.trim()).filter(Boolean).slice(0, 20),
+      listPriceMicros: Math.max(
+        money("The list price", args.listPrice),
+        priceMicros
+      ),
+      includedAiAgents: wholeNumber(
+        "Custom agents",
+        args.includedAiAgents,
+        1000
+      ),
+      includedHumanAgents: wholeNumber(
+        "Human agents",
+        args.includedHumanAgents,
+        1000
+      ),
+      features: args.features
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 20),
       highlighted: args.highlighted,
       status: args.status,
       updatedAt: Date.now(),
     };
 
-    // One card is "most popular" at most.
+    const existing = args.planId
+      ? await ctx.db.get("billingPlans", args.planId)
+      : null;
+    const currency = existing
+      ? planCurrency(existing)
+      : (args.currency ?? PLATFORM_CURRENCY).trim().toUpperCase();
+    if (!isValidCurrency(currency))
+      throw new Error("Pick a currency for the plan.");
+
+    // One card is "most popular" at most, in each currency.
     if (fields.highlighted) {
       for (const other of await allPlans(ctx)) {
-        if (other._id !== args.planId && other.highlighted) {
+        if (
+          other._id !== args.planId &&
+          other.highlighted &&
+          planCurrency(other) === currency
+        ) {
           await ctx.db.patch("billingPlans", other._id, { highlighted: false });
         }
       }
@@ -267,14 +344,20 @@ export const savePlan = mutation({
 
     const plans = await allPlans(ctx);
     const base = slugify(name) || "plan";
+    const taken = (code: string) =>
+      plans.some(
+        (plan) => plan.code === code && planCurrency(plan) === currency
+      );
     let code = base;
-    for (let n = 2; plans.some((plan) => plan.code === code); n++) {
+    for (let n = 2; taken(code); n++) {
       code = `${base}-${n}`;
     }
     return await ctx.db.insert("billingPlans", {
       ...fields,
+      currency,
       code,
-      sortOrder: plans.reduce((max, plan) => Math.max(max, plan.sortOrder), -1) + 1,
+      sortOrder:
+        plans.reduce((max, plan) => Math.max(max, plan.sortOrder), -1) + 1,
       createdAt: fields.updatedAt,
     });
   },
@@ -282,17 +365,26 @@ export const savePlan = mutation({
 
 /** Move a plan one place left or right on the pricing page. */
 export const movePlan = mutation({
-  args: { planId: v.id("billingPlans"), direction: v.union(v.literal(-1), v.literal(1)) },
+  args: {
+    planId: v.id("billingPlans"),
+    direction: v.union(v.literal(-1), v.literal(1)),
+  },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    const plans = await allPlans(ctx);
+    const moving = await ctx.db.get("billingPlans", args.planId);
+    if (!moving) return null;
+    const plans = (await allPlans(ctx)).filter(
+      (plan) => planCurrency(plan) === planCurrency(moving)
+    );
     const index = plans.findIndex((plan) => plan._id === args.planId);
     const other = plans[index + args.direction];
     if (index < 0 || !other) return null;
     const here = plans[index];
     // Written as positions rather than swapped values, so two plans that
     // shared an order number come apart.
-    await ctx.db.patch("billingPlans", here._id, { sortOrder: index + args.direction });
+    await ctx.db.patch("billingPlans", here._id, {
+      sortOrder: index + args.direction,
+    });
     await ctx.db.patch("billingPlans", other._id, { sortOrder: index });
     return null;
   },
@@ -333,5 +425,75 @@ export const removePlan = mutation({
     }
     await ctx.db.delete("billingPlans", args.planId);
     return null;
+  },
+});
+
+/** USD prices for the plans a fresh catalogue starts with, by plan code. */
+const USD_PRICES: Record<string, { price: number; list: number }> = {
+  starter: { price: 49, list: 49 },
+  growth: { price: 99, list: 119 },
+  scale: { price: 199, list: 249 },
+};
+
+/**
+ * Mark the plans made before currencies as INR and add a USD copy of each,
+ * with USD terms if there are none. Safe to run again: a plan that already
+ * has its USD twin is left alone. `bunx convex run plans:addUsdPlans`
+ */
+export const addUsdPlans = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const plans = await allPlans(ctx);
+    for (const plan of plans) {
+      if (!plan.currency) {
+        await ctx.db.patch("billingPlans", plan._id, {
+          currency: PLATFORM_CURRENCY,
+        });
+      }
+    }
+    const inr = plans.filter(
+      (plan) => planCurrency(plan) === PLATFORM_CURRENCY
+    );
+    const now = Date.now();
+    let added = 0;
+    for (const plan of inr) {
+      const twin = plans.find(
+        (other) => other.code === plan.code && other.currency === "USD"
+      );
+      if (twin) continue;
+      const usd = USD_PRICES[plan.code] ?? {
+        price: Math.round(plan.priceMicros / 100 / 1_000_000),
+        list: Math.round(plan.listPriceMicros / 100 / 1_000_000),
+      };
+      await ctx.db.insert("billingPlans", {
+        code: plan.code,
+        currency: "USD",
+        name: plan.name,
+        description: plan.description,
+        listPriceMicros: toMicros(Math.max(usd.list, usd.price)),
+        priceMicros: toMicros(usd.price),
+        includedAiAgents: plan.includedAiAgents,
+        includedHumanAgents: plan.includedHumanAgents,
+        features: plan.features,
+        highlighted: plan.highlighted,
+        status: plan.status,
+        sortOrder: plan.sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      });
+      added++;
+    }
+
+    const settings = await billingSettings(ctx);
+    if (
+      settings &&
+      !settings.currencies?.some((entry) => entry.currency === "USD")
+    ) {
+      await ctx.db.patch("billingSettings", settings._id, {
+        currencies: [...(settings.currencies ?? []), ...DEFAULT_CURRENCY_TERMS],
+        updatedAt: now,
+      });
+    }
+    return { added };
   },
 });

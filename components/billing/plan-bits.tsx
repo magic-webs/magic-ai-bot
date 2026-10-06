@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { formatMoney } from "@/convex/lib/billing";
 import {
   PLATFORM_CURRENCY,
@@ -61,11 +62,20 @@ export function currencySymbol(currency: string): string {
   );
 }
 
-/** The billing currency an administrator set, and money formatted in it. */
-export function useMoney() {
-  const currency = useQuery(api.plans.currency, {}) ?? PLATFORM_CURRENCY;
+/**
+ * Money in a workspace's billing currency, or — without one — the default a
+ * new account starts on.
+ */
+export function useMoney(workspaceId?: Id<"workspaces">) {
+  const currency =
+    useQuery(api.plans.currency, workspaceId ? { workspaceId } : {}) ??
+    PLATFORM_CURRENCY;
   return useMemo(
-    () => ({ currency, money: moneyIn(currency), symbol: currencySymbol(currency) }),
+    () => ({
+      currency,
+      money: moneyIn(currency),
+      symbol: currencySymbol(currency),
+    }),
     [currency]
   );
 }
@@ -121,7 +131,10 @@ export function AccessBadge({
   className?: string;
 }) {
   return (
-    <Badge variant="secondary" className={cn(ACCESS_TONE[access.state], className)}>
+    <Badge
+      variant="secondary"
+      className={cn(ACCESS_TONE[access.state], className)}
+    >
       {ACCESS_LABEL[access.state]}
     </Badge>
   );
@@ -135,15 +148,19 @@ export function subscriptionLabel(status: string): string {
 export function StrikePrice({
   priceMicros,
   listMicros,
+  currency,
   className,
   listClassName,
 }: {
   priceMicros: number;
   listMicros: number;
+  /** The plan's own currency; without one, the default. */
+  currency?: string;
   className?: string;
   listClassName?: string;
 }) {
-  const { money } = useMoney();
+  const fallback = useMoney();
+  const money = currency ? moneyIn(currency) : fallback.money;
   return (
     <span className={cn("inline-flex items-baseline gap-1.5", className)}>
       {listMicros > priceMicros ? (
@@ -185,7 +202,7 @@ export function IncludedAgents({
 }: {
   plan: { name: string; includedAiAgents: number; includedHumanAgents: number };
   /** One extra agent, when the page knows what it sells at. */
-  seat?: { priceMicros: number; listMicros: number };
+  seat?: { priceMicros: number; listMicros: number; currency?: string };
   selected?: boolean;
   className?: string;
 }) {
@@ -225,7 +242,11 @@ export function IncludedAgents({
 
         <IncludedGroup icon={RobotIcon} title={count(ai, "AI agent")}>
           {DESKS.map((desk) => (
-            <IncludedLine key={desk.name} name={desk.name} detail={desk.detail} />
+            <IncludedLine
+              key={desk.name}
+              name={desk.name}
+              detail={desk.detail}
+            />
           ))}
           {custom > 0 ? (
             <IncludedLine
@@ -247,6 +268,7 @@ export function IncludedAgents({
             <StrikePrice
               priceMicros={seat.priceMicros}
               listMicros={seat.listMicros}
+              currency={seat.currency}
               className="font-medium text-foreground"
             />{" "}
             each a month + GST

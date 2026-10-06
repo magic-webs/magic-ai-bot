@@ -46,6 +46,7 @@ import type * as lib_billing from "../lib/billing.js";
 import type * as lib_branding from "../lib/branding.js";
 import type * as lib_charge from "../lib/charge.js";
 import type * as lib_contactClean from "../lib/contactClean.js";
+import type * as lib_currency from "../lib/currency.js";
 import type * as lib_dailyStats from "../lib/dailyStats.js";
 import type * as lib_delivery from "../lib/delivery.js";
 import type * as lib_gateway from "../lib/gateway.js";
@@ -162,6 +163,7 @@ declare const fullApi: ApiFromModules<{
   "lib/branding": typeof lib_branding;
   "lib/charge": typeof lib_charge;
   "lib/contactClean": typeof lib_contactClean;
+  "lib/currency": typeof lib_currency;
   "lib/dailyStats": typeof lib_dailyStats;
   "lib/delivery": typeof lib_delivery;
   "lib/gateway": typeof lib_gateway;

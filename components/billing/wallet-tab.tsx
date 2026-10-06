@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import {
+  useAction,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -22,7 +27,12 @@ import {
   openCheckout,
   type CheckoutSuccess,
 } from "@/components/billing/checkout";
-import { daysFrom, formatDay, rupeesOf, useMoney } from "@/components/billing/plan-bits";
+import {
+  daysFrom,
+  formatDay,
+  rupeesOf,
+  useMoney,
+} from "@/components/billing/plan-bits";
 import { errorMessage } from "@/lib/convex-server";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -98,7 +108,8 @@ function report(title: string, error: unknown) {
   if (error instanceof CheckoutClosed) {
     toast.add({
       title: "Payment not completed",
-      description: "The Razorpay window was closed before it finished. Nothing was charged.",
+      description:
+        "The Razorpay window was closed before it finished. Nothing was charged.",
     });
     return;
   }
@@ -106,7 +117,10 @@ function report(title: string, error: unknown) {
 }
 
 /** The order Checkout paid, from its answer or, failing that, from ours. */
-function orderIdOf(options: CheckoutOptions, response: CheckoutSuccess): string {
+function orderIdOf(
+  options: CheckoutOptions,
+  response: CheckoutSuccess
+): string {
   const orderId =
     response.razorpay_order_id ??
     (options.kind === "order" ? options.orderId : undefined);
@@ -190,7 +204,7 @@ export function WalletTab() {
 // ---------------------------------------------------------------------------
 
 function BalanceCard({ data, now }: { data: Summary; now: number }) {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const balance = data.balanceMicros;
   const perDay = data.spent7dMicros / 7;
   const days = perDay > 0 && balance > 0 ? Math.floor(balance / perDay) : null;
@@ -242,8 +256,8 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
               {balance <= 0 ? "Your wallet has run out" : "Your balance is low"}
             </AlertTitle>
             <AlertDescription>
-              It is below your low-balance line of {money(data.thresholdMicros)}.
-              Marketing, utility and authentication templates are held back
+              It is below your low-balance line of {money(data.thresholdMicros)}
+              . Marketing, utility and authentication templates are held back
               when the balance can&apos;t cover one. Service replies always go
               out, even when that takes the balance below zero.
             </AlertDescription>
@@ -255,9 +269,9 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
             <ClockIcon />
             <AlertTitle>An auto-recharge is on its way</AlertTitle>
             <AlertDescription>
-              An auto-recharge of {money(data.inFlight.totalMicros)} was requested{" "}
-              {daysFrom(data.inFlight.startedAt, now)}; the bank debits it 1–1.5
-              days after its notice.
+              An auto-recharge of {money(data.inFlight.totalMicros)} was
+              requested {daysFrom(data.inFlight.startedAt, now)}; the bank
+              debits it 1–1.5 days after its notice.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -291,7 +305,7 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
 // ---------------------------------------------------------------------------
 
 function TopUpCard({ data }: { data: Summary }) {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const startTopUp = useAction(api.razorpay.startTopUp);
   const confirmPayment = useAction(api.razorpay.confirmPayment);
@@ -309,7 +323,10 @@ function TopUpCard({ data }: { data: Summary }) {
     if (value === null) return;
     setBusy(true);
     try {
-      const options = await startTopUp({ workspaceId: workspace._id, amount: value });
+      const options = await startTopUp({
+        workspaceId: workspace._id,
+        amount: value,
+      });
       const response = await openCheckout(options);
       const result = await confirmPayment({
         workspaceId: workspace._id,
@@ -325,7 +342,8 @@ function TopUpCard({ data }: { data: Summary }) {
             }
           : {
               title: "Payment received",
-              description: "The credit shows here as soon as Razorpay confirms it.",
+              description:
+                "The credit shows here as soon as Razorpay confirms it.",
               type: "success",
             }
       );
@@ -354,7 +372,9 @@ function TopUpCard({ data }: { data: Summary }) {
               step={1}
               value={amount}
               disabled={busy}
-              aria-invalid={(value !== null && (tooSmall || tooLarge)) || undefined}
+              aria-invalid={
+                (value !== null && (tooSmall || tooLarge)) || undefined
+              }
               onChange={(event) => setAmount(event.target.value)}
               className="tabular-nums"
             />
@@ -369,8 +389,8 @@ function TopUpCard({ data }: { data: Summary }) {
               disabled={busy}
               onClick={() => setAmount(String(pick))}
             >
-              {/* Whole rupees on a chip: "₹10,000", not "₹10,000.00". */}
-              ₹{pick.toLocaleString(PLATFORM_LOCALE)}
+              {/* Whole rupees on a chip: "₹10,000", not "₹10,000.00". */}₹
+              {pick.toLocaleString(PLATFORM_LOCALE)}
             </Button>
           ))}
         </div>
@@ -421,7 +441,10 @@ const METHOD_LABEL: Record<string, string> = {
   card: "Card",
 };
 
-function mandateState(tokenStatus: string | null): { label: string; tone: string } {
+function mandateState(tokenStatus: string | null): {
+  label: string;
+  tone: string;
+} {
   if (tokenStatus === "confirmed") {
     return {
       label: "Active",
@@ -447,7 +470,7 @@ function mandateState(tokenStatus: string | null): { label: string; tone: string
  * them. Keyed on the saved values by its parent.
  */
 function AutoRechargeCard({ data }: { data: Summary }) {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
   const updatePreferences = useMutation(api.wallet.updatePreferences);
@@ -464,7 +487,9 @@ function AutoRechargeCard({ data }: { data: Summary }) {
   const [threshold, setThreshold] = useState(saved.threshold);
   const [amount, setAmount] = useState(saved.amount);
   const [enabled, setEnabled] = useState(saved.enabled);
-  const [busy, setBusy] = useState<"save" | "upi" | "card" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"save" | "upi" | "card" | "remove" | null>(
+    null
+  );
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   const canEdit = data.isOwner;
@@ -564,7 +589,8 @@ function AutoRechargeCard({ data }: { data: Summary }) {
       setConfirmingRemove(false);
       toast.add({
         title: "Auto-recharge removed",
-        description: "The mandate is cancelled with your bank. Top up by hand from now on.",
+        description:
+          "The mandate is cancelled with your bank. Top up by hand from now on.",
         type: "success",
       });
     } catch (error) {
@@ -662,9 +688,9 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             ) : null}
             {overCap ? (
               <p className="text-xs text-destructive">
-                An automatic debit can be at most {money(MANDATE_CAP_MICROS)} with
-                GST — above that the bank asks for your approval every time.
-                Pick a smaller amount.
+                An automatic debit can be at most {money(MANDATE_CAP_MICROS)}{" "}
+                with GST — above that the bank asks for your approval every
+                time. Pick a smaller amount.
               </p>
             ) : null}
             {overMandate && autoRecharge.maxAmountMicros !== null ? (
@@ -686,7 +712,10 @@ function AutoRechargeCard({ data }: { data: Summary }) {
                   Mandate
                 </dt>
                 <dd>
-                  <Badge variant="secondary" className={cn("max-w-full", state.tone)}>
+                  <Badge
+                    variant="secondary"
+                    className={cn("max-w-full", state.tone)}
+                  >
                     <span className="truncate">{state.label}</span>
                   </Badge>
                 </dd>
@@ -712,7 +741,9 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             {autoRecharge.lastError ? (
               <Alert variant="destructive">
                 <WarningIcon />
-                <AlertTitle>The last auto-recharge didn&apos;t go through</AlertTitle>
+                <AlertTitle>
+                  The last auto-recharge didn&apos;t go through
+                </AlertTitle>
                 <AlertDescription>{autoRecharge.lastError}</AlertDescription>
               </Alert>
             ) : null}
@@ -731,7 +762,9 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             {!data.profileReady ? (
               <Alert>
                 <WarningIcon />
-                <AlertTitle>Add a billing email and phone number first</AlertTitle>
+                <AlertTitle>
+                  Add a billing email and phone number first
+                </AlertTitle>
                 <AlertDescription>
                   Razorpay needs both to set up autopay. Save them under{" "}
                   <Link href={`${base}/billing?tab=plan`}>
@@ -769,7 +802,9 @@ function AutoRechargeCard({ data }: { data: Summary }) {
                     ) : (
                       <CreditCardIcon />
                     )}
-                    {option === "upi" ? "Set up with UPI Autopay" : "Set up with card"}
+                    {option === "upi"
+                      ? "Set up with UPI Autopay"
+                      : "Set up with card"}
                   </Button>
                 ))}
               </div>
@@ -811,7 +846,9 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy === "remove"}>Keep it</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy === "remove"}>
+              Keep it
+            </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               disabled={busy === "remove"}
@@ -849,7 +886,7 @@ const KIND_LABEL: Record<Doc<"walletTransactions">["kind"], string> = {
 };
 
 function WalletHistory() {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const { results, status, loadMore } = usePaginatedQuery(
     api.wallet.transactions,

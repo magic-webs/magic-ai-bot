@@ -7,10 +7,10 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   CATEGORY_HINTS,
   CATEGORY_LABELS,
+  MARKUP_BASE_CURRENCY,
   MESSAGE_CATEGORIES,
   formatMoney,
   fromMicros,
-  markupOn,
   metaCostOf,
   toMicros,
   type MessageCategory,
@@ -32,41 +32,52 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 
-type Draft = Record<MessageCategory, { fixed: string; percent: string }> & {
-  free: string;
+type Draft = {
+  percent: Record<MessageCategory, string>;
+  /** Per currency: each category's fixed amount, and the free-message fee. */
+  fixed: Record<string, Record<MessageCategory | "free", string>>;
 };
 
-function draftOf(card: MarkupView | null): Draft {
-  // Plain decimals, not formatMoney: this is what goes back in the box.
-  const show = (micros: number | undefined) =>
-    micros === undefined ? "0" : String(fromMicros(micros));
-  const entry = (category: MessageCategory) => ({
-    fixed: show(card?.[category].fixedMicros),
-    percent: String(card?.[category].percent ?? 0),
-  });
-  return {
-    service: entry("service"),
-    utility: entry("utility"),
-    marketing: entry("marketing"),
-    authentication: entry("authentication"),
-    free: show(card?.freeMicros),
-  };
+// Plain decimals, not formatMoney: this is what goes back in the box.
+const show = (micros: number | undefined) =>
+  micros === undefined ? "0" : String(fromMicros(micros));
+
+function draftOf(card: MarkupView | null, currencies: string[]): Draft {
+  const percent = {} as Draft["percent"];
+  for (const category of MESSAGE_CATEGORIES) {
+    percent[category] = String(card?.[category].percent ?? 0);
+  }
+  const fixed: Draft["fixed"] = {};
+  for (const currency of currencies) {
+    const other = card?.byCurrency.find((entry) => entry.currency === currency);
+    const base = currency === MARKUP_BASE_CURRENCY;
+    fixed[currency] = {
+      service: show(base ? card?.service.fixedMicros : other?.service),
+      utility: show(base ? card?.utility.fixedMicros : other?.utility),
+      marketing: show(base ? card?.marketing.fixedMicros : other?.marketing),
+      authentication: show(
+        base ? card?.authentication.fixedMicros : other?.authentication
+      ),
+      free: show(base ? card?.freeMicros : other?.freeMicros),
+    };
+  }
+  return { percent, fixed };
 }
 
 const valid = (value: string) => value.trim() !== "" && Number(value) >= 0;
 
 /**
- * Edit the platform's markup on Meta's rates, per category: a fixed amount,
- * a percentage of Meta's rate, or both — plus what a message Meta did not
- * charge for costs. With a workspace, that account's own markup; without
- * one, the default.
+ * Edit the platform's markup on Meta's rates, per category: a percentage of
+ * Meta's rate, and a fixed amount in each currency an account can be billed
+ * in — plus what a message Meta did not charge for costs. With a workspace,
+ * that account's own markup; without one, the default.
  */
 export function MarkupDialog({
   workspaceId,
   workspaceName,
   current,
   fallback,
-  currency,
+  currencies,
   sample,
   trigger,
 }: {
@@ -74,7 +85,8 @@ export function MarkupDialog({
   workspaceName?: string;
   current: MarkupView | null;
   fallback?: MarkupView | null;
-  currency: string;
+  /** The currencies accounts are billed in; INR first. */
+  currencies: string[];
   /** One market's Meta rates, to show what a message ends up costing. */
   sample?: MetaRateRow;
   trigger: React.ReactElement;
@@ -83,33 +95,48 @@ export function MarkupDialog({
   const clearMarkups = useMutation(api.billing.clearMarkups);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"save" | "clear" | null>(null);
-  const [draft, setDraft] = useState<Draft>(() => draftOf(current ?? fallback ?? null));
+  const columns = [
+    MARKUP_BASE_CURRENCY,
+    ...currencies.filter((code) => code !== MARKUP_BASE_CURRENCY),
+  ];
+  const [draft, setDraft] = useState<Draft>(() =>
+    draftOf(current ?? fallback ?? null, columns)
+  );
 
   const custom = Boolean(workspaceId && current);
-  const money = (micros: number) => formatMoney(micros, currency);
-  const setField = (
-    category: MessageCategory,
-    field: "fixed" | "percent",
+  const setPercent = (category: MessageCategory, value: string) =>
+    setDraft((prev) => ({
+      ...prev,
+      percent: { ...prev.percent, [category]: value },
+    }));
+  const setFixed = (
+    currency: string,
+    key: MessageCategory | "free",
     value: string
   ) =>
     setDraft((prev) => ({
       ...prev,
-      [category]: { ...prev[category], [field]: value },
+      fixed: {
+        ...prev.fixed,
+        [currency]: { ...prev.fixed[currency], [key]: value },
+      },
     }));
 
   const invalid =
-    !valid(draft.free) ||
-    MESSAGE_CATEGORIES.some(
-      (category) =>
-        !valid(draft[category].fixed) || !valid(draft[category].percent)
+    MESSAGE_CATEGORIES.some((category) => !valid(draft.percent[category])) ||
+    columns.some((currency) =>
+      [...MESSAGE_CATEGORIES, "free" as const].some(
+        (key) => !valid(draft.fixed[currency][key])
+      )
     );
 
   const save = async () => {
     if (invalid) return;
     setBusy("save");
+    const base = draft.fixed[MARKUP_BASE_CURRENCY];
     const entry = (category: MessageCategory) => ({
-      fixed: Number(draft[category].fixed),
-      percent: Number(draft[category].percent),
+      fixed: Number(base[category]),
+      percent: Number(draft.percent[category]),
     });
     try {
       await setMarkups({
@@ -118,10 +145,22 @@ export function MarkupDialog({
         utility: entry("utility"),
         marketing: entry("marketing"),
         authentication: entry("authentication"),
-        free: Number(draft.free),
+        free: Number(base.free),
+        byCurrency: columns
+          .filter((currency) => currency !== MARKUP_BASE_CURRENCY)
+          .map((currency) => ({
+            currency,
+            service: Number(draft.fixed[currency].service),
+            utility: Number(draft.fixed[currency].utility),
+            marketing: Number(draft.fixed[currency].marketing),
+            authentication: Number(draft.fixed[currency].authentication),
+            free: Number(draft.fixed[currency].free),
+          })),
       });
       toast.add({
-        title: workspaceName ? `Markup saved for ${workspaceName}` : "Default markup saved",
+        title: workspaceName
+          ? `Markup saved for ${workspaceName}`
+          : "Default markup saved",
         type: "success",
       });
       setOpen(false);
@@ -157,130 +196,156 @@ export function MarkupDialog({
     }
   };
 
+  const grid = {
+    gridTemplateColumns: `minmax(0,1fr) repeat(${columns.length}, 7rem) 5.5rem`,
+  };
+  const box = (
+    currency: string,
+    key: MessageCategory | "free",
+    label: string
+  ) => (
+    <div className="relative" key={currency}>
+      <Input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step="any"
+        value={draft.fixed[currency][key]}
+        aria-label={label}
+        aria-invalid={!valid(draft.fixed[currency][key]) || undefined}
+        className="pr-11 text-right tabular-nums"
+        onChange={(event) => setFixed(currency, key, event.target.value)}
+      />
+      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 font-mono text-[10px] text-muted-foreground">
+        {currency}
+      </span>
+    </div>
+  );
+
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) setDraft(draftOf(current ?? fallback ?? null));
+        if (next) setDraft(draftOf(current ?? fallback ?? null, columns));
         setOpen(next);
       }}
     >
       <DialogTrigger render={trigger} />
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {workspaceName ? `Markup for ${workspaceName}` : "Default markup"}
           </DialogTitle>
           <DialogDescription>
-            Added on top of Meta&apos;s rate for each message: a fixed amount, a
-            percentage of Meta&apos;s rate, or both. Applies to messages sent
-            from now on.
+            Added on top of Meta&apos;s rate for each message: a percentage of
+            Meta&apos;s rate, plus a fixed amount in the currency the account is
+            billed in. Applies to messages sent from now on.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
-          {MESSAGE_CATEGORIES.map((category) => {
-            const fixed = draft[category].fixed;
-            const percent = draft[category].percent;
-            const cost = sample ? metaCostOf(sample, category) : null;
-            const price =
-              cost !== null && valid(fixed) && valid(percent)
-                ? cost +
-                  markupOn(cost, {
-                    fixedMicros: toMicros(Number(fixed)),
-                    percent: Number(percent),
-                  })
-                : null;
-            return (
-              <div
-                key={category}
-                className="grid items-center gap-x-3 gap-y-2 sm:grid-cols-[1fr_7.5rem_6rem]"
-              >
-                <div className="min-w-0">
-                  <Label
-                    htmlFor={`markup-${category}-fixed`}
-                    className="flex items-center gap-2"
-                  >
-                    <CategoryDot category={category} />
-                    {CATEGORY_LABELS[category]}
-                  </Label>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {cost !== null && price !== null && sample
-                      ? `${sample.label}: Meta ${money(cost)} → ${money(price)}`
-                      : CATEGORY_HINTS[category]}
-                  </p>
-                </div>
-                <div className="relative">
-                  <Input
-                    id={`markup-${category}-fixed`}
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="any"
-                    value={fixed}
-                    aria-label={`${CATEGORY_LABELS[category]} fixed markup`}
-                    aria-invalid={!valid(fixed) || undefined}
-                    className="pr-12 text-right tabular-nums"
-                    onChange={(event) => setField(category, "fixed", event.target.value)}
-                  />
-                  <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 font-mono text-xs text-muted-foreground">
-                    {currency}
-                  </span>
-                </div>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="any"
-                    value={percent}
-                    aria-label={`${CATEGORY_LABELS[category]} percentage markup`}
-                    aria-invalid={!valid(percent) || undefined}
-                    className="pr-7 text-right tabular-nums"
-                    onChange={(event) => setField(category, "percent", event.target.value)}
-                  />
-                  <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground">
-                    %
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-
-          <div className="grid items-center gap-x-3 gap-y-2 border-t pt-3 sm:grid-cols-[1fr_7.5rem_6rem]">
-            <div className="min-w-0">
-              <Label htmlFor="markup-free">Messages Meta does not charge</Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                The monthly free service messages and replies to ads. Zero
-                makes them free for the account too.
-              </p>
+        <div className="-mx-1 overflow-x-auto px-1">
+          <div className="flex min-w-xl flex-col gap-3">
+            <div
+              className="grid items-end gap-x-3 text-xs text-muted-foreground"
+              style={grid}
+            >
+              <span />
+              {columns.map((currency) => (
+                <span key={currency} className="text-right">
+                  Fixed · {currency}
+                </span>
+              ))}
+              <span className="text-right">% of Meta</span>
             </div>
-            <div className="relative">
-              <Input
-                id="markup-free"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="any"
-                value={draft.free}
-                aria-invalid={!valid(draft.free) || undefined}
-                className="pr-12 text-right tabular-nums"
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, free: event.target.value }))
-                }
-              />
-              <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 font-mono text-xs text-muted-foreground">
-                {currency}
-              </span>
+
+            {MESSAGE_CATEGORIES.map((category) => {
+              const percent = draft.percent[category];
+              const fixed =
+                draft.fixed[sample?.currency ?? MARKUP_BASE_CURRENCY]?.[
+                  category
+                ];
+              const cost = sample ? metaCostOf(sample, category) : null;
+              const price =
+                cost !== null &&
+                fixed !== undefined &&
+                valid(fixed) &&
+                valid(percent)
+                  ? cost +
+                    toMicros(Number(fixed)) +
+                    Math.round((cost * Number(percent)) / 100)
+                  : null;
+              const money = (micros: number) =>
+                formatMoney(micros, sample?.currency ?? MARKUP_BASE_CURRENCY);
+              return (
+                <div
+                  key={category}
+                  className="grid items-center gap-x-3"
+                  style={grid}
+                >
+                  <div className="min-w-0">
+                    <Label className="flex items-center gap-2">
+                      <CategoryDot category={category} />
+                      {CATEGORY_LABELS[category]}
+                    </Label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {cost !== null && price !== null && sample
+                        ? `${sample.label}: Meta ${money(cost)} → ${money(price)}`
+                        : CATEGORY_HINTS[category]}
+                    </p>
+                  </div>
+                  {columns.map((currency) =>
+                    box(
+                      currency,
+                      category,
+                      `${CATEGORY_LABELS[category]} fixed markup in ${currency}`
+                    )
+                  )}
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="any"
+                      value={percent}
+                      aria-label={`${CATEGORY_LABELS[category]} percentage markup`}
+                      aria-invalid={!valid(percent) || undefined}
+                      className="pr-7 text-right tabular-nums"
+                      onChange={(event) =>
+                        setPercent(category, event.target.value)
+                      }
+                    />
+                    <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground">
+                      %
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+
+            <div
+              className="grid items-center gap-x-3 border-t pt-3"
+              style={grid}
+            >
+              <div className="min-w-0">
+                <Label>Messages Meta does not charge</Label>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The monthly free service messages and replies to ads. Zero
+                  makes them free for the account too.
+                </p>
+              </div>
+              {columns.map((currency) =>
+                box(currency, "free", `Free-message fee in ${currency}`)
+              )}
+              <span />
             </div>
           </div>
-
-          {invalid ? (
-            <p className="text-xs text-destructive">
-              Every box needs a number, zero or more.
-            </p>
-          ) : null}
         </div>
+
+        {invalid ? (
+          <p className="text-xs text-destructive">
+            Every box needs a number, zero or more.
+          </p>
+        ) : null}
 
         <DialogFooter className="sm:justify-between">
           {custom ? (
@@ -298,7 +363,10 @@ export function MarkupDialog({
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button disabled={busy !== null || invalid} onClick={() => void save()}>
+            <Button
+              disabled={busy !== null || invalid}
+              onClick={() => void save()}
+            >
               {busy === "save" ? <Spinner /> : null} Save markup
             </Button>
           </div>

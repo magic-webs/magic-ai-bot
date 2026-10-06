@@ -52,11 +52,7 @@ export async function charge(
     category: args.category,
     at: now,
   });
-  let currency = priced.currency;
-  if (!currency) {
-    const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    currency = workspace?.currency ?? "INR";
-  }
+  const currency = priced.currency;
 
   const preview = args.preview?.replace(/\s+/g, " ").trim();
   const eventId = await ctx.db.insert("billingEvents", {
@@ -107,9 +103,17 @@ async function rebill(
   if (currency === event.currency) {
     const delta = amountMicros - event.amountMicros;
     if (delta > 0) {
-      await debitWallet(ctx, { workspaceId: event.workspaceId, currency, amountMicros: delta });
+      await debitWallet(ctx, {
+        workspaceId: event.workspaceId,
+        currency,
+        amountMicros: delta,
+      });
     } else if (delta < 0) {
-      await refundWallet(ctx, { workspaceId: event.workspaceId, currency, amountMicros: -delta });
+      await refundWallet(ctx, {
+        workspaceId: event.workspaceId,
+        currency,
+        amountMicros: -delta,
+      });
     }
     return;
   }
@@ -118,7 +122,11 @@ async function rebill(
     currency: event.currency,
     amountMicros: event.amountMicros,
   });
-  await debitWallet(ctx, { workspaceId: event.workspaceId, currency, amountMicros });
+  await debitWallet(ctx, {
+    workspaceId: event.workspaceId,
+    currency,
+    amountMicros,
+  });
 }
 
 /**
@@ -142,7 +150,7 @@ export async function settle(
     international: meta?.international,
     at: event.createdAt,
   });
-  const currency = priced.currency ?? event.currency;
+  const currency = priced.currency;
   await rebill(ctx, event, currency, priced.amountMicros);
   await ctx.db.patch("billingEvents", event._id, {
     category,

@@ -24,12 +24,7 @@ import { ratesFor, ratesInForce } from "@/components/billing/pricing";
 import { marketLabel } from "@/convex/lib/markets";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Empty,
   EmptyHeader,
@@ -140,10 +135,10 @@ export function BillingPanel({ days }: { days: number }) {
         workspaceName={workspace.name}
         current={markups.own}
         fallback={markups.default}
-        currency={data.currency}
+        currencies={meta?.currencies ?? [data.currency]}
         sample={ratesFor(
           ratesInForce(
-            (meta?.rows ?? []).filter((row) => row.currency === meta?.currency),
+            (meta?.rows ?? []).filter((row) => row.currency === data.currency),
             now
           ),
           data.prices?.market ?? "IN"
@@ -183,7 +178,9 @@ export function BillingPanel({ days }: { days: number }) {
       {data.otherCurrencies.length > 0 ? (
         <Alert>
           <WarningIcon />
-          <AlertTitle>Some of this period was billed in another currency</AlertTitle>
+          <AlertTitle>
+            Some of this period was billed in another currency
+          </AlertTitle>
           <AlertDescription>
             The rates changed currency during the period. Also billed:{" "}
             {data.otherCurrencies
@@ -396,7 +393,9 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
                     <TableHead className="min-w-36">To</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="hidden md:table-cell">By</TableHead>
-                    <TableHead className="hidden lg:table-cell">Message</TableHead>
+                    <TableHead className="hidden lg:table-cell">
+                      Message
+                    </TableHead>
                     <TableHead className="text-right">Charge</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -412,7 +411,9 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {row.contactName ? (
-                            <span className="font-mono">+{row.to.replace(/^\+/, "")}</span>
+                            <span className="font-mono">
+                              +{row.to.replace(/^\+/, "")}
+                            </span>
                           ) : null}
                           {row.contactName && row.market ? " · " : null}
                           {row.market ? marketLabel(row.market) : null}

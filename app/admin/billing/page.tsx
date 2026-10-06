@@ -19,6 +19,7 @@ import {
   MetaRatesDialog,
 } from "@/components/billing/meta-rates";
 import {
+  describeFree,
   describeMarkup,
   priceOf,
   ratesInForce,
@@ -51,12 +52,17 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 
-type Spend = Array<{ currency: string; amountMicros: number; messages: number }>;
+type Spend = Array<{
+  currency: string;
+  amountMicros: number;
+  messages: number;
+}>;
 type Margin = Array<{ currency: string; marginMicros: number }>;
 
 /** Several currencies side by side, never summed. */
 function SpendList({ spend, locale }: { spend: Spend; locale?: string }) {
-  if (spend.length === 0) return <span className="text-muted-foreground">—</span>;
+  if (spend.length === 0)
+    return <span className="text-muted-foreground">—</span>;
   return (
     <span className="flex flex-col items-end gap-0.5">
       {spend.map((row) => (
@@ -69,7 +75,8 @@ function SpendList({ spend, locale }: { spend: Spend; locale?: string }) {
 }
 
 function MarginList({ margin, locale }: { margin: Margin; locale?: string }) {
-  if (margin.length === 0) return <span className="text-muted-foreground">—</span>;
+  if (margin.length === 0)
+    return <span className="text-muted-foreground">—</span>;
   return (
     <span className="flex flex-col items-end gap-0.5">
       {margin.map((row) => (
@@ -91,11 +98,15 @@ export default function AdminBillingPage() {
   });
   const meta = useQuery(api.billing.metaRates, {});
   const currency = meta?.currency ?? "INR";
-  const inForce = ratesInForce(
-    (meta?.rows ?? []).filter((row) => row.currency === currency),
-    now
-  );
+  const currencies = meta?.currencies ?? [currency];
+  const inForceIn = (code: string) =>
+    ratesInForce(
+      (meta?.rows ?? []).filter((row) => row.currency === code),
+      now
+    );
+  const inForce = inForceIn(currency);
   const india = inForce.get("IN");
+  const indiaIn = (code: string) => inForceIn(code).get("IN");
   const money = (micros: number) => formatMoney(micros, currency);
 
   const needle = search.trim().toLowerCase();
@@ -115,8 +126,8 @@ export default function AdminBillingPage() {
             Message billing
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Meta&apos;s rate for each WhatsApp message plus the platform
-            markup, what each account consumed, and what the platform kept.
+            Meta&apos;s rate for each WhatsApp message plus the platform markup,
+            what each account consumed, and what the platform kept.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -171,7 +182,11 @@ export default function AdminBillingPage() {
                       billedIn={currency}
                       now={now}
                       trigger={
-                        <Button size="icon-sm" variant="outline" aria-label="Every market">
+                        <Button
+                          size="icon-sm"
+                          variant="outline"
+                          aria-label="Every market"
+                        >
                           <TableIcon />
                         </Button>
                       }
@@ -191,7 +206,10 @@ export default function AdminBillingPage() {
                 {india ? (
                   <ul className="flex flex-col gap-1.5 text-sm">
                     {MESSAGE_CATEGORIES.map((category) => (
-                      <li key={category} className="flex items-center justify-between gap-2">
+                      <li
+                        key={category}
+                        className="flex items-center justify-between gap-2"
+                      >
                         <span className="flex items-center gap-2 text-muted-foreground">
                           <CategoryDot category={category} />
                           {CATEGORY_LABELS[category]}
@@ -223,7 +241,7 @@ export default function AdminBillingPage() {
                 </div>
                 <MarkupDialog
                   current={data.defaultMarkups}
-                  currency={currency}
+                  currencies={currencies}
                   sample={india}
                   trigger={
                     <Button size="sm" variant="outline">
@@ -237,25 +255,37 @@ export default function AdminBillingPage() {
                 {data.defaultMarkups ? (
                   <ul className="flex flex-col gap-1.5 text-sm">
                     {MESSAGE_CATEGORIES.map((category) => (
-                      <li key={category} className="flex items-center justify-between gap-2">
+                      <li
+                        key={category}
+                        className="flex items-center justify-between gap-2"
+                      >
                         <span className="flex items-center gap-2 text-muted-foreground">
                           <CategoryDot category={category} />
                           {CATEGORY_LABELS[category]}
                         </span>
                         <span className="text-right tabular-nums">
-                          {describeMarkup(data.defaultMarkups![category], money)}
+                          {describeMarkup(
+                            data.defaultMarkups!,
+                            category,
+                            currencies
+                          )}
                           {india ? (
                             <span className="ml-2 text-xs text-muted-foreground">
-                              = {money(priceOf(india, data.defaultMarkups, category))}
+                              ={" "}
+                              {money(
+                                priceOf(india, data.defaultMarkups, category)
+                              )}
                             </span>
                           ) : null}
                         </span>
                       </li>
                     ))}
                     <li className="flex items-center justify-between gap-2 border-t pt-1.5">
-                      <span className="text-muted-foreground">Free from Meta</span>
+                      <span className="text-muted-foreground">
+                        Free from Meta
+                      </span>
                       <span className="tabular-nums">
-                        {money(data.defaultMarkups.freeMicros)}
+                        {describeFree(data.defaultMarkups, currencies)}
                       </span>
                     </li>
                   </ul>
@@ -301,7 +331,9 @@ export default function AdminBillingPage() {
                     </span>
                   </div>
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-muted-foreground">Margin over Meta</span>
+                    <span className="text-muted-foreground">
+                      Margin over Meta
+                    </span>
                     <span className="text-right font-medium tabular-nums">
                       <MarginList margin={data.totals.margin} />
                     </span>
@@ -317,8 +349,8 @@ export default function AdminBillingPage() {
               <div>
                 <CardTitle>Accounts</CardTitle>
                 <CardDescription>
-                  Price per message to India, and what each account consumed
-                  in the period. Open one for its per-message ledger.
+                  Price per message to India, and what each account consumed in
+                  the period. Open one for its per-message ledger.
                 </CardDescription>
               </div>
               <div className="relative w-full sm:w-64">
@@ -366,6 +398,7 @@ export default function AdminBillingPage() {
                   <TableBody>
                     {rows.map((row) => {
                       const markups = row.markups ?? data.defaultMarkups;
+                      const rates = indiaIn(row.billedIn);
                       return (
                         <TableRow key={row.workspaceId}>
                           <TableCell className="max-w-64 min-w-0">
@@ -387,11 +420,12 @@ export default function AdminBillingPage() {
                                   ) : null}
                                 </span>
                                 <span className="truncate text-xs text-muted-foreground">
+                                  {row.billedIn} ·{" "}
                                   {row.markups
-                                    ? "Own markup"
+                                    ? "own markup"
                                     : data.defaultMarkups
-                                      ? "Default markup"
-                                      : "No markup"}
+                                      ? "default markup"
+                                      : "no markup"}
                                 </span>
                               </span>
                             </Link>
@@ -401,15 +435,15 @@ export default function AdminBillingPage() {
                               key={category}
                               className="hidden text-right whitespace-nowrap tabular-nums md:table-cell"
                             >
-                              {india ? (
+                              {rates ? (
                                 <span
                                   className={
                                     row.markups ? "" : "text-muted-foreground"
                                   }
                                 >
                                   {formatMoney(
-                                    priceOf(india, markups, category),
-                                    india.currency,
+                                    priceOf(rates, markups, category),
+                                    rates.currency,
                                     row.locale
                                   )}
                                 </span>
@@ -428,7 +462,10 @@ export default function AdminBillingPage() {
                             <SpendList spend={row.spend} locale={row.locale} />
                           </TableCell>
                           <TableCell className="hidden text-right whitespace-nowrap tabular-nums sm:table-cell">
-                            <MarginList margin={row.margin} locale={row.locale} />
+                            <MarginList
+                              margin={row.margin}
+                              locale={row.locale}
+                            />
                           </TableCell>
                           <TableCell>
                             <MarkupDialog
@@ -436,8 +473,8 @@ export default function AdminBillingPage() {
                               workspaceName={row.name}
                               current={row.markups}
                               fallback={data.defaultMarkups}
-                              currency={currency}
-                              sample={india}
+                              currencies={currencies}
+                              sample={rates}
                               trigger={
                                 <Button
                                   size="icon-sm"
@@ -462,7 +499,10 @@ export default function AdminBillingPage() {
                             key={category}
                             className="hidden text-right text-[11px] text-muted-foreground md:table-cell"
                           >
-                            {data.deleted!.byCategory[category].toLocaleString()} sent
+                            {data.deleted!.byCategory[
+                              category
+                            ].toLocaleString()}{" "}
+                            sent
                           </TableCell>
                         ))}
                         <TableCell className="text-right tabular-nums">

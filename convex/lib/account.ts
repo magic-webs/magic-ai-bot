@@ -9,9 +9,12 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { getPrincipal, isFullAdmin } from "./auth";
+import { currencyOf, guessCurrency } from "./currency";
 import {
-  DEFAULT_RECHARGE_MICROS,
   DEFAULT_SETTINGS,
+  defaultRechargeIn,
+  planCurrency,
+  termsIn,
   accessOf,
   hasRoomFor,
   seatUsage,
@@ -31,6 +34,28 @@ export async function billingSettings(
   ctx: Ctx
 ): Promise<Doc<"billingSettings"> | null> {
   return await ctx.db.query("billingSettings").first();
+}
+
+/**
+ * The settings as this workspace is billed: its account's currency, with
+ * that currency's GST, extra agent and wallet terms.
+ */
+export async function billingTermsFor(
+  ctx: Ctx,
+  workspaceId: Id<"workspaces">
+): Promise<{
+  settings: Doc<"billingSettings">;
+  account: Doc<"billingAccounts"> | null;
+  currency: string;
+} | null> {
+  const base = await billingSettings(ctx);
+  if (!base) return null;
+  const account = await accountFor(ctx, workspaceId);
+  const workspace = account
+    ? null
+    : await ctx.db.get("workspaces", workspaceId);
+  const currency = currencyOf(base, account, workspace);
+  return { settings: termsIn(base, currency), account, currency };
 }
 
 export async function accountFor(
@@ -69,7 +94,15 @@ export async function planFor(
     if (trial) return trial;
   }
   const plans = await allPlans(ctx);
-  return plans.find((plan) => plan.status === "active") ?? plans[0] ?? null;
+  const own = settings
+    ? plans.filter((plan) => planCurrency(plan) === settings.currency)
+    : plans;
+  return (
+    own.find((plan) => plan.status === "active") ??
+    plans.find((plan) => plan.status === "active") ??
+    plans[0] ??
+    null
+  );
 }
 
 export async function liveSubscription(
@@ -95,18 +128,25 @@ export async function ensureAccount(
   const existing = await accountFor(ctx, workspaceId);
   if (existing) return existing;
 
-  const settings = await billingSettings(ctx);
+  const base = await billingSettings(ctx);
   const workspace = await ctx.db.get("workspaces", workspaceId);
   if (!workspace) throw new Error("Workspace not found");
+  const currency = base ? guessCurrency(base, workspace) : undefined;
+  const settings = base && currency ? termsIn(base, currency) : base;
 
   const now = Date.now();
   const accountId = await ctx.db.insert("billingAccounts", {
     workspaceId,
+    currency,
     extraAgents: 0,
     mode: "trial",
     lowBalanceThresholdMicros:
-      settings?.defaultThresholdMicros ?? DEFAULT_SETTINGS.defaultThresholdMicros,
-    autoRecharge: { enabled: false, amountMicros: DEFAULT_RECHARGE_MICROS },
+      settings?.defaultThresholdMicros ??
+      DEFAULT_SETTINGS.defaultThresholdMicros,
+    autoRecharge: {
+      enabled: false,
+      amountMicros: defaultRechargeIn(settings ?? DEFAULT_SETTINGS),
+    },
     createdAt: now,
     updatedAt: now,
   });
@@ -126,8 +166,12 @@ export function billingContact(
 ): { name: string; email: string; phone: string } {
   return {
     name: account?.billingName?.trim() || workspace.name,
-    email: account?.billingEmail?.trim() || workspace.supportEmail?.trim() || "",
-    phone: (account?.billingPhone || workspace.supportPhone || "").replace(/[\s-]/g, ""),
+    email:
+      account?.billingEmail?.trim() || workspace.supportEmail?.trim() || "",
+    phone: (account?.billingPhone || workspace.supportPhone || "").replace(
+      /[\s-]/g,
+      ""
+    ),
   };
 }
 
@@ -178,8 +222,11 @@ export async function standingOf(
   /** Already read, when the caller is going through many accounts. */
   known?: { settings: Doc<"billingSettings"> | null }
 ): Promise<Standing> {
-  const settings = known ? known.settings : await billingSettings(ctx);
+  const base = known ? known.settings : await billingSettings(ctx);
   const account = await accountFor(ctx, workspace._id);
+  const settings = base
+    ? termsIn(base, currencyOf(base, account, workspace))
+    : null;
   const plan = settings ? await planFor(ctx, settings, account) : null;
   const subscription = await liveSubscription(ctx, account);
   const used = await seatsInUse(ctx, workspace._id);

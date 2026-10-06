@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import {
+  useAction,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -101,7 +106,8 @@ const LIVE = new Set(LIVE_STATUSES);
 /** Still being charged, or being retried — what the company pays, and can cancel. */
 const CHARGING = new Set([...LIVE_STATUSES, "pending", "halted"]);
 
-const agents = (count: number) => `${count} ${count === 1 ? "agent" : "agents"}`;
+const agents = (count: number) =>
+  `${count} ${count === 1 ? "agent" : "agents"}`;
 
 /**
  * Checkout closed by the person is a choice, not a failure: it is said
@@ -111,7 +117,8 @@ function report(title: string, error: unknown) {
   if (error instanceof CheckoutClosed) {
     toast.add({
       title: "Payment not completed",
-      description: "The Razorpay window was closed before it finished. Nothing has changed.",
+      description:
+        "The Razorpay window was closed before it finished. Nothing has changed.",
     });
     return;
   }
@@ -148,7 +155,9 @@ export function PlanTab() {
           <EmptyMedia variant="icon">
             <ReceiptIcon />
           </EmptyMedia>
-          <EmptyTitle>Plans aren&apos;t switched on for this platform yet</EmptyTitle>
+          <EmptyTitle>
+            Plans aren&apos;t switched on for this platform yet
+          </EmptyTitle>
         </EmptyHeader>
       </Empty>
     );
@@ -183,7 +192,9 @@ export function PlanTab() {
       ) : !data.isOwner ? (
         <Alert>
           <ReceiptIcon />
-          <AlertTitle>Only the account&apos;s own login can change the plan</AlertTitle>
+          <AlertTitle>
+            Only the account&apos;s own login can change the plan
+          </AlertTitle>
           <AlertDescription>
             You can see what the workspace is on and what it pays. Ask whoever
             manages the account to change the plan or add extra agents.
@@ -236,8 +247,10 @@ function keyDates(data: Enabled): KeyDate[] {
   }
   if (!subscription) return rows;
 
-  const next = subscription.chargeAt ?? subscription.currentEnd ?? subscription.startAt;
-  const end = subscription.currentEnd ?? subscription.chargeAt ?? subscription.startAt;
+  const next =
+    subscription.chargeAt ?? subscription.currentEnd ?? subscription.startAt;
+  const end =
+    subscription.currentEnd ?? subscription.chargeAt ?? subscription.startAt;
   if (LIVE.has(subscription.status)) {
     if (subscription.cancelAtCycleEnd) {
       if (end) rows.push({ label: "Ends on", at: end });
@@ -248,7 +261,11 @@ function keyDates(data: Enabled): KeyDate[] {
         at: next,
       });
     }
-  } else if (!CHARGING.has(subscription.status) && access.state === "active" && access.until) {
+  } else if (
+    !CHARGING.has(subscription.status) &&
+    access.state === "active" &&
+    access.until
+  ) {
     // Cancelled, and running on to the end of the month it paid for.
     rows.push({ label: "Ends on", at: access.until });
   }
@@ -256,7 +273,7 @@ function keyDates(data: Enabled): KeyDate[] {
 }
 
 function StatusCard({ data, now }: { data: Enabled; now: number }) {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const cancelSubscription = useAction(api.razorpay.cancelSubscription);
   const refresh = useAction(api.razorpay.refresh);
@@ -350,7 +367,9 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
         {!manual && monthly ? (
           <div className="flex flex-col gap-1.5">
             <p className="text-xs tracking-wide text-muted-foreground uppercase">
-              {charging ? "What you pay each month" : "What this plan costs each month"}
+              {charging
+                ? "What you pay each month"
+                : "What this plan costs each month"}
             </p>
             <p className="flex flex-wrap items-baseline gap-x-1.5">
               <span className="font-heading text-4xl leading-none font-semibold tracking-tight tabular-nums">
@@ -360,8 +379,11 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
             </p>
             <p className="text-sm text-muted-foreground tabular-nums">
               {plan?.name ?? "Plan"}
-              {extras > 0 ? ` + ${extras} extra ${extras === 1 ? "agent" : "agents"}` : ""}{" "}
-              {money(monthly.subtotal)} · {monthly.gstLabel} {money(monthly.gst)}
+              {extras > 0
+                ? ` + ${extras} extra ${extras === 1 ? "agent" : "agents"}`
+                : ""}{" "}
+              {money(monthly.subtotal)} · {monthly.gstLabel}{" "}
+              {money(monthly.gst)}
             </p>
           </div>
         ) : null}
@@ -371,7 +393,11 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
             plan={plan}
             seat={
               priced
-                ? { priceMicros: priced.seatMicros, listMicros: priced.seatListMicros }
+                ? {
+                    priceMicros: priced.seatMicros,
+                    listMicros: priced.seatListMicros,
+                    currency: data.pricing.currency,
+                  }
                 : undefined
             }
           />
@@ -383,7 +409,9 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
             <AlertTitle>A checkout hasn&apos;t been authorised yet</AlertTitle>
             <AlertDescription>
               {pendingPlan ? `The ${pendingPlan.name} plan` : "A plan"}
-              {pending.extraAgents > 0 ? ` with ${pending.extraAgents} extra ${pending.extraAgents === 1 ? "agent" : "agents"}` : ""}{" "}
+              {pending.extraAgents > 0
+                ? ` with ${pending.extraAgents} extra ${pending.extraAgents === 1 ? "agent" : "agents"}`
+                : ""}{" "}
               was started {daysFrom(pending.createdAt, now)} and Razorpay
               hasn&apos;t confirmed it.
               {data.isOwner
@@ -554,7 +582,12 @@ function SeatsCard({ data }: { data: Enabled }) {
               {rows.map((row) => {
                 const Icon = row.icon;
                 const over = row.used > row.of;
-                const share = row.of > 0 ? Math.min(1, row.used / row.of) : row.used > 0 ? 1 : 0;
+                const share =
+                  row.of > 0
+                    ? Math.min(1, row.used / row.of)
+                    : row.used > 0
+                      ? 1
+                      : 0;
                 return (
                   <li key={row.label} className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between gap-3 text-sm">
@@ -625,7 +658,7 @@ function SeatsCard({ data }: { data: Enabled }) {
 // ---------------------------------------------------------------------------
 
 function PlanPicker({ data }: { data: Enabled }) {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const startSubscription = useAction(api.razorpay.startSubscription);
   const confirmSubscription = useAction(api.razorpay.confirmSubscription);
@@ -647,7 +680,9 @@ function PlanPicker({ data }: { data: Enabled }) {
     null;
 
   const [chosenId, setChosenId] = useState(initial?._id ?? null);
-  const [extras, setExtras] = useState(() => (initial ? suggested(initial) : 0));
+  const [extras, setExtras] = useState(() =>
+    initial ? suggested(initial) : 0
+  );
   const [busy, setBusy] = useState(false);
 
   const chosen = plans.find((row) => row._id === chosenId) ?? null;
@@ -671,7 +706,10 @@ function PlanPicker({ data }: { data: Enabled }) {
   };
   const setClamped = (value: number) =>
     setExtras(
-      Math.min(MAX_EXTRA_AGENTS, Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0))
+      Math.min(
+        MAX_EXTRA_AGENTS,
+        Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0)
+      )
     );
 
   const needed = extrasNeeded(chosen, used);
@@ -682,7 +720,11 @@ function PlanPicker({ data }: { data: Enabled }) {
     settings: data.pricing,
     account: data.accountPricing,
   });
-  const seat = { priceMicros: summary.seatMicros, listMicros: summary.seatListMicros };
+  const seat = {
+    priceMicros: summary.seatMicros,
+    listMicros: summary.seatListMicros,
+    currency: data.pricing.currency,
+  };
 
   const same =
     live !== null && live.planId === chosen._id && live.extraAgents === extras;
@@ -711,7 +753,9 @@ function PlanPicker({ data }: { data: Enabled }) {
         response.razorpay_subscription_id ??
         (options.kind === "subscription" ? options.subscriptionId : undefined);
       if (!razorpaySubscriptionId) {
-        throw new Error("Razorpay did not say which subscription was authorised.");
+        throw new Error(
+          "Razorpay did not say which subscription was authorised."
+        );
       }
       await confirmSubscription({
         workspaceId: workspace._id,
@@ -721,7 +765,9 @@ function PlanPicker({ data }: { data: Enabled }) {
       });
       const startAt = options.kind === "subscription" ? options.startAt : null;
       toast.add({
-        title: live ? `Switched to the ${chosen.name} plan` : `You're on the ${chosen.name} plan`,
+        title: live
+          ? `Switched to the ${chosen.name} plan`
+          : `You're on the ${chosen.name} plan`,
         description: startAt
           ? `Its limits apply now. Nothing is charged until ${formatDay(startAt)}, and the ₹5 authorisation is refunded.`
           : "Its limits apply now, and Razorpay charges it each month from here.",
@@ -773,7 +819,9 @@ function PlanPicker({ data }: { data: Enabled }) {
                       {plan.name}
                     </button>
                     {plan.highlighted ? <Badge>Most popular</Badge> : null}
-                    {isCurrent ? <Badge variant="outline">Current</Badge> : null}
+                    {isCurrent ? (
+                      <Badge variant="outline">Current</Badge>
+                    ) : null}
                     {plan.status === "hidden" ? (
                       <Badge variant="secondary">No longer on sale</Badge>
                     ) : null}
@@ -782,6 +830,7 @@ function PlanPicker({ data }: { data: Enabled }) {
                     <StrikePrice
                       priceMicros={plan.priceMicros}
                       listMicros={plan.listPriceMicros}
+                      currency={data.pricing.currency}
                       className="font-heading text-3xl font-semibold tracking-tight tabular-nums"
                       listClassName="text-[0.6em]"
                     />
@@ -822,6 +871,7 @@ function PlanPicker({ data }: { data: Enabled }) {
                 <StrikePrice
                   priceMicros={summary.seatMicros}
                   listMicros={summary.seatListMicros}
+                  currency={data.pricing.currency}
                   className="font-medium text-foreground"
                 />{" "}
                 each a month + GST
@@ -876,7 +926,9 @@ function PlanPicker({ data }: { data: Enabled }) {
                 <AlertDescription>
                   You can still go ahead. Afterwards, pause custom agents or
                   revoke logins until you are within the plan — or add{" "}
-                  {stranded === 1 ? "an extra agent" : `${stranded} more extra agents`}{" "}
+                  {stranded === 1
+                    ? "an extra agent"
+                    : `${stranded} more extra agents`}{" "}
                   here.
                 </AlertDescription>
               </Alert>
@@ -944,8 +996,8 @@ function PlanPicker({ data }: { data: Enabled }) {
               ) : null}
               {summary.totalMicros > APPROVAL_LIMIT_MICROS ? (
                 <p>
-                  At over ₹15,000 a month, card and UPI Autopay debits need
-                  your approval each time.
+                  At over ₹15,000 a month, card and UPI Autopay debits need your
+                  approval each time.
                 </p>
               ) : null}
             </div>
@@ -989,7 +1041,9 @@ function BillingDetails({
   canEdit: boolean;
 }) {
   const workspace = useWorkspace();
-  const updateBillingProfile = useMutation(api.subscriptions.updateBillingProfile);
+  const updateBillingProfile = useMutation(
+    api.subscriptions.updateBillingProfile
+  );
   const [draft, setDraft] = useState<Profile>(saved);
   const [busy, setBusy] = useState(false);
 
@@ -1117,7 +1171,7 @@ const STATUS: Record<
 };
 
 function PaymentHistory() {
-  const { money } = useMoney();
+  const { money } = useMoney(useWorkspace()._id);
   const workspace = useWorkspace();
   const { results, status, loadMore } = usePaginatedQuery(
     api.subscriptions.payments,
@@ -1177,7 +1231,8 @@ function PaymentHistory() {
                           </span>
                           {row.periodStart && row.periodEnd ? (
                             <span className="block truncate text-xs text-muted-foreground">
-                              {formatDay(row.periodStart)} – {formatDay(row.periodEnd)}
+                              {formatDay(row.periodStart)} –{" "}
+                              {formatDay(row.periodEnd)}
                             </span>
                           ) : null}
                           <span className="block text-xs text-muted-foreground md:hidden">
@@ -1200,7 +1255,9 @@ function PaymentHistory() {
                           <Badge
                             variant="secondary"
                             className={state.tone}
-                            title={row.status === "failed" ? row.error : undefined}
+                            title={
+                              row.status === "failed" ? row.error : undefined
+                            }
                           >
                             {state.label}
                           </Badge>

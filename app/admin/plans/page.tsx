@@ -8,15 +8,14 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { toMicros } from "@/convex/lib/billing";
 import { DEFAULT_PLANS, DEFAULT_SETTINGS, withGst } from "@/convex/lib/plans";
 import { SelectField } from "@/components/select-field";
-import { CurrencyPicker } from "@/components/regional-pickers";
 import {
   IncludedAgents,
   PlanFeatures,
   StrikePrice,
   currencySymbol,
   formatDay,
+  moneyIn,
   rupeesOf,
-  useMoney,
 } from "@/components/billing/plan-bits";
 import {
   AlertDialog,
@@ -30,6 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -213,82 +213,112 @@ function EnableBilling() {
 // Terms — GST, the trial, grace, extra agents and the wallet
 // ---------------------------------------------------------------------------
 
-type Terms = {
-  gstPercent: string;
+type General = {
   trialDays: string;
   graceDays: string;
   trialPlanId: string;
+};
+
+type CurrencyDraft = {
+  gstPercent: string;
   extraAgentList: string;
   extraAgentPrice: string;
   minTopUp: string;
   defaultThreshold: string;
+  welcomeBonus: string;
 };
 
-function termsOf(settings: Settings): Terms {
+type TermsRow = Catalogue["terms"][number];
+
+function generalOf(settings: Settings): General {
   return {
-    gstPercent: String(settings.gstPercent),
     trialDays: String(settings.trialDays),
     graceDays: String(settings.graceDays),
     trialPlanId: settings.trialPlanId ?? "",
-    extraAgentList: rupeesOf(settings.extraAgentListMicros),
-    extraAgentPrice: rupeesOf(settings.extraAgentPriceMicros),
-    minTopUp: rupeesOf(settings.minTopUpMicros),
-    defaultThreshold: rupeesOf(settings.defaultThresholdMicros),
   };
 }
 
-const WHOLE_TERMS = new Set<keyof Terms>(["trialDays", "graceDays"]);
-
-/** One box per currency with a bonus, and one for the billing currency. */
-function bonusOf(settings: Settings): Record<string, string> {
-  const bonus: Record<string, string> = {};
-  for (const entry of settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus) {
-    bonus[entry.currency] = rupeesOf(entry.amountMicros);
+function currencyDrafts(
+  settings: Settings,
+  terms: TermsRow[]
+): Record<string, CurrencyDraft> {
+  const bonus = settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus;
+  const drafts: Record<string, CurrencyDraft> = {};
+  for (const row of terms) {
+    drafts[row.currency] = {
+      gstPercent: String(row.gstPercent),
+      extraAgentList: rupeesOf(row.extraAgentListMicros),
+      extraAgentPrice: rupeesOf(row.extraAgentPriceMicros),
+      minTopUp: rupeesOf(row.minTopUpMicros),
+      defaultThreshold: rupeesOf(row.defaultThresholdMicros),
+      welcomeBonus: rupeesOf(
+        bonus.find((entry) => entry.currency === row.currency)?.amountMicros ??
+          0
+      ),
+    };
   }
-  bonus[settings.currency] ??= "0";
-  return bonus;
+  return drafts;
 }
+
+const same = <T extends Record<string, string>>(a: T, b: T) =>
+  Object.keys(a).every((key) => a[key] === b[key]);
 
 /**
  * The form starts from the saved settings and is remounted — keyed on
  * `updatedAt` by its caller — whenever they change, rather than copying them
  * into state from an effect: the save itself is one such change, and it
  * brings back what the server kept (a list price below the price is raised
- * to it), not what was typed.
+ * to it), not what was typed. Every currency's terms are in the one draft;
+ * the tab only picks which are on screen.
  */
 function TermsForm({
   settings,
+  terms,
   plans,
+  currency,
 }: {
   settings: Settings;
+  terms: TermsRow[];
   plans: PlanRow[];
+  /** The currency tab open on the page. */
+  currency: string;
 }) {
-  const { money, symbol } = useMoney();
+  const money = moneyIn(currency);
+  const symbol = currencySymbol(currency);
   const updateSettings = useMutation(api.plans.updateSettings);
-  const saved = termsOf(settings);
-  const [draft, setDraft] = useState<Terms>(saved);
-  const [currency, setCurrency] = useState(settings.currency);
-  const savedBonus = bonusOf(settings);
-  const [bonus, setBonus] = useState(savedBonus);
+  const savedGeneral = generalOf(settings);
+  const savedCurrencies = currencyDrafts(settings, terms);
+  const [general, setGeneral] = useState<General>(savedGeneral);
+  const [drafts, setDrafts] = useState(savedCurrencies);
+  const [defaultCurrency, setDefaultCurrency] = useState(settings.currency);
   const [busy, setBusy] = useState(false);
-  const bonusBoxes = { ...bonus, [currency]: bonus[currency] ?? "0" };
+  const draft = drafts[currency];
 
-  const set = (key: keyof Terms) => (value: string) =>
-    setDraft((prev) => ({ ...prev, [key]: value }));
+  const setG = (key: keyof General) => (value: string) =>
+    setGeneral((prev) => ({ ...prev, [key]: value }));
+  const set = (key: keyof CurrencyDraft) => (value: string) =>
+    setDrafts((prev) => ({
+      ...prev,
+      [currency]: { ...prev[currency], [key]: value },
+    }));
 
-  const bad = (key: keyof Terms) => {
-    if (key === "trialPlanId") return false;
-    const value = num(draft[key]);
-    return !(value >= 0) || (WHOLE_TERMS.has(key) && !Number.isInteger(value));
+  const badNumber = (text: string, whole = false) => {
+    const value = num(text);
+    return !(value >= 0) || (whole && !Number.isInteger(value));
   };
-  const keys = Object.keys(draft) as Array<keyof Terms>;
-  const badBonus = (code: string) => !(num(bonusBoxes[code]) >= 0);
-  const invalid = keys.some(bad) || Object.keys(bonusBoxes).some(badBonus);
+  const badG = (key: keyof General) =>
+    key !== "trialPlanId" && badNumber(general[key], true);
+  const bad = (key: keyof CurrencyDraft) => badNumber(draft[key]);
+  const invalid =
+    (["trialDays", "graceDays"] as const).some(badG) ||
+    Object.values(drafts).some((row) =>
+      Object.values(row).some((text) => badNumber(text))
+    );
   const dirty =
-    keys.some((key) => draft[key] !== saved[key]) ||
-    currency !== settings.currency ||
-    Object.keys(bonusBoxes).some(
-      (code) => bonusBoxes[code] !== (savedBonus[code] ?? "0"),
+    !same(general, savedGeneral) ||
+    defaultCurrency !== settings.currency ||
+    Object.keys(drafts).some(
+      (code) => !same(drafts[code], savedCurrencies[code])
     );
 
   const gst = num(draft.gstPercent);
@@ -300,20 +330,20 @@ function TermsForm({
     setBusy(true);
     try {
       await updateSettings({
-        gstPercent: num(draft.gstPercent),
-        trialDays: num(draft.trialDays),
-        graceDays: num(draft.graceDays),
-        extraAgentList: num(draft.extraAgentList),
-        extraAgentPrice: num(draft.extraAgentPrice),
-        minTopUp: num(draft.minTopUp),
-        defaultThreshold: num(draft.defaultThreshold),
-        trialPlanId: draft.trialPlanId
-          ? (draft.trialPlanId as Id<"billingPlans">)
+        trialDays: num(general.trialDays),
+        graceDays: num(general.graceDays),
+        trialPlanId: general.trialPlanId
+          ? (general.trialPlanId as Id<"billingPlans">)
           : undefined,
-        currency,
-        welcomeBonus: Object.entries(bonusBoxes).map(([code, amount]) => ({
+        currency: defaultCurrency,
+        terms: Object.entries(drafts).map(([code, row]) => ({
           currency: code,
-          amount: num(amount),
+          gstPercent: num(row.gstPercent),
+          extraAgentList: num(row.extraAgentList),
+          extraAgentPrice: num(row.extraAgentPrice),
+          minTopUp: num(row.minTopUp),
+          defaultThreshold: num(row.defaultThreshold),
+          welcomeBonus: num(row.welcomeBonus),
         })),
       });
       toast.add({
@@ -334,19 +364,6 @@ function TermsForm({
       <CardContent className="flex flex-col gap-5">
         <div className="grid gap-3 sm:grid-cols-3">
           <Field
-            id="terms-gst"
-            label="GST"
-            hint="Added on top of every plan, extra agent and top-up."
-          >
-            <NumberInput
-              id="terms-gst"
-              suffix="%"
-              value={draft.gstPercent}
-              invalid={bad("gstPercent")}
-              onChange={set("gstPercent")}
-            />
-          </Field>
-          <Field
             id="terms-trial"
             label="Free trial"
             hint="From when billing went on, or a workspace's creation if later."
@@ -355,9 +372,9 @@ function TermsForm({
               id="terms-trial"
               suffix="days"
               whole
-              value={draft.trialDays}
-              invalid={bad("trialDays")}
-              onChange={set("trialDays")}
+              value={general.trialDays}
+              invalid={badG("trialDays")}
+              onChange={setG("trialDays")}
             />
           </Field>
           <Field
@@ -369,9 +386,25 @@ function TermsForm({
               id="terms-grace"
               suffix="days"
               whole
-              value={draft.graceDays}
-              invalid={bad("graceDays")}
-              onChange={set("graceDays")}
+              value={general.graceDays}
+              invalid={badG("graceDays")}
+              onChange={setG("graceDays")}
+            />
+          </Field>
+          <Field
+            id="terms-default-currency"
+            label="Default currency"
+            hint="For a new account that is neither Indian nor has a currency with terms. Indian businesses start in INR, others in USD."
+          >
+            <SelectField
+              id="terms-default-currency"
+              className="w-full"
+              value={defaultCurrency}
+              onValueChange={setDefaultCurrency}
+              options={Object.keys(drafts).map((code) => ({
+                value: code,
+                label: code,
+              }))}
             />
           </Field>
         </div>
@@ -391,19 +424,34 @@ function TermsForm({
           <SelectField
             id="terms-trial-plan"
             className="w-full sm:w-72"
-            value={draft.trialPlanId}
+            value={general.trialPlanId}
             placeholder="The first plan on sale"
-            onValueChange={set("trialPlanId")}
+            onValueChange={setG("trialPlanId")}
             options={plans.map((plan) => ({
               value: plan._id,
-              label:
-                plan.status === "hidden" ? `${plan.name} (hidden)` : plan.name,
+              label: `${plan.name} · ${plan.currency}${plan.status === "hidden" ? " (hidden)" : ""}`,
             }))}
           />
         </Field>
 
-        <div className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-3 border-t pt-5">
+          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            {currency} accounts
+          </span>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field
+              id="terms-gst"
+              label="GST"
+              hint="Added on top of every plan, extra agent and top-up."
+            >
+              <NumberInput
+                id="terms-gst"
+                suffix="%"
+                value={draft.gstPercent}
+                invalid={bad("gstPercent")}
+                onChange={set("gstPercent")}
+              />
+            </Field>
             <Field id="terms-extra-list" label="Extra agent · list price">
               <NumberInput
                 id="terms-extra-list"
@@ -437,7 +485,7 @@ function TermsForm({
                 {money(priceMicros)}
               </span>{" "}
               a month per extra agent
-              {gst >= 0
+              {gst > 0
                 ? `, ${money(withGst(priceMicros, gst).totalMicros)} with GST`
                 : ""}
               . One pool: each can be an AI agent or a human one.
@@ -446,77 +494,47 @@ function TermsForm({
                 : ""}
             </p>
           ) : null}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            id="terms-min-topup"
-            label="Minimum wallet top-up"
-            hint="The smallest wallet payment a company can make. At least ₹1."
-          >
-            <NumberInput
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field
               id="terms-min-topup"
-              prefix={symbol}
-              value={draft.minTopUp}
-              invalid={bad("minTopUp")}
-              onChange={set("minTopUp")}
-            />
-          </Field>
-          <Field
-            id="terms-threshold"
-            label="Default low-balance line"
-            hint="Below it the dashboard warns and auto-recharge fires. Each company can set its own."
-          >
-            <NumberInput
+              label="Minimum wallet top-up"
+              hint="The smallest wallet payment a company can make. At least 1."
+            >
+              <NumberInput
+                id="terms-min-topup"
+                prefix={symbol}
+                value={draft.minTopUp}
+                invalid={bad("minTopUp")}
+                onChange={set("minTopUp")}
+              />
+            </Field>
+            <Field
               id="terms-threshold"
-              prefix={symbol}
-              value={draft.defaultThreshold}
-              invalid={bad("defaultThreshold")}
-              onChange={set("defaultThreshold")}
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field
-            id="terms-currency"
-            label="Billing currency"
-            hint="Plans, wallets and Meta's message rates are in it. Changes only while every wallet is at zero and no subscription runs."
-          >
-            <CurrencyPicker
-              id="terms-currency"
-              value={currency}
-              onValueChange={setCurrency}
-            />
-          </Field>
-          {Object.keys(bonusBoxes)
-            .sort(
-              (a, b) =>
-                Number(b === currency) - Number(a === currency) ||
-                a.localeCompare(b),
-            )
-            .map((code) => (
-              <Field
-                key={code}
-                id={`terms-bonus-${code}`}
-                label={`Welcome bonus · ${code}`}
-                hint={
-                  code === currency
-                    ? "Credited to every new workspace's wallet. Zero for none."
-                    : "Used when the billing currency is " + code + "."
-                }
-              >
-                <NumberInput
-                  id={`terms-bonus-${code}`}
-                  prefix={currencySymbol(code)}
-                  value={bonusBoxes[code]}
-                  invalid={badBonus(code)}
-                  onChange={(value) =>
-                    setBonus((prev) => ({ ...prev, [code]: value }))
-                  }
-                />
-              </Field>
-            ))}
+              label="Default low-balance line"
+              hint="Below it the dashboard warns and auto-recharge fires. Each company can set its own."
+            >
+              <NumberInput
+                id="terms-threshold"
+                prefix={symbol}
+                value={draft.defaultThreshold}
+                invalid={bad("defaultThreshold")}
+                onChange={set("defaultThreshold")}
+              />
+            </Field>
+            <Field
+              id="terms-bonus"
+              label="Welcome bonus"
+              hint="Credited to a new workspace's wallet. Zero for none."
+            >
+              <NumberInput
+                id="terms-bonus"
+                prefix={symbol}
+                value={draft.welcomeBonus}
+                invalid={bad("welcomeBonus")}
+                onChange={set("welcomeBonus")}
+              />
+            </Field>
+          </div>
         </div>
       </CardContent>
       <CardFooter className="justify-between gap-3">
@@ -593,15 +611,18 @@ function planDraft(plan: PlanRow | null): PlanDraft {
 function PlanForm({
   plan,
   plans,
+  currency,
   gstPercent,
   onDone,
 }: {
   plan: PlanRow | null;
   plans: PlanRow[];
+  currency: string;
   gstPercent: number;
   onDone: () => void;
 }) {
-  const { money, symbol } = useMoney();
+  const money = moneyIn(currency);
+  const symbol = currencySymbol(currency);
   const savePlan = useMutation(api.plans.savePlan);
   const [draft, setDraft] = useState<PlanDraft>(() => planDraft(plan));
   const [busy, setBusy] = useState(false);
@@ -629,7 +650,7 @@ function PlanForm({
     .map((line) => line.trim())
     .filter(Boolean);
   const otherHighlighted = plans.find(
-    (other) => other.highlighted && other._id !== plan?._id,
+    (other) => other.highlighted && other._id !== plan?._id
   );
 
   const save = async () => {
@@ -639,6 +660,7 @@ function PlanForm({
     try {
       await savePlan({
         planId: plan?._id,
+        currency,
         name: draft.name,
         description: draft.description,
         listPrice: list,
@@ -855,7 +877,7 @@ function PlanCard({
   onMove,
 }: {
   plan: PlanRow;
-  seat: { priceMicros: number; listMicros: number };
+  seat: { priceMicros: number; listMicros: number; currency?: string };
   first: boolean;
   last: boolean;
   isTrialPlan: boolean;
@@ -878,7 +900,7 @@ function PlanCard({
     <Card
       className={cn(
         plan.highlighted && "ring-2 ring-primary/40",
-        plan.status === "hidden" && "opacity-75",
+        plan.status === "hidden" && "opacity-75"
       )}
     >
       <CardHeader className="gap-2">
@@ -896,6 +918,7 @@ function PlanCard({
           <StrikePrice
             priceMicros={plan.priceMicros}
             listMicros={plan.listPriceMicros}
+            currency={plan.currency}
             className="font-heading text-2xl font-semibold tabular-nums"
           />
           <span className="text-xs text-muted-foreground">/ month + GST</span>
@@ -1009,6 +1032,7 @@ export default function AdminPlansPage() {
   // from the plan as it is now rather than from the last draft.
   const [session, setSession] = useState(0);
   const [moving, setMoving] = useState<Id<"billingPlans"> | null>(null);
+  const [tab, setTab] = useState<string | null>(null);
 
   const openPlan = (plan: PlanRow | null) => {
     setEditing(plan);
@@ -1028,13 +1052,17 @@ export default function AdminPlansPage() {
   };
 
   const settings = data?.settings ?? null;
-  const plans = data?.plans ?? [];
+  const allPlans = data?.plans ?? [];
+  const terms = data?.terms ?? [];
+  const currency = tab ?? settings?.currency ?? "INR";
+  const termsHere = terms.find((row) => row.currency === currency) ?? terms[0];
+  const plans = allPlans.filter((plan) => plan.currency === currency);
   // The plan a trial runs on, worked out the way convex/lib/account.ts does
   // when the settings name none.
   const trialPlanId =
     settings?.trialPlanId ??
-    plans.find((plan) => plan.status === "active")?._id ??
-    plans[0]?._id;
+    allPlans.find((plan) => plan.status === "active")?._id ??
+    allPlans[0]?._id;
   const hidden = plans.filter((plan) => plan.status === "hidden").length;
 
   return (
@@ -1059,6 +1087,20 @@ export default function AdminPlansPage() {
         <EnableBilling />
       ) : (
         <>
+          {terms.length > 1 ? (
+            <Tabs
+              value={currency}
+              onValueChange={(value) => setTab(String(value))}
+            >
+              <TabsList>
+                {terms.map((row) => (
+                  <TabsTrigger key={row.currency} value={row.currency}>
+                    {row.currency} plans
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          ) : null}
           <Card className="shrink-0">
             <CardHeader>
               <CardTitle>Terms</CardTitle>
@@ -1070,7 +1112,9 @@ export default function AdminPlansPage() {
             <TermsForm
               key={settings.updatedAt}
               settings={settings}
-              plans={plans}
+              terms={terms}
+              plans={allPlans}
+              currency={currency}
             />
           </Card>
 
@@ -1078,7 +1122,7 @@ export default function AdminPlansPage() {
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="font-heading text-lg font-semibold tracking-tight">
-                  Plans
+                  {currency} plans
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   In the order the pricing page shows them
@@ -1102,8 +1146,9 @@ export default function AdminPlansPage() {
                     key={plan._id}
                     plan={plan}
                     seat={{
-                      priceMicros: settings.extraAgentPriceMicros,
-                      listMicros: settings.extraAgentListMicros,
+                      priceMicros: termsHere?.extraAgentPriceMicros ?? 0,
+                      listMicros: termsHere?.extraAgentListMicros ?? 0,
+                      currency,
                     }}
                     first={index === 0}
                     last={index === plans.length - 1}
@@ -1123,7 +1168,8 @@ export default function AdminPlansPage() {
                 key={session}
                 plan={editing}
                 plans={plans}
-                gstPercent={settings.gstPercent}
+                currency={editing?.currency ?? currency}
+                gstPercent={termsHere?.gstPercent ?? 0}
                 onDone={() => setDialogOpen(false)}
               />
             </DialogContent>

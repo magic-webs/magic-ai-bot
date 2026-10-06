@@ -16,7 +16,18 @@ const usageSource = v.union(
 );
 const markup = v.object({ fixedMicros: v.number(), percent: v.number() });
 
-const usageChannel = v.optional(v.union(v.literal("whatsapp"), v.literal("web")));
+export const currencyTerms = v.object({
+  currency: v.string(),
+  gstPercent: v.number(),
+  extraAgentListMicros: v.number(),
+  extraAgentPriceMicros: v.number(),
+  minTopUpMicros: v.number(),
+  defaultThresholdMicros: v.number(),
+});
+
+const usageChannel = v.optional(
+  v.union(v.literal("whatsapp"), v.literal("web"))
+);
 const usageKind = v.union(v.literal("chat"), v.literal("embedding"));
 
 export const billingTables = {
@@ -69,12 +80,14 @@ export const billingTables = {
     welcomeBonus: v.optional(
       v.array(v.object({ currency: v.string(), amountMicros: v.number() }))
     ),
+    currencies: v.optional(v.array(currencyTerms)),
     launchedAt: v.number(),
     updatedAt: v.number(),
   }),
 
   billingPlans: defineTable({
     code: v.string(),
+    currency: v.optional(v.string()),
     name: v.string(),
     description: v.optional(v.string()),
     listPriceMicros: v.number(),
@@ -93,6 +106,7 @@ export const billingTables = {
 
   billingAccounts: defineTable({
     workspaceId: v.id("workspaces"),
+    currency: v.optional(v.string()),
     planId: v.optional(v.id("billingPlans")),
     extraAgents: v.number(),
     mode: v.union(
@@ -196,6 +210,19 @@ export const billingTables = {
     marketing: markup,
     authentication: markup,
     freeMicros: v.number(),
+    /** Fixed amounts in a currency other than INR, which the fields above are in. */
+    byCurrency: v.optional(
+      v.array(
+        v.object({
+          currency: v.string(),
+          service: v.number(),
+          utility: v.number(),
+          marketing: v.number(),
+          authentication: v.number(),
+          freeMicros: v.number(),
+        })
+      )
+    ),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
 

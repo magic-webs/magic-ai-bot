@@ -15,6 +15,7 @@ import {
   MESSAGE_CATEGORIES,
   billingCurrency,
   defaultMarkups,
+  workspaceCurrency,
   homeMarket,
   metaCostOf,
   metaRatesFor,
@@ -24,6 +25,7 @@ import {
   type MessageCategory,
 } from "./lib/billing";
 import { MARKETS, marketLabel } from "./lib/markets";
+import { supportedCurrencies } from "./lib/currency";
 import { charge } from "./lib/charge";
 import { billingCategory } from "./lib/notifications";
 import { isValidCurrency } from "./lib/regional";
@@ -100,8 +102,11 @@ export const recordSent = internalMutation({
     for (const message of messages) {
       const category =
         message.templateName && message.category !== "service"
-          ? ((await templateCategoryOf(ctx, args.workspaceId, message.templateName)) ??
-            message.category)
+          ? ((await templateCategoryOf(
+              ctx,
+              args.workspaceId,
+              message.templateName
+            )) ?? message.category)
           : message.category;
       await charge(ctx, { ...shared, ...message, category });
     }
@@ -143,6 +148,7 @@ export const settleStale = internalMutation({
 type MarkupView = {
   scope: "workspace" | "default";
   freeMicros: number;
+  byCurrency: NonNullable<Doc<"billingMarkups">["byCurrency"]>;
   updatedAt: number;
 } & Record<MessageCategory, { fixedMicros: number; percent: number }>;
 
@@ -157,6 +163,7 @@ function markupView(
     marketing: card.marketing,
     authentication: card.authentication,
     freeMicros: card.freeMicros,
+    byCurrency: card.byCurrency ?? [],
     updatedAt: card.updatedAt,
   };
 }
@@ -178,10 +185,10 @@ async function pricesFor(
 ): Promise<PriceView | null> {
   const market = await homeMarket(ctx, workspaceId);
   const prices = {} as Record<`${MessageCategory}Micros`, number>;
-  let currency: string | null = null;
+  let currency = "INR";
   for (const category of MESSAGE_CATEGORIES) {
     const priced = await quote(ctx, { workspaceId, market, category });
-    if (!priced.rated || !priced.currency) return null;
+    if (!priced.rated) return null;
     currency = priced.currency;
     prices[`${category}Micros`] = priced.amountMicros;
   }
@@ -194,7 +201,7 @@ async function pricesFor(
   return {
     market,
     marketLabel: marketLabel(market),
-    currency: currency ?? "INR",
+    currency,
     freeMicros: free.amountMicros,
     ...prices,
   };
@@ -247,7 +254,11 @@ const spendList = (
     .map(([currency, value]) => ({ currency, ...value }))
     .sort((a, b) => b.messages - a.messages);
 
-type Margin = { billedMicros: number; metaCostMicros: number; messages: number };
+type Margin = {
+  billedMicros: number;
+  metaCostMicros: number;
+  messages: number;
+};
 
 /** Only rows priced off Meta's rates split into its cost and the markup. */
 function addMargin(into: Map<string, Margin>, row: Doc<"billingEvents">) {
@@ -333,7 +344,10 @@ export const workspaceSummary = query({
     const totals = { messages: 0, amountMicros: 0 };
     const previous = { messages: 0, amountMicros: 0 };
     const byCategory = emptyCategories();
-    const others = new Map<string, { amountMicros: number; messages: number }>();
+    const others = new Map<
+      string,
+      { amountMicros: number; messages: number }
+    >();
     let unrated = 0;
     let pending = 0;
 
@@ -547,6 +561,7 @@ export const adminOverview = query({
             slug: workspace.slug,
             status: workspace.status,
             currency: workspace.currency,
+            billedIn: await workspaceCurrency(ctx, workspace._id),
             locale: workspace.locale,
             logoSrc: await logoSrcFor(ctx, workspace),
             markups: own ? markupView(own, "workspace") : null,
@@ -583,8 +598,10 @@ export const metaRates = query({
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const rows = await ctx.db.query("metaRates").take(5_000);
+    const settings = await ctx.db.query("billingSettings").first();
     return {
       currency: await billingCurrency(ctx),
+      currencies: settings ? supportedCurrencies(settings) : ["INR"],
       rows: rows
         .map((row) => ({ ...row, label: marketLabel(row.market) }))
         .sort(
@@ -631,7 +648,8 @@ export const importMetaRates = mutation({
     if (!isValidCurrency(currency)) {
       throw new Error("Pick a three-letter currency code, e.g. INR or USD.");
     }
-    if (args.rows.length === 0) throw new Error("There are no rates to import.");
+    if (args.rows.length === 0)
+      throw new Error("There are no rates to import.");
     const now = Date.now();
     for (const row of args.rows) {
       if (!KNOWN_MARKETS.has(row.market)) {
@@ -644,11 +662,17 @@ export const importMetaRates = mutation({
         currency,
         marketingMicros: amountMicros(`${label} marketing`, row.marketing),
         utilityMicros,
-        authenticationMicros: amountMicros(`${label} authentication`, row.authentication),
+        authenticationMicros: amountMicros(
+          `${label} authentication`,
+          row.authentication
+        ),
         authenticationIntlMicros:
           row.authenticationIntl === undefined
             ? undefined
-            : amountMicros(`${label} authentication-international`, row.authenticationIntl),
+            : amountMicros(
+                `${label} authentication-international`,
+                row.authenticationIntl
+              ),
         // Meta prices a service message at the market's utility rate.
         serviceMicros:
           row.service === undefined
@@ -680,7 +704,10 @@ export const deleteMetaRates = mutation({
     await requireAdmin(ctx);
     const rows = await ctx.db.query("metaRates").take(5_000);
     for (const row of rows) {
-      if (row.currency === args.currency && row.effectiveFrom === args.effectiveFrom) {
+      if (
+        row.currency === args.currency &&
+        row.effectiveFrom === args.effectiveFrom
+      ) {
         await ctx.db.delete("metaRates", row._id);
       }
     }
@@ -703,6 +730,19 @@ export const setMarkups = mutation({
     marketing: markupInput,
     authentication: markupInput,
     free: v.number(),
+    /** Fixed amounts in other currencies; the ones above are in INR. */
+    byCurrency: v.optional(
+      v.array(
+        v.object({
+          currency: v.string(),
+          service: v.number(),
+          utility: v.number(),
+          marketing: v.number(),
+          authentication: v.number(),
+          free: v.number(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -713,7 +753,9 @@ export const setMarkups = mutation({
     const markupOf = (category: MessageCategory) => {
       const { fixed, percent } = args[category];
       if (!Number.isFinite(percent) || percent < 0 || percent > MAX_PERCENT) {
-        throw new Error(`The ${category} percentage must be between 0 and ${MAX_PERCENT}.`);
+        throw new Error(
+          `The ${category} percentage must be between 0 and ${MAX_PERCENT}.`
+        );
       }
       return {
         fixedMicros: amountMicros(`The ${category} fixed markup`, fixed),
@@ -726,6 +768,38 @@ export const setMarkups = mutation({
       marketing: markupOf("marketing"),
       authentication: markupOf("authentication"),
       freeMicros: amountMicros("The free-message fee", args.free),
+      ...(args.byCurrency === undefined
+        ? {}
+        : {
+            byCurrency: args.byCurrency.map((entry) => {
+              const code = entry.currency.trim().toUpperCase();
+              if (!isValidCurrency(code))
+                throw new Error(`${entry.currency} is not a currency code.`);
+              return {
+                currency: code,
+                service: amountMicros(
+                  `The ${code} service markup`,
+                  entry.service
+                ),
+                utility: amountMicros(
+                  `The ${code} utility markup`,
+                  entry.utility
+                ),
+                marketing: amountMicros(
+                  `The ${code} marketing markup`,
+                  entry.marketing
+                ),
+                authentication: amountMicros(
+                  `The ${code} authentication markup`,
+                  entry.authentication
+                ),
+                freeMicros: amountMicros(
+                  `The ${code} free-message fee`,
+                  entry.free
+                ),
+              };
+            }),
+          }),
       updatedAt: Date.now(),
     };
 
@@ -775,7 +849,9 @@ export const migrateRateCards = internalMutation({
           : "IN";
         const rates = await metaRatesFor(ctx, market, currency);
         if (!rates) {
-          throw new Error(`Import Meta's rates for ${marketLabel(market)} first.`);
+          throw new Error(
+            `Import Meta's rates for ${marketLabel(market)} first.`
+          );
         }
         const markupFor = (category: MessageCategory) => ({
           fixedMicros: Math.max(

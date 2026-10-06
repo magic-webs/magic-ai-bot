@@ -51,9 +51,70 @@ export const DEFAULT_SETTINGS = {
   ],
 };
 
+export type CurrencyTerms = {
+  currency: string;
+  gstPercent: number;
+  extraAgentListMicros: number;
+  extraAgentPriceMicros: number;
+  minTopUpMicros: number;
+  defaultThresholdMicros: number;
+};
+
+/** What a currency other than the default sells on until an admin edits it. */
+export const DEFAULT_CURRENCY_TERMS: CurrencyTerms[] = [
+  {
+    currency: "USD",
+    gstPercent: 0,
+    extraAgentListMicros: toMicros(25),
+    extraAgentPriceMicros: toMicros(10),
+    minTopUpMicros: toMicros(5),
+    defaultThresholdMicros: toMicros(5),
+  },
+];
+
+type TermsCarrier = CurrencyTerms & { currencies?: CurrencyTerms[] };
+
+/** Every currency's terms, the default currency's first. */
+export function allCurrencyTerms(settings: TermsCarrier): CurrencyTerms[] {
+  const base: CurrencyTerms = {
+    currency: settings.currency,
+    gstPercent: settings.gstPercent,
+    extraAgentListMicros: settings.extraAgentListMicros,
+    extraAgentPriceMicros: settings.extraAgentPriceMicros,
+    minTopUpMicros: settings.minTopUpMicros,
+    defaultThresholdMicros: settings.defaultThresholdMicros,
+  };
+  const others = (settings.currencies ?? DEFAULT_CURRENCY_TERMS).filter(
+    (entry) => entry.currency !== settings.currency
+  );
+  return [base, ...others];
+}
+
+/** The settings as one currency sells: its GST, extra agent and wallet terms. */
+export function termsIn<T extends TermsCarrier>(
+  settings: T,
+  currency: string
+): T {
+  if (currency === settings.currency) return settings;
+  const terms = allCurrencyTerms(settings).find(
+    (entry) => entry.currency === currency
+  );
+  return terms ? { ...settings, ...terms } : settings;
+}
+
+/** A plan made before plans had a currency is in INR. */
+export const planCurrency = (plan: { currency?: string }) =>
+  plan.currency ?? PLATFORM_CURRENCY;
+
+/** An auto-recharge amount a company has not chosen: four minimum top-ups. */
+export const defaultRechargeIn = (settings: { minTopUpMicros: number }) =>
+  settings.minTopUpMicros * 4;
+
 /** The bonus a new workspace's wallet starts with, per billing currency. */
 export function welcomeBonusOf(
-  settings: { welcomeBonus?: Array<{ currency: string; amountMicros: number }> },
+  settings: {
+    welcomeBonus?: Array<{ currency: string; amountMicros: number }>;
+  },
   currency: string
 ): number {
   const bonus = settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus;
@@ -120,11 +181,7 @@ export const DEFAULT_PLANS: Array<{
     priceMicros: toMicros(9999),
     includedAiAgents: 5,
     includedHumanAgents: 3,
-    features: [
-      ...DESKS,
-      "5 custom agents",
-      "3 human agents with full access",
-    ],
+    features: [...DESKS, "5 custom agents", "3 human agents with full access"],
     highlighted: true,
   },
   {
@@ -190,7 +247,10 @@ export function quote(args: {
   account?: AccountPricing | null;
 }): Quote {
   const discountPercent = clampPercent(args.account?.discountPercent ?? 0);
-  const planListMicros = Math.max(args.plan.listPriceMicros, args.plan.priceMicros);
+  const planListMicros = Math.max(
+    args.plan.listPriceMicros,
+    args.plan.priceMicros
+  );
   const discountMicros = roundToPaise(
     (args.plan.priceMicros * discountPercent) / 100
   );
@@ -207,7 +267,9 @@ export function quote(args: {
   const seatsMicros = seatMicros * extraAgents;
 
   const subtotalMicros = planMicros + seatsMicros;
-  const gstMicros = roundToPaise((subtotalMicros * args.settings.gstPercent) / 100);
+  const gstMicros = roundToPaise(
+    (subtotalMicros * args.settings.gstPercent) / 100
+  );
 
   return {
     planListMicros,
@@ -362,7 +424,10 @@ export function defaultTrialEnd(
   settings: { trialDays: number; launchedAt: number },
   workspaceCreatedAt: number
 ): number {
-  return Math.max(settings.launchedAt, workspaceCreatedAt) + settings.trialDays * DAY_MS;
+  return (
+    Math.max(settings.launchedAt, workspaceCreatedAt) +
+    settings.trialDays * DAY_MS
+  );
 }
 
 export function accessOf(args: {
@@ -383,7 +448,11 @@ export function accessOf(args: {
 }): Access {
   const { settings, account, subscription, now } = args;
   if (!settings) {
-    return { state: "open", until: null, reason: "Billing is not switched on." };
+    return {
+      state: "open",
+      until: null,
+      reason: "Billing is not switched on.",
+    };
   }
   const grace = settings.graceDays * DAY_MS;
 
@@ -393,7 +462,11 @@ export function accessOf(args: {
       return { state: "active", until: null, reason: "Billed by arrangement." };
     }
     if (now < through) {
-      return { state: "active", until: through, reason: "Billed by arrangement." };
+      return {
+        state: "active",
+        until: through,
+        reason: "Billed by arrangement.",
+      };
     }
     if (now < through + grace) {
       return {
@@ -402,7 +475,11 @@ export function accessOf(args: {
         reason: "The arranged period has ended.",
       };
     }
-    return { state: "locked", until: null, reason: "The arranged period has ended." };
+    return {
+      state: "locked",
+      until: null,
+      reason: "The arranged period has ended.",
+    };
   }
 
   if (subscription) {
@@ -450,12 +527,18 @@ export function accessOf(args: {
   const trialEnd =
     account?.trialEndsAt ?? defaultTrialEnd(settings, args.workspaceCreatedAt);
   if (now < trialEnd) {
-    return { state: "trial", until: trialEnd, reason: "You are on a free trial." };
+    return {
+      state: "trial",
+      until: trialEnd,
+      reason: "You are on a free trial.",
+    };
   }
   return {
     state: "locked",
     until: null,
-    reason: subscription ? "Your plan has ended." : "Your free trial has ended.",
+    reason: subscription
+      ? "Your plan has ended."
+      : "Your free trial has ended.",
   };
 }
 

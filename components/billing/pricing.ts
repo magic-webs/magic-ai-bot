@@ -1,13 +1,18 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import {
+  fixedIn,
+  formatMoney,
+  freeIn,
   markupOn,
   metaCostOf,
   type MessageCategory,
 } from "@/convex/lib/billing";
 import { marketChain } from "@/convex/lib/markets";
 
-export type MetaRateRow = FunctionReturnType<typeof api.billing.metaRates>["rows"][number];
+export type MetaRateRow = FunctionReturnType<
+  typeof api.billing.metaRates
+>["rows"][number];
 
 export type MarkupView = NonNullable<
   FunctionReturnType<typeof api.billing.markups>["default"]
@@ -22,7 +27,8 @@ export function ratesInForce(
   for (const row of rows) {
     if (row.effectiveFrom > now) continue;
     const held = current.get(row.market);
-    if (!held || held.effectiveFrom < row.effectiveFrom) current.set(row.market, row);
+    if (!held || held.effectiveFrom < row.effectiveFrom)
+      current.set(row.market, row);
   }
   return current;
 }
@@ -45,16 +51,33 @@ export function priceOf(
   category: MessageCategory
 ): number {
   const cost = metaCostOf(rates, category);
-  return cost + (markups ? markupOn(cost, markups[category]) : 0);
+  return (
+    cost + (markups ? markupOn(cost, markups, category, rates.currency) : 0)
+  );
 }
 
-/** "₹0.10 + 15%", the way a markup is read aloud. */
+/** "₹0.10 / $0.002 + 15%", the way a markup is read aloud. */
 export function describeMarkup(
-  markup: { fixedMicros: number; percent: number },
-  money: (micros: number) => string
+  card: MarkupView,
+  category: MessageCategory,
+  currencies: string[]
 ): string {
-  const parts = [];
-  if (markup.fixedMicros > 0) parts.push(money(markup.fixedMicros));
-  if (markup.percent > 0) parts.push(`${markup.percent}%`);
-  return parts.length > 0 ? `+ ${parts.join(" + ")}` : "No markup";
+  const parts = currencies
+    .map((currency) => ({
+      currency,
+      micros: fixedIn(card, category, currency),
+    }))
+    .filter((entry) => entry.micros > 0)
+    .map((entry) => formatMoney(entry.micros, entry.currency));
+  const fixed = parts.join(" / ");
+  const percent =
+    card[category].percent > 0 ? `${card[category].percent}%` : "";
+  const text = [fixed, percent].filter(Boolean).join(" + ");
+  return text ? `+ ${text}` : "No markup";
+}
+
+export function describeFree(card: MarkupView, currencies: string[]): string {
+  return currencies
+    .map((currency) => formatMoney(freeIn(card, currency), currency))
+    .join(" / ");
 }

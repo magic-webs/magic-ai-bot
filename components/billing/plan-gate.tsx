@@ -50,7 +50,7 @@ export function PlanGate({
   const pathname = usePathname();
   const session = useSession();
   const status = useQuery(api.subscriptions.access, { workspaceId, now });
-  const { money } = useMoney();
+  const { money } = useMoney(workspaceId);
 
   const billing = `${base}/billing`;
   const onBilling = pathname.startsWith(billing);
@@ -72,7 +72,9 @@ export function PlanGate({
             <EmptyDescription>
               Your agents are still answering customers. The dashboard opens
               again as soon as a plan is active
-              {isMember ? " — ask whoever manages the account to renew it." : "."}
+              {isMember
+                ? " — ask whoever manages the account to renew it."
+                : "."}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -127,7 +129,12 @@ function bannerFor(
   now: number,
   isAdmin: boolean,
   money: (micros: number) => string
-): { text: string; action: string; tone: "danger" | "warning"; wallet?: boolean } | null {
+): {
+  text: string;
+  action: string;
+  tone: "danger" | "warning";
+  wallet?: boolean;
+} | null {
   const { access } = status;
 
   if (access.state === "locked") {
@@ -145,7 +152,11 @@ function bannerFor(
       tone: "danger",
     };
   }
-  if (access.state === "trial" && access.until && access.until - now < TRIAL_NOTICE_MS) {
+  if (
+    access.state === "trial" &&
+    access.until &&
+    access.until - now < TRIAL_NOTICE_MS
+  ) {
     return {
       text: `Your free trial ends ${daysFrom(access.until, now)}, on ${formatDay(access.until)}.`,
       action: "Choose a plan",

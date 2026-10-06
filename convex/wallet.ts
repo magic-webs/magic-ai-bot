@@ -18,6 +18,7 @@ import {
   accountFor,
   billingContact,
   billingSettings,
+  billingTermsFor,
   ensureAccount,
 } from "./lib/account";
 import { homeMarket, metaRatesFor, toMicros } from "./lib/billing";
@@ -25,6 +26,7 @@ import { razorpayConfig } from "./lib/razorpay";
 import {
   APPROVAL_LIMIT_MICROS,
   MAX_TOPUP_MICROS,
+  defaultRechargeIn,
   toPaise,
   withGst,
 } from "./lib/plans";
@@ -45,7 +47,7 @@ export const summary = query({
   args: { workspaceId: v.id("workspaces"), now: v.number() },
   handler: async (ctx, args) => {
     const principal = await requireWorkspace(ctx, args.workspaceId);
-    const settings = await billingSettings(ctx);
+    const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
     if (!settings) return null;
 
     const account = await accountFor(ctx, args.workspaceId);
@@ -63,7 +65,9 @@ export const summary = query({
     const recent = await ctx.db
       .query("billingEvents")
       .withIndex("by_workspace_createdAt", (q) =>
-        q.eq("workspaceId", args.workspaceId).gte("createdAt", args.now - 7 * DAY_MS)
+        q
+          .eq("workspaceId", args.workspaceId)
+          .gte("createdAt", args.now - 7 * DAY_MS)
       )
       .take(SPEND_SCAN_CAP);
     const spent7dMicros = recent
@@ -92,9 +96,11 @@ export const summary = query({
       rateCurrency: rates?.currency ?? null,
       autoRecharge: {
         enabled: recharge?.enabled ?? false,
-        amountMicros: recharge?.amountMicros ?? toMicros(2000),
+        amountMicros: recharge?.amountMicros ?? defaultRechargeIn(settings),
         method: recharge?.method ?? null,
-        tokenStatus: account?.mandateTokenId ? (recharge?.tokenStatus ?? null) : null,
+        tokenStatus: account?.mandateTokenId
+          ? (recharge?.tokenStatus ?? null)
+          : null,
         maxAmountMicros: recharge?.maxAmountMicros ?? null,
         lastError: recharge?.lastError ?? null,
         lastChargedAt: recharge?.lastChargedAt ?? null,
@@ -143,14 +149,19 @@ export const updatePreferences = mutation({
   },
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId);
-    const settings = await billingSettings(ctx);
+    const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
     if (!settings) throw new Error("Billing is not switched on yet.");
     if (!Number.isFinite(args.threshold) || args.threshold < 0) {
       throw new Error("The low-balance line must be zero or more.");
     }
     const amountMicros = toMicros(args.rechargeAmount);
-    if (!(amountMicros >= settings.minTopUpMicros) || amountMicros > MAX_TOPUP_MICROS) {
-      throw new Error("Pick a recharge amount between the minimum top-up and ₹5,00,000.");
+    if (
+      !(amountMicros >= settings.minTopUpMicros) ||
+      amountMicros > MAX_TOPUP_MICROS
+    ) {
+      throw new Error(
+        "Pick a recharge amount between the minimum top-up and ₹5,00,000."
+      );
     }
 
     const account = await ensureAccount(ctx, args.workspaceId);
@@ -222,7 +233,8 @@ export const adminAdjust = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
-    if (!(await billingSettings(ctx))) throw new Error("Switch billing on first.");
+    if (!(await billingSettings(ctx)))
+      throw new Error("Switch billing on first.");
     const amountMicros = toMicros(args.amount);
     if (!Number.isFinite(args.amount) || amountMicros === 0) {
       throw new Error("Enter an amount to add or take off.");
@@ -270,7 +282,7 @@ export const createTopUp = internalMutation({
   },
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId);
-    const settings = await billingSettings(ctx);
+    const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
     if (!settings) throw new Error("Billing is not switched on yet.");
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (!workspace) throw new Error("Workspace not found");
@@ -290,7 +302,9 @@ export const createTopUp = internalMutation({
       }
       const contact = billingContact(account, workspace);
       if (!contact.email || !contact.phone) {
-        throw new Error("Add a billing email and phone number first — Razorpay needs both.");
+        throw new Error(
+          "Add a billing email and phone number first — Razorpay needs both."
+        );
       }
       // Headroom over one recharge, so raising the amount a little later does
       // not mean authorising again.
@@ -394,7 +408,9 @@ export const confirmContext = internalQuery({
     await requireOwner(ctx, args.workspaceId);
     const row = await ctx.db
       .query("billingPayments")
-      .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
+      .withIndex("by_order", (q) =>
+        q.eq("razorpayOrderId", args.razorpayOrderId)
+      )
       .unique();
     if (!row || row.workspaceId !== args.workspaceId) return null;
     const account = await accountFor(ctx, args.workspaceId);
@@ -472,7 +488,10 @@ export const markRechargeFailed = internalMutation({
           account.rechargeInFlight?.paymentId === args.paymentId
             ? undefined
             : account.rechargeInFlight,
-        autoRecharge: { ...account.autoRecharge, lastError: args.error.slice(0, 300) },
+        autoRecharge: {
+          ...account.autoRecharge,
+          lastError: args.error.slice(0, 300),
+        },
         updatedAt: now,
       });
     }

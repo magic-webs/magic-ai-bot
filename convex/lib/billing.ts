@@ -16,22 +16,15 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { Outbound } from "./whatsappSend";
 import { marketChain, marketOf } from "./markets";
+import { currencyOf } from "./currency";
 
 export type MessageCategory =
-  | "service"
-  | "utility"
-  | "marketing"
-  | "authentication";
+  "service" | "utility" | "marketing" | "authentication";
 
 export type TemplateCategory = Exclude<MessageCategory, "service">;
 
 export type BillingSource =
-  | "agent"
-  | "human"
-  | "follow_up"
-  | "campaign"
-  | "system"
-  | "notification";
+  "agent" | "human" | "follow_up" | "campaign" | "system" | "notification";
 
 export const MESSAGE_CATEGORIES: MessageCategory[] = [
   "service",
@@ -131,7 +124,33 @@ export type Markup = { fixedMicros: number; percent: number };
 export type MarkupCard = Record<MessageCategory, Markup> & {
   /** What a message Meta did not charge for costs: its free tier, ad replies. */
   freeMicros: number;
+  byCurrency?: Array<
+    Record<MessageCategory, number> & { currency: string; freeMicros: number }
+  >;
 };
+
+/** The markups' fixed amounts are stored in INR, with other currencies beside. */
+export const MARKUP_BASE_CURRENCY = "INR";
+
+export function fixedIn(
+  card: MarkupCard,
+  category: MessageCategory,
+  currency: string
+): number {
+  if (currency === MARKUP_BASE_CURRENCY) return card[category].fixedMicros;
+  return (
+    card.byCurrency?.find((entry) => entry.currency === currency)?.[category] ??
+    0
+  );
+}
+
+export function freeIn(card: MarkupCard, currency: string): number {
+  if (currency === MARKUP_BASE_CURRENCY) return card.freeMicros;
+  return (
+    card.byCurrency?.find((entry) => entry.currency === currency)?.freeMicros ??
+    0
+  );
+}
 
 type MetaRates = Pick<
   Doc<"metaRates">,
@@ -161,8 +180,16 @@ export function metaCostOf(
   }
 }
 
-export function markupOn(metaCostMicros: number, markup: Markup): number {
-  return markup.fixedMicros + Math.round((metaCostMicros * markup.percent) / 100);
+export function markupOn(
+  metaCostMicros: number,
+  card: MarkupCard,
+  category: MessageCategory,
+  currency: string
+): number {
+  return (
+    fixedIn(card, category, currency) +
+    Math.round((metaCostMicros * card[category].percent) / 100)
+  );
 }
 
 /** Meta's `pricing.category` on a status webhook, as the ledger bills it. */
@@ -186,10 +213,26 @@ export function metaCategory(
 
 // --- Rates and markups ------------------------------------------------------
 
-/** The currency the wallet is billed in, and so the one Meta's rates are read in. */
+/** The default billing currency, the one a new account falls back to. */
 export async function billingCurrency(ctx: QueryCtx): Promise<string> {
   const settings = await ctx.db.query("billingSettings").first();
   return settings?.currency ?? "INR";
+}
+
+/** The currency this workspace's account is billed in. */
+export async function workspaceCurrency(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">
+): Promise<string> {
+  const settings = await ctx.db.query("billingSettings").first();
+  const account = await ctx.db
+    .query("billingAccounts")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const workspace = account
+    ? null
+    : await ctx.db.get("workspaces", workspaceId);
+  return currencyOf(settings, account, workspace);
 }
 
 /**
@@ -208,7 +251,10 @@ export async function metaRatesFor(
       .withIndex("by_currency_market_effectiveFrom", (q) =>
         at === undefined
           ? q.eq("currency", currency).eq("market", key)
-          : q.eq("currency", currency).eq("market", key).lte("effectiveFrom", at)
+          : q
+              .eq("currency", currency)
+              .eq("market", key)
+              .lte("effectiveFrom", at)
       )
       .order("desc")
       .first();
@@ -267,7 +313,7 @@ export async function homeMarket(
 
 export type Quote = {
   market: string;
-  currency: string | null;
+  currency: string;
   metaCostMicros: number;
   markupMicros: number;
   amountMicros: number;
@@ -291,16 +337,11 @@ export async function quote(
     at?: number;
   }
 ): Promise<Quote> {
-  const rates = await metaRatesFor(
-    ctx,
-    args.market,
-    await billingCurrency(ctx),
-    args.at
-  );
+  const currency = await workspaceCurrency(ctx, args.workspaceId);
+  const rates = await metaRatesFor(ctx, args.market, currency, args.at);
   const { card } = await effectiveMarkups(ctx, args.workspaceId);
-  const currency = rates?.currency ?? null;
   if (args.billable === false) {
-    const fee = card?.freeMicros ?? 0;
+    const fee = card ? freeIn(card, currency) : 0;
     return {
       market: args.market,
       currency,
@@ -321,7 +362,9 @@ export async function quote(
     };
   }
   const metaCostMicros = metaCostOf(rates, args.category, args.international);
-  const markupMicros = card ? markupOn(metaCostMicros, card[args.category]) : 0;
+  const markupMicros = card
+    ? markupOn(metaCostMicros, card, args.category, currency)
+    : 0;
   return {
     market: args.market,
     currency,

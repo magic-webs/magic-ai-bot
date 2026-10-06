@@ -22,7 +22,7 @@ import {
   type MessageCategory,
   type TemplateCategory,
 } from "./billing";
-import { accountFor, billingSettings, ensureAccount } from "./account";
+import { accountFor, billingTermsFor, ensureAccount } from "./account";
 import { PLATFORM_LOCALE, welcomeBonusOf, withGst } from "./plans";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -78,7 +78,7 @@ export async function debitWallet(
   }
 ): Promise<void> {
   if (args.amountMicros <= 0) return;
-  const settings = await billingSettings(ctx);
+  const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
   if (!settings || settings.currency !== args.currency) return;
 
   const wallet = await ensureWallet(ctx, args.workspaceId, settings.currency);
@@ -110,7 +110,7 @@ export async function refundWallet(
   }
 ): Promise<void> {
   if (args.amountMicros <= 0) return;
-  const settings = await billingSettings(ctx);
+  const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
   if (!settings || settings.currency !== args.currency) return;
 
   const wallet = await ensureWallet(ctx, args.workspaceId, settings.currency);
@@ -162,7 +162,11 @@ async function onLowBalance(
     await ctx.db.patch("billingAccounts", account._id, {
       lowBalanceAlertedAt: now,
     });
-    const balance = formatMoney(balanceMicros, settings.currency, PLATFORM_LOCALE);
+    const balance = formatMoney(
+      balanceMicros,
+      settings.currency,
+      PLATFORM_LOCALE
+    );
     await ctx.scheduler.runAfter(0, internal.push.notify, {
       workspaceId,
       event: "wallet_low",
@@ -185,7 +189,10 @@ async function requestRecharge(
   account: Doc<"billingAccounts">,
   settings: Doc<"billingSettings">
 ): Promise<boolean> {
-  const amounts = withGst(account.autoRecharge.amountMicros, settings.gstPercent);
+  const amounts = withGst(
+    account.autoRecharge.amountMicros,
+    settings.gstPercent
+  );
   const ceiling = account.autoRecharge.maxAmountMicros;
   const now = Date.now();
   if (ceiling !== undefined && amounts.totalMicros > ceiling) {
@@ -238,7 +245,7 @@ export async function creditWallet(
     by?: string;
   }
 ): Promise<number> {
-  const settings = await billingSettings(ctx);
+  const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
   const wallet = await ensureWallet(
     ctx,
     args.workspaceId,
@@ -294,7 +301,9 @@ export async function grantWelcomeBonus(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">
 ): Promise<void> {
-  const settings = await billingSettings(ctx);
+  if (!(await ctx.db.query("billingSettings").first())) return;
+  await ensureAccount(ctx, workspaceId);
+  const settings = (await billingTermsFor(ctx, workspaceId))?.settings;
   if (!settings) return;
   const amountMicros = welcomeBonusOf(settings, settings.currency);
   if (amountMicros <= 0) return;
@@ -319,9 +328,14 @@ export async function templateBlock(
   workspaceId: Id<"workspaces">,
   category: MessageCategory
 ): Promise<string | null> {
-  const settings = await billingSettings(ctx);
+  const settings = (await billingTermsFor(ctx, workspaceId))?.settings;
   if (!settings) return null;
-  const rate = await templatePrice(ctx, workspaceId, category, settings.currency);
+  const rate = await templatePrice(
+    ctx,
+    workspaceId,
+    category,
+    settings.currency
+  );
   if (rate <= 0) return null;
 
   const balanceMicros = (await walletFor(ctx, workspaceId))?.balanceMicros ?? 0;
@@ -346,13 +360,22 @@ export async function templateBlocks(
     marketing: null,
     authentication: null,
   };
-  const settings = await billingSettings(ctx);
+  const settings = (await billingTermsFor(ctx, workspaceId))?.settings;
   if (!settings) return blocks;
 
   const balanceMicros = (await walletFor(ctx, workspaceId))?.balanceMicros ?? 0;
-  const balance = formatMoney(balanceMicros, settings.currency, PLATFORM_LOCALE);
+  const balance = formatMoney(
+    balanceMicros,
+    settings.currency,
+    PLATFORM_LOCALE
+  );
   for (const category of Object.keys(blocks) as TemplateCategory[]) {
-    const rate = await templatePrice(ctx, workspaceId, category, settings.currency);
+    const rate = await templatePrice(
+      ctx,
+      workspaceId,
+      category,
+      settings.currency
+    );
     if (rate > 0 && balanceMicros < rate) {
       blocks[category] = blockMessage(balance, category);
     }
