@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { Outbound } from "@/convex/lib/whatsappSend";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ import {
   DrawerContent,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowBendUpLeftIcon,
   ArrowSquareOutIcon,
@@ -467,6 +468,22 @@ function MapPreview({ latitude, longitude }: { latitude: number; longitude: numb
   );
 }
 
+// Touch and narrow: the widget fills a phone. A desktop panel is narrow too,
+// but driven by a mouse, so it gets a dialog like any other big screen.
+const PHONE_QUERY = "(pointer: coarse) and (max-width: 767px)";
+
+function usePhoneLayout(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia(PHONE_QUERY);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(PHONE_QUERY).matches,
+    () => false
+  );
+}
+
 function SheetFrame({
   open,
   onOpenChange,
@@ -478,6 +495,21 @@ function SheetFrame({
   title: string;
   children: React.ReactNode;
 }) {
+  const phone = usePhoneLayout();
+
+  if (!phone) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="flex max-h-[min(36rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+          <div className="flex shrink-0 items-center border-b py-3 pr-12 pl-5">
+            <DialogTitle className="truncate text-base font-semibold">{title}</DialogTitle>
+          </div>
+          <div className="relative flex min-h-0 flex-1 flex-col pt-2">{children}</div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="data-[swipe-direction=down]:rounded-t-2xl">
