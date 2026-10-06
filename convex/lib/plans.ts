@@ -45,7 +45,20 @@ export const DEFAULT_SETTINGS = {
   extraAgentPriceMicros: toMicros(999),
   minTopUpMicros: toMicros(500),
   defaultThresholdMicros: toMicros(500),
+  welcomeBonus: [
+    { currency: "INR", amountMicros: toMicros(200) },
+    { currency: "USD", amountMicros: toMicros(5) },
+  ],
 };
+
+/** The bonus a new workspace's wallet starts with, per billing currency. */
+export function welcomeBonusOf(
+  settings: { welcomeBonus?: Array<{ currency: string; amountMicros: number }> },
+  currency: string
+): number {
+  const bonus = settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus;
+  return bonus.find((entry) => entry.currency === currency)?.amountMicros ?? 0;
+}
 
 /** An auto-recharge amount a company has not chosen yet. */
 export const DEFAULT_RECHARGE_MICROS = toMicros(2000);

@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useHourBucket } from "@/components/use-now";
 import { useSession } from "@/components/use-session";
-import { daysFrom, formatDay, inr } from "@/components/billing/plan-bits";
+import { daysFrom, formatDay, useMoney } from "@/components/billing/plan-bits";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -50,6 +50,7 @@ export function PlanGate({
   const pathname = usePathname();
   const session = useSession();
   const status = useQuery(api.subscriptions.access, { workspaceId, now });
+  const { money } = useMoney();
 
   const billing = `${base}/billing`;
   const onBilling = pathname.startsWith(billing);
@@ -84,7 +85,7 @@ export function PlanGate({
     );
   }
 
-  const banner = bannerFor(status, now, isAdmin);
+  const banner = bannerFor(status, now, isAdmin, money);
   return (
     <>
       {banner ? (
@@ -124,7 +125,8 @@ type Status = NonNullable<FunctionReturnType<typeof api.subscriptions.access>>;
 function bannerFor(
   status: Status,
   now: number,
-  isAdmin: boolean
+  isAdmin: boolean,
+  money: (micros: number) => string
 ): { text: string; action: string; tone: "danger" | "warning"; wallet?: boolean } | null {
   const { access } = status;
 
@@ -151,7 +153,7 @@ function bannerFor(
     };
   }
   if (status.lowBalance) {
-    const balance = inr(status.balanceMicros);
+    const balance = money(status.balanceMicros);
     return {
       text: status.rechargeInFlight
         ? `Wallet balance is ${balance}. An auto-recharge is on its way.`

@@ -24,8 +24,8 @@ import {
   StrikePrice,
   daysFrom,
   formatDay,
-  inr,
   subscriptionLabel,
+  useMoney,
 } from "@/components/billing/plan-bits";
 import { errorMessage } from "@/lib/convex-server";
 import { cn } from "@/lib/utils";
@@ -256,6 +256,7 @@ function keyDates(data: Enabled): KeyDate[] {
 }
 
 function StatusCard({ data, now }: { data: Enabled; now: number }) {
+  const { money } = useMoney();
   const workspace = useWorkspace();
   const cancelSubscription = useAction(api.razorpay.cancelSubscription);
   const refresh = useAction(api.razorpay.refresh);
@@ -353,14 +354,14 @@ function StatusCard({ data, now }: { data: Enabled; now: number }) {
             </p>
             <p className="flex flex-wrap items-baseline gap-x-1.5">
               <span className="font-heading text-4xl leading-none font-semibold tracking-tight tabular-nums">
-                {inr(monthly.total)}
+                {money(monthly.total)}
               </span>
               <span className="text-sm text-muted-foreground">with GST</span>
             </p>
             <p className="text-sm text-muted-foreground tabular-nums">
               {plan?.name ?? "Plan"}
               {extras > 0 ? ` + ${extras} extra ${extras === 1 ? "agent" : "agents"}` : ""}{" "}
-              {inr(monthly.subtotal)} · {monthly.gstLabel} {inr(monthly.gst)}
+              {money(monthly.subtotal)} · {monthly.gstLabel} {money(monthly.gst)}
             </p>
           </div>
         ) : null}
@@ -624,6 +625,7 @@ function SeatsCard({ data }: { data: Enabled }) {
 // ---------------------------------------------------------------------------
 
 function PlanPicker({ data }: { data: Enabled }) {
+  const { money } = useMoney();
   const workspace = useWorkspace();
   const startSubscription = useAction(api.razorpay.startSubscription);
   const confirmSubscription = useAction(api.razorpay.confirmSubscription);
@@ -889,34 +891,34 @@ function PlanPicker({ data }: { data: Enabled }) {
             <dl className="flex flex-col gap-1.5 text-sm">
               <SummaryRow
                 label={`${chosen.name} plan`}
-                value={inr(summary.planMicros + summary.discountMicros)}
+                value={money(summary.planMicros + summary.discountMicros)}
               />
               {summary.discountMicros > 0 ? (
                 <SummaryRow
                   label={`Your discount (${summary.discountPercent}%)`}
-                  value={`−${inr(summary.discountMicros)}`}
+                  value={`−${money(summary.discountMicros)}`}
                   className="text-emerald-700 dark:text-emerald-400"
                 />
               ) : null}
               {summary.extraAgents > 0 ? (
                 <SummaryRow
-                  label={`${summary.extraAgents} extra ${summary.extraAgents === 1 ? "agent" : "agents"} × ${inr(summary.seatMicros)}`}
-                  value={inr(summary.seatsMicros)}
+                  label={`${summary.extraAgents} extra ${summary.extraAgents === 1 ? "agent" : "agents"} × ${money(summary.seatMicros)}`}
+                  value={money(summary.seatsMicros)}
                 />
               ) : null}
               <SummaryRow
                 label="Subtotal"
-                value={inr(summary.subtotalMicros)}
+                value={money(summary.subtotalMicros)}
                 className="border-t pt-1.5"
               />
               <SummaryRow
                 label={`GST ${summary.gstPercent}%`}
-                value={inr(summary.gstMicros)}
+                value={money(summary.gstMicros)}
               />
               <div className="flex items-baseline justify-between gap-3 border-t pt-1.5">
                 <dt className="font-medium">Total / month</dt>
                 <dd className="font-heading text-xl font-semibold tabular-nums">
-                  {inr(summary.totalMicros)}
+                  {money(summary.totalMicros)}
                 </dd>
               </div>
             </dl>
@@ -1115,6 +1117,7 @@ const STATUS: Record<
 };
 
 function PaymentHistory() {
+  const { money } = useMoney();
   const workspace = useWorkspace();
   const { results, status, loadMore } = usePaginatedQuery(
     api.subscriptions.payments,
@@ -1185,13 +1188,13 @@ function PaymentHistory() {
                           {PURPOSE_LABEL[row.purpose]}
                         </TableCell>
                         <TableCell className="hidden text-right whitespace-nowrap tabular-nums md:table-cell">
-                          {inr(row.subtotalMicros)}
+                          {money(row.subtotalMicros)}
                         </TableCell>
                         <TableCell className="hidden text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
-                          {inr(row.gstMicros)}
+                          {money(row.gstMicros)}
                         </TableCell>
                         <TableCell className="text-right font-medium whitespace-nowrap tabular-nums">
-                          {inr(row.totalMicros)}
+                          {money(row.totalMicros)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Badge

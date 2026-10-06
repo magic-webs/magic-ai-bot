@@ -14,7 +14,8 @@ import {
   requireWorkspace,
 } from "./lib/auth";
 import { logoSrcFor } from "./lib/branding";
-import { ensureOrdersBook, orderRecords, statusForStage } from "./lib/ordersBook";
+import { orderRecords, statusForStage } from "./lib/ordersBook";
+import { grantWelcomeBonus } from "./lib/wallet";
 import {
   isValidCurrency,
   isValidLocale,
@@ -195,8 +196,7 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    // Every workspace keeps its orders in a record book of its own.
-    await ensureOrdersBook(ctx, workspaceId);
+    await grantWelcomeBonus(ctx, workspaceId);
     return { workspaceId, slug };
   },
 });
@@ -492,8 +492,7 @@ export const seedDemo = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    // Every workspace keeps its orders in a record book of its own.
-    await ensureOrdersBook(ctx, workspaceId);
+    await grantWelcomeBonus(ctx, workspaceId);
     return { workspaceId, slug };
   },
 });

@@ -23,7 +23,7 @@ import {
   type TemplateCategory,
 } from "./billing";
 import { accountFor, billingSettings, ensureAccount } from "./account";
-import { PLATFORM_LOCALE, withGst } from "./plans";
+import { PLATFORM_LOCALE, welcomeBonusOf, withGst } from "./plans";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -288,6 +288,23 @@ async function templatePrice(
 
 const blockMessage = (balance: string, category: MessageCategory) =>
   `The wallet holds ${balance}, less than one ${CATEGORY_LABELS[category].toLowerCase()} template costs. Top up on the Billing page to send it.`;
+
+/** A new workspace's wallet starts with the bonus for the billing currency. */
+export async function grantWelcomeBonus(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">
+): Promise<void> {
+  const settings = await billingSettings(ctx);
+  if (!settings) return;
+  const amountMicros = welcomeBonusOf(settings, settings.currency);
+  if (amountMicros <= 0) return;
+  await creditWallet(ctx, {
+    workspaceId,
+    kind: "bonus",
+    amountMicros,
+    note: "Welcome bonus",
+  });
+}
 
 /**
  * Why a template of this category cannot go out now, or null when it can.

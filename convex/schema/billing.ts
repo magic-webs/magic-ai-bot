@@ -66,6 +66,9 @@ export const billingTables = {
     trialPlanId: v.optional(v.id("billingPlans")),
     minTopUpMicros: v.number(),
     defaultThresholdMicros: v.number(),
+    welcomeBonus: v.optional(
+      v.array(v.object({ currency: v.string(), amountMicros: v.number() }))
+    ),
     launchedAt: v.number(),
     updatedAt: v.number(),
   }),
@@ -291,7 +294,8 @@ export const billingTables = {
     kind: v.union(
       v.literal("topup"),
       v.literal("auto_recharge"),
-      v.literal("adjustment")
+      v.literal("adjustment"),
+      v.literal("bonus")
     ),
     amountMicros: v.number(),
     balanceAfterMicros: v.number(),

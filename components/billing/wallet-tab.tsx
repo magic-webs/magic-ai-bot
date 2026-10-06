@@ -22,7 +22,7 @@ import {
   openCheckout,
   type CheckoutSuccess,
 } from "@/components/billing/checkout";
-import { daysFrom, formatDay, inr, rupeesOf } from "@/components/billing/plan-bits";
+import { daysFrom, formatDay, rupeesOf, useMoney } from "@/components/billing/plan-bits";
 import { errorMessage } from "@/lib/convex-server";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -190,6 +190,7 @@ export function WalletTab() {
 // ---------------------------------------------------------------------------
 
 function BalanceCard({ data, now }: { data: Summary; now: number }) {
+  const { money } = useMoney();
   const balance = data.balanceMicros;
   const perDay = data.spent7dMicros / 7;
   const days = perDay > 0 && balance > 0 ? Math.floor(balance / perDay) : null;
@@ -219,12 +220,12 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
               balance < 0 && "text-destructive"
             )}
           >
-            {inr(balance)}
+            {money(balance)}
           </p>
           <p className="text-sm text-muted-foreground">
             {data.spent7dMicros > 0 ? (
               <>
-                {inr(data.spent7dMicros)}
+                {money(data.spent7dMicros)}
                 {data.spendTruncated ? " or more" : ""} spent in the last 7
                 days. {pace}
               </>
@@ -241,7 +242,7 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
               {balance <= 0 ? "Your wallet has run out" : "Your balance is low"}
             </AlertTitle>
             <AlertDescription>
-              It is below your low-balance line of {inr(data.thresholdMicros)}.
+              It is below your low-balance line of {money(data.thresholdMicros)}.
               Marketing, utility and authentication templates are held back
               when the balance can&apos;t cover one. Service replies always go
               out, even when that takes the balance below zero.
@@ -254,7 +255,7 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
             <ClockIcon />
             <AlertTitle>An auto-recharge is on its way</AlertTitle>
             <AlertDescription>
-              An auto-recharge of {inr(data.inFlight.totalMicros)} was requested{" "}
+              An auto-recharge of {money(data.inFlight.totalMicros)} was requested{" "}
               {daysFrom(data.inFlight.startedAt, now)}; the bank debits it 1–1.5
               days after its notice.
             </AlertDescription>
@@ -290,6 +291,7 @@ function BalanceCard({ data, now }: { data: Summary; now: number }) {
 // ---------------------------------------------------------------------------
 
 function TopUpCard({ data }: { data: Summary }) {
+  const { money } = useMoney();
   const workspace = useWorkspace();
   const startTopUp = useAction(api.razorpay.startTopUp);
   const confirmPayment = useAction(api.razorpay.confirmPayment);
@@ -318,7 +320,7 @@ function TopUpCard({ data }: { data: Summary }) {
       toast.add(
         result.status === "captured"
           ? {
-              title: `${inr(amounts.subtotalMicros)} added to your wallet`,
+              title: `${money(amounts.subtotalMicros)} added to your wallet`,
               type: "success",
             }
           : {
@@ -374,17 +376,17 @@ function TopUpCard({ data }: { data: Summary }) {
         </div>
         {value !== null && tooSmall ? (
           <p className="text-xs text-destructive">
-            The smallest top-up is {inr(data.minTopUpMicros)}.
+            The smallest top-up is {money(data.minTopUpMicros)}.
           </p>
         ) : tooLarge ? (
           <p className="text-xs text-destructive">
-            A single top-up can be at most {inr(MAX_TOPUP_MICROS)}.
+            A single top-up can be at most {money(MAX_TOPUP_MICROS)}.
           </p>
         ) : value !== null ? (
           <p className="text-sm text-muted-foreground tabular-nums">
-            {inr(amounts.subtotalMicros)} + {inr(amounts.gstMicros)} GST ={" "}
+            {money(amounts.subtotalMicros)} + {money(amounts.gstMicros)} GST ={" "}
             <span className="font-medium text-foreground">
-              {inr(amounts.totalMicros)}
+              {money(amounts.totalMicros)}
             </span>
           </p>
         ) : null}
@@ -402,7 +404,7 @@ function TopUpCard({ data }: { data: Summary }) {
         >
           {busy ? <Spinner /> : <WalletIcon />}
           {value !== null && !tooSmall && !tooLarge
-            ? `Pay ${inr(amounts.totalMicros)}`
+            ? `Pay ${money(amounts.totalMicros)}`
             : "Pay"}
         </Button>
       </CardFooter>
@@ -445,6 +447,7 @@ function mandateState(tokenStatus: string | null): { label: string; tone: string
  * them. Keyed on the saved values by its parent.
  */
 function AutoRechargeCard({ data }: { data: Summary }) {
+  const { money } = useMoney();
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
   const updatePreferences = useMutation(api.wallet.updatePreferences);
@@ -645,21 +648,21 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             </InputGroup>
             {amountValue !== null && amountMicros < data.minTopUpMicros ? (
               <p className="text-xs text-destructive">
-                The smallest recharge is {inr(data.minTopUpMicros)}.
+                The smallest recharge is {money(data.minTopUpMicros)}.
               </p>
             ) : amountMicros > MAX_TOPUP_MICROS ? (
               <p className="text-xs text-destructive">
-                A recharge can be at most {inr(MAX_TOPUP_MICROS)}.
+                A recharge can be at most {money(MAX_TOPUP_MICROS)}.
               </p>
             ) : amountValid ? (
               <p className="text-xs text-muted-foreground tabular-nums">
-                Each recharge credits {inr(debit.subtotalMicros)} and debits{" "}
-                {inr(debit.totalMicros)} with GST.
+                Each recharge credits {money(debit.subtotalMicros)} and debits{" "}
+                {money(debit.totalMicros)} with GST.
               </p>
             ) : null}
             {overCap ? (
               <p className="text-xs text-destructive">
-                An automatic debit can be at most {inr(MANDATE_CAP_MICROS)} with
+                An automatic debit can be at most {money(MANDATE_CAP_MICROS)} with
                 GST — above that the bank asks for your approval every time.
                 Pick a smaller amount.
               </p>
@@ -667,7 +670,7 @@ function AutoRechargeCard({ data }: { data: Summary }) {
             {overMandate && autoRecharge.maxAmountMicros !== null ? (
               <p className="text-xs text-destructive">
                 That is more than the saved mandate allows in one debit (
-                {inr(autoRecharge.maxAmountMicros)}). Remove it and set up
+                {money(autoRecharge.maxAmountMicros)}). Remove it and set up
                 auto-recharge again for the higher amount.
               </p>
             ) : null}
@@ -692,7 +695,7 @@ function AutoRechargeCard({ data }: { data: Summary }) {
                 label="Most per debit"
                 value={
                   autoRecharge.maxAmountMicros !== null
-                    ? inr(autoRecharge.maxAmountMicros)
+                    ? money(autoRecharge.maxAmountMicros)
                     : "—"
                 }
               />
@@ -842,9 +845,11 @@ const KIND_LABEL: Record<Doc<"walletTransactions">["kind"], string> = {
   topup: "Top-up",
   auto_recharge: "Auto-recharge",
   adjustment: "Adjustment",
+  bonus: "Welcome bonus",
 };
 
 function WalletHistory() {
+  const { money } = useMoney();
   const workspace = useWorkspace();
   const { results, status, loadMore } = usePaginatedQuery(
     api.wallet.transactions,
@@ -912,10 +917,10 @@ function WalletHistory() {
                         )}
                       >
                         {row.amountMicros >= 0 ? "+" : "−"}
-                        {inr(Math.abs(row.amountMicros))}
+                        {money(Math.abs(row.amountMicros))}
                       </TableCell>
                       <TableCell className="hidden text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
-                        {inr(row.balanceAfterMicros)}
+                        {money(row.balanceAfterMicros)}
                       </TableCell>
                     </TableRow>
                   ))}

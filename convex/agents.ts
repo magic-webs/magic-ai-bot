@@ -556,13 +556,7 @@ async function insertSpecialist(
     knowledgeEnabled: true,
     knowledgeTopK: 6,
     builtinTools: args.builtinTools ?? [...DEFAULT_BUILTIN_TOOLS],
-    // An agent made with the defaults takes orders, as it always did — now
-    // through the Orders record book rather than a builtin tool.
-    recordBooks:
-      args.recordBooks ??
-      (args.builtinTools === undefined
-        ? [await ensureOrdersBook(ctx, args.workspaceId)]
-        : []),
+    recordBooks: args.recordBooks ?? [],
     status: "draft",
     createdAt: now,
     updatedAt: now,

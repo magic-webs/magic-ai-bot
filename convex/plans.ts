@@ -7,11 +7,17 @@
 // plan's included agents — the limits every account on it is held to.
 
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireAdmin, requireWorkspace } from "./lib/auth";
 import { allPlans, billingSettings } from "./lib/account";
 import { toMicros } from "./lib/billing";
-import { DEFAULT_PLANS, DEFAULT_SETTINGS } from "./lib/plans";
+import {
+  DEFAULT_PLANS,
+  DEFAULT_SETTINGS,
+  PLATFORM_CURRENCY,
+  isLiveStatus,
+} from "./lib/plans";
+import { isValidCurrency } from "./lib/regional";
 import { slugify } from "./lib/shared";
 
 /** A price above this is a slipped digit, not a monthly fee. */
@@ -55,6 +61,33 @@ export const adminCatalogue = query({
     };
   },
 });
+
+/** The currency plans and wallets are billed in, for formatting money. */
+export const currency = query({
+  args: {},
+  handler: async (ctx): Promise<string> => {
+    const settings = await billingSettings(ctx);
+    return settings?.currency ?? PLATFORM_CURRENCY;
+  },
+});
+
+/**
+ * Why the billing currency cannot change now, or null. Balances and
+ * subscriptions are amounts in the old currency, and nothing converts them.
+ */
+async function currencyLock(ctx: MutationCtx): Promise<string | null> {
+  const wallets = await ctx.db.query("wallets").take(5000);
+  const held = wallets.filter((wallet) => wallet.balanceMicros !== 0).length;
+  if (held > 0) {
+    return `${held} ${held === 1 ? "wallet still holds" : "wallets still hold"} a balance. Bring them to zero first.`;
+  }
+  const subscriptions = await ctx.db.query("billingSubscriptions").take(5000);
+  const live = subscriptions.filter((row) => isLiveStatus(row.status)).length;
+  if (live > 0) {
+    return `${live} ${live === 1 ? "subscription is" : "subscriptions are"} still running in the old currency.`;
+  }
+  return null;
+}
 
 /** The plans a workspace may choose between, and what an extra agent costs. */
 export const catalogue = query({
@@ -122,6 +155,10 @@ export const updateSettings = mutation({
     minTopUp: v.number(),
     defaultThreshold: v.number(),
     trialPlanId: v.optional(v.id("billingPlans")),
+    currency: v.optional(v.string()),
+    welcomeBonus: v.optional(
+      v.array(v.object({ currency: v.string(), amount: v.number() }))
+    ),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -141,6 +178,25 @@ export const updateSettings = mutation({
       throw new Error("That plan no longer exists.");
     }
 
+    const currency = (args.currency ?? settings.currency).trim().toUpperCase();
+    if (!isValidCurrency(currency)) {
+      throw new Error("Pick a three-letter currency code, e.g. INR or USD.");
+    }
+    if (currency !== settings.currency) {
+      const locked = await currencyLock(ctx);
+      if (locked) throw new Error(`The billing currency cannot change yet: ${locked}`);
+      const wallets = await ctx.db.query("wallets").take(5000);
+      for (const wallet of wallets) {
+        await ctx.db.patch("wallets", wallet._id, { currency, updatedAt: Date.now() });
+      }
+    }
+
+    const welcomeBonus = args.welcomeBonus?.map((entry) => {
+      const code = entry.currency.trim().toUpperCase();
+      if (!isValidCurrency(code)) throw new Error(`${entry.currency} is not a currency code.`);
+      return { currency: code, amountMicros: money(`The ${code} welcome bonus`, entry.amount) };
+    });
+
     await ctx.db.patch("billingSettings", settings._id, {
       gstPercent: args.gstPercent,
       trialDays: wholeNumber("Trial days", args.trialDays, 365),
@@ -151,6 +207,8 @@ export const updateSettings = mutation({
       minTopUpMicros,
       defaultThresholdMicros: money("The default low-balance line", args.defaultThreshold),
       trialPlanId: args.trialPlanId ?? settings.trialPlanId,
+      currency,
+      welcomeBonus: welcomeBonus ?? settings.welcomeBonus,
       updatedAt: Date.now(),
     });
     return null;

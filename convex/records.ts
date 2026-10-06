@@ -38,6 +38,7 @@ import {
   requireRecord,
   threadAccess,
   requireRecordBook,
+  requireAdmin,
   requireRecordWebhook,
   requireWorkspace,
 } from "./lib/auth";
@@ -383,7 +384,9 @@ export const updateBook = mutation({
 export const removeBook = mutation({
   args: { bookId: v.id("recordBooks") },
   handler: async (ctx, args) => {
-    const book = await requireRecordBook(ctx, args.bookId);
+    await requireAdmin(ctx);
+    const book = await ctx.db.get("recordBooks", args.bookId);
+    if (!book) throw new Error("Record book not found");
 
     // Everything hanging off the book goes with it: its records, its
     // destinations, its delivery log, and the switch on every agent that had

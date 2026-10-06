@@ -312,7 +312,7 @@ export default function AdminBillingPage() {
           </div>
 
           {/* ------------------------------------------------ accounts */}
-          <Card>
+          <Card className="shrink-0">
             <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
               <div>
                 <CardTitle>Accounts</CardTitle>
@@ -337,7 +337,7 @@ export default function AdminBillingPage() {
                   reach. The height goes on Table's own container — it already
                   scrolls sideways, and a second scroller around it would leave
                   the sticky header pinned to the wrong box. */}
-              <div className="overflow-hidden rounded-md border *:data-[slot=table-container]:max-h-[min(36rem,65svh)] *:data-[slot=table-container]:overflow-y-auto *:data-[slot=table-container]:overscroll-contain">
+              <div className="overflow-hidden rounded-md border *:data-[slot=table-container]:max-h-[min(48rem,75svh)] *:data-[slot=table-container]:overflow-y-auto *:data-[slot=table-container]:overscroll-contain">
                 <Table>
                   {/* The row border does not travel with a sticky header, so
                       the rule under it is an inset shadow instead. */}

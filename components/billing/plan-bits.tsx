@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { formatMoney } from "@/convex/lib/billing";
 import {
   PLATFORM_CURRENCY,
@@ -28,20 +31,43 @@ import {
  * and a plan's standing read the same on all of them.
  */
 
-const WHOLE_RUPEES = new Intl.NumberFormat(PLATFORM_LOCALE, {
-  style: "currency",
-  currency: PLATFORM_CURRENCY,
-  maximumFractionDigits: 0,
-});
+const localeFor = (currency: string) =>
+  currency === PLATFORM_CURRENCY ? PLATFORM_LOCALE : "en-US";
 
 /**
- * Rupees, the Indian way: ₹1,23,456, and ₹5,898.82 when there are paise.
- * A price is usually whole, and "₹4,999.00" on a plan card is noise; below a
- * rupee — one message — the four decimals formatMoney keeps are the point.
+ * Money in the billing currency: ₹1,23,456 the Indian way, and ₹5,898.82
+ * when there are paise. A price is usually whole, and "₹4,999.00" on a plan
+ * card is noise; below one unit — one message — the four decimals
+ * formatMoney keeps are the point.
  */
-export function inr(micros: number): string {
-  if (micros % 1_000_000 === 0) return WHOLE_RUPEES.format(micros / 1_000_000);
-  return formatMoney(micros, PLATFORM_CURRENCY, PLATFORM_LOCALE);
+export function moneyIn(currency: string): (micros: number) => string {
+  const locale = localeFor(currency);
+  const whole = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  });
+  return (micros) =>
+    micros % 1_000_000 === 0
+      ? whole.format(micros / 1_000_000)
+      : formatMoney(micros, currency, locale);
+}
+
+export function currencySymbol(currency: string): string {
+  return (
+    new Intl.NumberFormat(localeFor(currency), { style: "currency", currency })
+      .formatToParts(0)
+      .find((part) => part.type === "currency")?.value ?? currency
+  );
+}
+
+/** The billing currency an administrator set, and money formatted in it. */
+export function useMoney() {
+  const currency = useQuery(api.plans.currency, {}) ?? PLATFORM_CURRENCY;
+  return useMemo(
+    () => ({ currency, money: moneyIn(currency), symbol: currencySymbol(currency) }),
+    [currency]
+  );
 }
 
 /** Whole rupees for a box the person types into — "999", not "₹999.00". */
@@ -117,6 +143,7 @@ export function StrikePrice({
   className?: string;
   listClassName?: string;
 }) {
+  const { money } = useMoney();
   return (
     <span className={cn("inline-flex items-baseline gap-1.5", className)}>
       {listMicros > priceMicros ? (
@@ -126,10 +153,10 @@ export function StrikePrice({
             listClassName
           )}
         >
-          {inr(listMicros)}
+          {money(listMicros)}
         </span>
       ) : null}
-      <span>{inr(priceMicros)}</span>
+      <span>{money(priceMicros)}</span>
     </span>
   );
 }

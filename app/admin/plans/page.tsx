@@ -8,13 +8,15 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { toMicros } from "@/convex/lib/billing";
 import { DEFAULT_PLANS, DEFAULT_SETTINGS, withGst } from "@/convex/lib/plans";
 import { SelectField } from "@/components/select-field";
+import { CurrencyPicker } from "@/components/regional-pickers";
 import {
   IncludedAgents,
   PlanFeatures,
   StrikePrice,
+  currencySymbol,
   formatDay,
-  inr,
   rupeesOf,
+  useMoney,
 } from "@/components/billing/plan-bits";
 import {
   AlertDialog,
@@ -237,6 +239,16 @@ function termsOf(settings: Settings): Terms {
 
 const WHOLE_TERMS = new Set<keyof Terms>(["trialDays", "graceDays"]);
 
+/** One box per currency with a bonus, and one for the billing currency. */
+function bonusOf(settings: Settings): Record<string, string> {
+  const bonus: Record<string, string> = {};
+  for (const entry of settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus) {
+    bonus[entry.currency] = rupeesOf(entry.amountMicros);
+  }
+  bonus[settings.currency] ??= "0";
+  return bonus;
+}
+
 /**
  * The form starts from the saved settings and is remounted — keyed on
  * `updatedAt` by its caller — whenever they change, rather than copying them
@@ -251,10 +263,15 @@ function TermsForm({
   settings: Settings;
   plans: PlanRow[];
 }) {
+  const { money, symbol } = useMoney();
   const updateSettings = useMutation(api.plans.updateSettings);
   const saved = termsOf(settings);
   const [draft, setDraft] = useState<Terms>(saved);
+  const [currency, setCurrency] = useState(settings.currency);
+  const savedBonus = bonusOf(settings);
+  const [bonus, setBonus] = useState(savedBonus);
   const [busy, setBusy] = useState(false);
+  const bonusBoxes = { ...bonus, [currency]: bonus[currency] ?? "0" };
 
   const set = (key: keyof Terms) => (value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -265,8 +282,14 @@ function TermsForm({
     return !(value >= 0) || (WHOLE_TERMS.has(key) && !Number.isInteger(value));
   };
   const keys = Object.keys(draft) as Array<keyof Terms>;
-  const invalid = keys.some(bad);
-  const dirty = keys.some((key) => draft[key] !== saved[key]);
+  const badBonus = (code: string) => !(num(bonusBoxes[code]) >= 0);
+  const invalid = keys.some(bad) || Object.keys(bonusBoxes).some(badBonus);
+  const dirty =
+    keys.some((key) => draft[key] !== saved[key]) ||
+    currency !== settings.currency ||
+    Object.keys(bonusBoxes).some(
+      (code) => bonusBoxes[code] !== (savedBonus[code] ?? "0"),
+    );
 
   const gst = num(draft.gstPercent);
   const priceMicros = toMicros(num(draft.extraAgentPrice) || 0);
@@ -287,6 +310,11 @@ function TermsForm({
         trialPlanId: draft.trialPlanId
           ? (draft.trialPlanId as Id<"billingPlans">)
           : undefined,
+        currency,
+        welcomeBonus: Object.entries(bonusBoxes).map(([code, amount]) => ({
+          currency: code,
+          amount: num(amount),
+        })),
       });
       toast.add({
         title: "Terms saved",
@@ -379,7 +407,7 @@ function TermsForm({
             <Field id="terms-extra-list" label="Extra agent · list price">
               <NumberInput
                 id="terms-extra-list"
-                prefix="₹"
+                prefix={symbol}
                 value={draft.extraAgentList}
                 invalid={bad("extraAgentList")}
                 onChange={set("extraAgentList")}
@@ -388,7 +416,7 @@ function TermsForm({
             <Field id="terms-extra-price" label="Extra agent · price">
               <NumberInput
                 id="terms-extra-price"
-                prefix="₹"
+                prefix={symbol}
                 value={draft.extraAgentPrice}
                 invalid={bad("extraAgentPrice")}
                 onChange={set("extraAgentPrice")}
@@ -401,15 +429,16 @@ function TermsForm({
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
               {listMicros > priceMicros ? (
                 <>
-                  <span className="line-through">{inr(listMicros)}</span> →{" "}
+                  <span className="line-through">{money(listMicros)}</span>{" "}
+                  →{" "}
                 </>
               ) : null}
               <span className="font-medium text-foreground">
-                {inr(priceMicros)}
+                {money(priceMicros)}
               </span>{" "}
               a month per extra agent
               {gst >= 0
-                ? `, ${inr(withGst(priceMicros, gst).totalMicros)} with GST`
+                ? `, ${money(withGst(priceMicros, gst).totalMicros)} with GST`
                 : ""}
               . One pool: each can be an AI agent or a human one.
               {listMicros > 0 && listMicros < priceMicros
@@ -427,7 +456,7 @@ function TermsForm({
           >
             <NumberInput
               id="terms-min-topup"
-              prefix="₹"
+              prefix={symbol}
               value={draft.minTopUp}
               invalid={bad("minTopUp")}
               onChange={set("minTopUp")}
@@ -440,12 +469,54 @@ function TermsForm({
           >
             <NumberInput
               id="terms-threshold"
-              prefix="₹"
+              prefix={symbol}
               value={draft.defaultThreshold}
               invalid={bad("defaultThreshold")}
               onChange={set("defaultThreshold")}
             />
           </Field>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field
+            id="terms-currency"
+            label="Billing currency"
+            hint="Plans, wallets and Meta's message rates are in it. Changes only while every wallet is at zero and no subscription runs."
+          >
+            <CurrencyPicker
+              id="terms-currency"
+              value={currency}
+              onValueChange={setCurrency}
+            />
+          </Field>
+          {Object.keys(bonusBoxes)
+            .sort(
+              (a, b) =>
+                Number(b === currency) - Number(a === currency) ||
+                a.localeCompare(b),
+            )
+            .map((code) => (
+              <Field
+                key={code}
+                id={`terms-bonus-${code}`}
+                label={`Welcome bonus · ${code}`}
+                hint={
+                  code === currency
+                    ? "Credited to every new workspace's wallet. Zero for none."
+                    : "Used when the billing currency is " + code + "."
+                }
+              >
+                <NumberInput
+                  id={`terms-bonus-${code}`}
+                  prefix={currencySymbol(code)}
+                  value={bonusBoxes[code]}
+                  invalid={badBonus(code)}
+                  onChange={(value) =>
+                    setBonus((prev) => ({ ...prev, [code]: value }))
+                  }
+                />
+              </Field>
+            ))}
         </div>
       </CardContent>
       <CardFooter className="justify-between gap-3">
@@ -456,7 +527,10 @@ function TermsForm({
               ? "Unsaved changes."
               : `Saved ${formatDay(settings.updatedAt)}.`}
         </span>
-        <Button disabled={busy || invalid || !dirty} onClick={() => void save()}>
+        <Button
+          disabled={busy || invalid || !dirty}
+          onClick={() => void save()}
+        >
           {busy ? <Spinner /> : null} Save terms
         </Button>
       </CardFooter>
@@ -501,7 +575,9 @@ function planDraft(plan: PlanRow | null): PlanDraft {
     // Blank when it is the price itself: the box then reads as "nothing
     // struck through", which is what the plan card shows.
     listPrice:
-      plan.listPriceMicros > plan.priceMicros ? rupeesOf(plan.listPriceMicros) : "",
+      plan.listPriceMicros > plan.priceMicros
+        ? rupeesOf(plan.listPriceMicros)
+        : "",
     includedAiAgents: String(plan.includedAiAgents),
     includedHumanAgents: String(plan.includedHumanAgents),
     features: plan.features.join("\n"),
@@ -525,6 +601,7 @@ function PlanForm({
   gstPercent: number;
   onDone: () => void;
 }) {
+  const { money, symbol } = useMoney();
   const savePlan = useMutation(api.plans.savePlan);
   const [draft, setDraft] = useState<PlanDraft>(() => planDraft(plan));
   const [busy, setBusy] = useState(false);
@@ -552,7 +629,7 @@ function PlanForm({
     .map((line) => line.trim())
     .filter(Boolean);
   const otherHighlighted = plans.find(
-    (other) => other.highlighted && other._id !== plan?._id
+    (other) => other.highlighted && other._id !== plan?._id,
   );
 
   const save = async () => {
@@ -573,7 +650,9 @@ function PlanForm({
         status: draft.offered ? "active" : "hidden",
       });
       toast.add({
-        title: plan ? `${draft.name.trim()} saved` : `${draft.name.trim()} added`,
+        title: plan
+          ? `${draft.name.trim()} saved`
+          : `${draft.name.trim()} added`,
         type: "success",
       });
       onDone();
@@ -589,8 +668,8 @@ function PlanForm({
       <DialogHeader>
         <DialogTitle>{plan ? `Edit ${plan.name}` : "New plan"}</DialogTitle>
         <DialogDescription>
-          Monthly, before GST. The three desks come with every plan and are
-          not counted against its agents.
+          Monthly, before GST. The three desks come with every plan and are not
+          counted against its agents.
         </DialogDescription>
       </DialogHeader>
 
@@ -619,7 +698,7 @@ function PlanForm({
           <Field id="plan-price" label="Price">
             <NumberInput
               id="plan-price"
-              prefix="₹"
+              prefix={symbol}
               value={draft.price}
               placeholder="9999"
               invalid={tried && problems.price}
@@ -633,7 +712,7 @@ function PlanForm({
           >
             <NumberInput
               id="plan-list"
-              prefix="₹"
+              prefix={symbol}
               value={draft.listPrice}
               placeholder={draft.price || "Same as the price"}
               invalid={tried && problems.list}
@@ -648,8 +727,8 @@ function PlanForm({
               listMicros={toMicros(list)}
               className="font-medium text-foreground"
             />{" "}
-            a month, {inr(withGst(toMicros(price), gstPercent).totalMicros)} with{" "}
-            {gstPercent}% GST.
+            a month, {money(withGst(toMicros(price), gstPercent).totalMicros)}{" "}
+            with {gstPercent}% GST.
           </p>
         ) : null}
 
@@ -686,14 +765,18 @@ function PlanForm({
           id="plan-features"
           label="Features"
           hint={`One per line, as the plan card lists them — up to 20.${
-            features.length > 20 ? ` ${features.length - 20} past that are dropped.` : ""
+            features.length > 20
+              ? ` ${features.length - 20} past that are dropped.`
+              : ""
           }`}
         >
           <Textarea
             id="plan-features"
             rows={5}
             value={draft.features}
-            placeholder={"Front desk that answers first and routes every chat\n5 custom agents\n3 human agents with full access"}
+            placeholder={
+              "Front desk that answers first and routes every chat\n5 custom agents\n3 human agents with full access"
+            }
             onChange={(event) => set("features", event.target.value)}
           />
         </Field>
@@ -740,8 +823,7 @@ function PlanForm({
             A new price reaches a company already paying only when it next
             checks out — Razorpay keeps charging what its subscription was
             created at. Included agents apply to every account on the plan
-            straight away, so lowering them can leave accounts over their
-            limit.
+            straight away, so lowering them can leave accounts over their limit.
           </p>
         ) : null}
       </DialogBody>
@@ -796,7 +878,7 @@ function PlanCard({
     <Card
       className={cn(
         plan.highlighted && "ring-2 ring-primary/40",
-        plan.status === "hidden" && "opacity-75"
+        plan.status === "hidden" && "opacity-75",
       )}
     >
       <CardHeader className="gap-2">
@@ -828,7 +910,9 @@ function PlanCard({
         {plan.features.length > 0 ? (
           <PlanFeatures features={plan.features} />
         ) : (
-          <p className="text-xs text-muted-foreground italic">No features listed.</p>
+          <p className="text-xs text-muted-foreground italic">
+            No features listed.
+          </p>
         )}
       </CardContent>
 
@@ -892,7 +976,9 @@ function PlanCard({
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel render={<Button variant="ghost">Cancel</Button>} />
+                <AlertDialogCancel
+                  render={<Button variant="ghost">Cancel</Button>}
+                />
                 <AlertDialogAction
                   render={
                     <Button variant="destructive" onClick={() => void remove()}>

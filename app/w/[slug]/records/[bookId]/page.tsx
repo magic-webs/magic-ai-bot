@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { SelectField } from "@/components/select-field";
+import { useSession } from "@/components/use-session";
 import {
   Card,
   CardContent,
@@ -166,11 +167,12 @@ function RecordDetail({ book, row }: { book: Book; row: RecordRow }) {
                     <dt className="text-muted-foreground">{field.label}</dt>
                     <dd>{details[field.key]}</dd>
                   </div>
-                )
+                ),
               )}
               {row.values
                 .filter(
-                  (pair) => !book.fields.some((field) => field.key === pair.key)
+                  (pair) =>
+                    !book.fields.some((field) => field.key === pair.key),
                 )
                 .map((pair) => (
                   <div key={pair.key} className="contents">
@@ -433,7 +435,7 @@ function WebhookDialog({
           events: existing.events,
           headers: existing.headers,
         }
-      : BLANK_HOOK
+      : BLANK_HOOK,
   );
   const [saving, setSaving] = useState(false);
 
@@ -840,6 +842,7 @@ export default function RecordBookPage({
   });
   const updateBook = useMutation(api.records.updateBook);
   const removeBook = useMutation(api.records.removeBook);
+  const { isAdmin } = useSession();
 
   const [stageFilter, setStageFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -1269,48 +1272,54 @@ export default function RecordBookPage({
           </Card>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <AlertDialog>
-              <AlertDialogTrigger
-                render={
-                  <Button variant="ghost" className="text-destructive">
-                    <TrashIcon /> Delete this record type
-                  </Button>
-                }
-              />
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Delete {book.pluralName.toLowerCase()}?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Every {book.name.toLowerCase()} filed so far goes with it,
-                    along with its destinations and delivery history. Agents
-                    lose the <code>{tools.file}</code> tool. This cannot be
-                    undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Keep it</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={async () => {
-                      try {
-                        await removeBook({ bookId: book._id });
-                        toast.add({ title: "Deleted.", type: "success" });
-                        router.push(`${base}/records`);
-                      } catch (error) {
-                        toast.add({
-                          title:
-                            error instanceof Error ? error.message : "Failed.",
-                          type: "error",
-                        });
-                      }
-                    }}
-                  >
-                    Delete everything
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {isAdmin ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="ghost" className="text-destructive">
+                      <TrashIcon /> Delete this record type
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete {book.pluralName.toLowerCase()}?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Every {book.name.toLowerCase()} filed so far goes with it,
+                      along with its destinations and delivery history. Agents
+                      lose the <code>{tools.file}</code> tool. This cannot be
+                      undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep it</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={async () => {
+                        try {
+                          await removeBook({ bookId: book._id });
+                          toast.add({ title: "Deleted.", type: "success" });
+                          router.push(`${base}/records`);
+                        } catch (error) {
+                          toast.add({
+                            title:
+                              error instanceof Error
+                                ? error.message
+                                : "Failed.",
+                            type: "error",
+                          });
+                        }
+                      }}
+                    >
+                      Delete everything
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <span />
+            )}
 
             <Button
               size="lg"

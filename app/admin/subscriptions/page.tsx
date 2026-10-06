@@ -15,9 +15,9 @@ import {
   AccessBadge,
   daysFrom,
   formatDay,
-  inr,
   rupeesOf,
   subscriptionLabel,
+  useMoney,
 } from "@/components/billing/plan-bits";
 import {
   AlertDialog,
@@ -374,6 +374,7 @@ function Note({
 }
 
 function PlanSection({ account, plans }: { account: AccountRow; plans: Plan[] }) {
+  const { money } = useMoney();
   const update = useMutation(api.subscriptions.adminUpdateAccount);
   const [busy, run] = useRun();
   const [planId, setPlanId] = useState<string>(account.planId ?? "");
@@ -408,7 +409,7 @@ function PlanSection({ account, plans }: { account: AccountRow; plans: Plan[] })
       title="Plan and extra agents"
       description={
         isCharging(account)
-          ? `This changes the account's limits now. Razorpay keeps charging ${inr(account.subscription!.totalMicros)} a month until the company checks out again.`
+          ? `This changes the account's limits now. Razorpay keeps charging ${money(account.subscription!.totalMicros)} a month until the company checks out again.`
           : "This changes the account's limits now. What it pays is worked out when it next checks out."
       }
     >
@@ -422,7 +423,7 @@ function PlanSection({ account, plans }: { account: AccountRow; plans: Plan[] })
             onValueChange={setPlanId}
             options={plans.map((row) => ({
               value: row._id,
-              label: `${row.name} · ${inr(row.priceMicros)}${row.status === "hidden" ? " · hidden" : ""}`,
+              label: `${row.name} · ${money(row.priceMicros)}${row.status === "hidden" ? " · hidden" : ""}`,
             }))}
           />
         </Field>
@@ -748,6 +749,7 @@ function SubscriptionSection({
   account: AccountRow;
   now: number;
 }) {
+  const { money } = useMoney();
   const cancel = useAction(api.razorpay.cancelSubscription);
   const refresh = useAction(api.razorpay.refresh);
   const [cancelling, runCancel] = useRun();
@@ -801,7 +803,7 @@ function SubscriptionSection({
     ["Status", subscriptionLabel(subscription.status)],
     [
       "Charged",
-      `${inr(subscription.totalMicros)} a month, incl. ${inr(subscription.gstMicros)} GST`,
+      `${money(subscription.totalMicros)} a month, incl. ${money(subscription.gstMicros)} GST`,
     ],
     ["Payments made", subscription.paidCount.toLocaleString()],
     [
@@ -923,6 +925,7 @@ function SubscriptionSection({
 }
 
 function WalletSection({ account }: { account: AccountRow }) {
+  const { money } = useMoney();
   const adjust = useMutation(api.wallet.adminAdjust);
   const [busy, run] = useRun();
   const [amount, setAmount] = useState("");
@@ -943,9 +946,9 @@ function WalletSection({ account }: { account: AccountRow }) {
       return {
         title:
           value > 0
-            ? `Added ${inr(toMicros(value))} to ${account.name}'s wallet`
-            : `Took ${inr(toMicros(-value))} off ${account.name}'s wallet`,
-        description: `New balance ${inr(balanceMicros)}.`,
+            ? `Added ${money(toMicros(value))} to ${account.name}'s wallet`
+            : `Took ${money(toMicros(-value))} off ${account.name}'s wallet`,
+        description: `New balance ${money(balanceMicros)}.`,
       };
     });
     if (ok) {
@@ -966,7 +969,7 @@ function WalletSection({ account }: { account: AccountRow }) {
               account.balanceMicros < 0 ? "text-destructive" : "text-foreground"
             )}
           >
-            {inr(account.balanceMicros)}
+            {money(account.balanceMicros)}
           </span>
           {account.autoRecharge ? ", and recharges itself when it runs low" : ""}
           . A positive amount adds credit and a negative one takes it off — no
@@ -1106,6 +1109,7 @@ function ManageBody({
  * open, what Razorpay charges it, and what its wallet holds.
  */
 export default function AdminSubscriptionsPage() {
+  const { money } = useMoney();
   const now = useHourBucket();
   const data = useQuery(api.subscriptions.adminAccounts, { now });
 
@@ -1231,12 +1235,12 @@ export default function AdminSubscriptionsPage() {
             />
             <Tile
               label="Monthly recurring (Razorpay)"
-              value={inr(recurringMicros)}
+              value={money(recurringMicros)}
               hint={`${recurring.length} ${recurring.length === 1 ? "subscription" : "subscriptions"} · incl. GST`}
             />
             <Tile
               label="Wallet balances"
-              value={inr(walletMicros)}
+              value={money(walletMicros)}
               hint={belowZero > 0 ? `${belowZero} below zero` : "Across every account"}
             />
           </div>
@@ -1356,7 +1360,7 @@ export default function AdminSubscriptionsPage() {
                                     isCharging(row) ? "font-medium" : "text-muted-foreground"
                                   }
                                 >
-                                  {inr(row.monthlyMicros)}
+                                  {money(row.monthlyMicros)}
                                 </span>
                                 <span className="block text-[11px] text-muted-foreground">
                                   {isCharging(row) ? "incl. GST" : "quote · incl. GST"}
@@ -1371,7 +1375,7 @@ export default function AdminSubscriptionsPage() {
                                 row.balanceMicros < 0 && "text-destructive"
                               )}
                             >
-                              {inr(row.balanceMicros)}
+                              {money(row.balanceMicros)}
                             </span>
                             {row.autoRecharge ? (
                               <span className="block text-[11px] text-muted-foreground">
