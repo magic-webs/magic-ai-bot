@@ -15,6 +15,7 @@ import {
   MESSAGE_CATEGORIES,
   billingCurrency,
   defaultMarkups,
+  effectiveMarkups,
   workspaceCurrency,
   homeMarket,
   metaCostOf,
@@ -147,7 +148,7 @@ export const settleStale = internalMutation({
 
 type MarkupView = {
   scope: "workspace" | "default";
-  freeMicros: number;
+  chargeFree: boolean;
   byCurrency: NonNullable<Doc<"billingMarkups">["byCurrency"]>;
   updatedAt: number;
 } & Record<MessageCategory, { fixedMicros: number; percent: number }>;
@@ -162,7 +163,7 @@ function markupView(
     utility: card.utility,
     marketing: card.marketing,
     authentication: card.authentication,
-    freeMicros: card.freeMicros,
+    chargeFree: card.chargeFree ?? false,
     byCurrency: card.byCurrency ?? [],
     updatedAt: card.updatedAt,
   };
@@ -176,7 +177,7 @@ type PriceView = {
   market: string;
   marketLabel: string;
   currency: string;
-  freeMicros: number;
+  chargeFree: boolean;
 } & Record<`${MessageCategory}Micros`, number>;
 
 async function pricesFor(
@@ -192,17 +193,12 @@ async function pricesFor(
     currency = priced.currency;
     prices[`${category}Micros`] = priced.amountMicros;
   }
-  const free = await quote(ctx, {
-    workspaceId,
-    market,
-    category: "service",
-    billable: false,
-  });
+  const { card } = await effectiveMarkups(ctx, workspaceId);
   return {
     market,
     marketLabel: marketLabel(market),
     currency,
-    freeMicros: free.amountMicros,
+    chargeFree: card?.chargeFree ?? false,
     ...prices,
   };
 }
@@ -729,7 +725,7 @@ export const setMarkups = mutation({
     utility: markupInput,
     marketing: markupInput,
     authentication: markupInput,
-    free: v.number(),
+    chargeFree: v.boolean(),
     /** Fixed amounts in other currencies; the ones above are in INR. */
     byCurrency: v.optional(
       v.array(
@@ -739,7 +735,6 @@ export const setMarkups = mutation({
           utility: v.number(),
           marketing: v.number(),
           authentication: v.number(),
-          free: v.number(),
         })
       )
     ),
@@ -767,7 +762,7 @@ export const setMarkups = mutation({
       utility: markupOf("utility"),
       marketing: markupOf("marketing"),
       authentication: markupOf("authentication"),
-      freeMicros: amountMicros("The free-message fee", args.free),
+      chargeFree: args.chargeFree,
       ...(args.byCurrency === undefined
         ? {}
         : {
@@ -792,10 +787,6 @@ export const setMarkups = mutation({
                 authentication: amountMicros(
                   `The ${code} authentication markup`,
                   entry.authentication
-                ),
-                freeMicros: amountMicros(
-                  `The ${code} free-message fee`,
-                  entry.free
                 ),
               };
             }),
@@ -867,7 +858,6 @@ export const migrateRateCards = internalMutation({
           utility: markupFor("utility"),
           marketing: markupFor("marketing"),
           authentication: markupFor("authentication"),
-          freeMicros: service.fixedMicros,
           updatedAt: Date.now(),
         });
         migrated++;

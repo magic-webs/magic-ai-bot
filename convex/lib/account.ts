@@ -91,7 +91,7 @@ export async function planFor(
   }
   if (settings?.trialPlanId) {
     const trial = await ctx.db.get("billingPlans", settings.trialPlanId);
-    if (trial) return trial;
+    if (trial && planCurrency(trial) === settings.currency) return trial;
   }
   const plans = await allPlans(ctx);
   const own = settings

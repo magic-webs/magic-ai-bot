@@ -213,13 +213,10 @@ function EnableBilling() {
 // Terms — GST, the trial, grace, extra agents and the wallet
 // ---------------------------------------------------------------------------
 
-type General = {
-  trialDays: string;
-  graceDays: string;
-  trialPlanId: string;
-};
+type TermsRow = Catalogue["terms"][number];
 
 type CurrencyDraft = {
+  trialPlanId: string;
   gstPercent: string;
   extraAgentList: string;
   extraAgentPrice: string;
@@ -228,124 +225,36 @@ type CurrencyDraft = {
   welcomeBonus: string;
 };
 
-type TermsRow = Catalogue["terms"][number];
-
-function generalOf(settings: Settings): General {
-  return {
-    trialDays: String(settings.trialDays),
-    graceDays: String(settings.graceDays),
-    trialPlanId: settings.trialPlanId ?? "",
-  };
-}
-
-function currencyDrafts(
-  settings: Settings,
-  terms: TermsRow[]
-): Record<string, CurrencyDraft> {
+function currencyDraft(settings: Settings, row: TermsRow): CurrencyDraft {
   const bonus = settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus;
-  const drafts: Record<string, CurrencyDraft> = {};
-  for (const row of terms) {
-    drafts[row.currency] = {
-      gstPercent: String(row.gstPercent),
-      extraAgentList: rupeesOf(row.extraAgentListMicros),
-      extraAgentPrice: rupeesOf(row.extraAgentPriceMicros),
-      minTopUp: rupeesOf(row.minTopUpMicros),
-      defaultThreshold: rupeesOf(row.defaultThresholdMicros),
-      welcomeBonus: rupeesOf(
-        bonus.find((entry) => entry.currency === row.currency)?.amountMicros ??
-          0
-      ),
-    };
-  }
-  return drafts;
+  return {
+    trialPlanId: row.trialPlanId ?? "",
+    gstPercent: String(row.gstPercent),
+    extraAgentList: rupeesOf(row.extraAgentListMicros),
+    extraAgentPrice: rupeesOf(row.extraAgentPriceMicros),
+    minTopUp: rupeesOf(row.minTopUpMicros),
+    defaultThreshold: rupeesOf(row.defaultThresholdMicros),
+    welcomeBonus: rupeesOf(
+      bonus.find((entry) => entry.currency === row.currency)?.amountMicros ?? 0
+    ),
+  };
 }
 
 const same = <T extends Record<string, string>>(a: T, b: T) =>
   Object.keys(a).every((key) => a[key] === b[key]);
 
-/**
- * The form starts from the saved settings and is remounted — keyed on
- * `updatedAt` by its caller — whenever they change, rather than copying them
- * into state from an effect: the save itself is one such change, and it
- * brings back what the server kept (a list price below the price is raised
- * to it), not what was typed. Every currency's terms are in the one draft;
- * the tab only picks which are on screen.
- */
-function TermsForm({
-  settings,
-  terms,
-  plans,
-  currency,
-}: {
-  settings: Settings;
-  terms: TermsRow[];
-  plans: PlanRow[];
-  /** The currency tab open on the page. */
-  currency: string;
-}) {
-  const money = moneyIn(currency);
-  const symbol = currencySymbol(currency);
+const badNumber = (text: string, whole = false) => {
+  const value = num(text);
+  return !(value >= 0) || (whole && !Number.isInteger(value));
+};
+
+function useSaveTerms() {
   const updateSettings = useMutation(api.plans.updateSettings);
-  const savedGeneral = generalOf(settings);
-  const savedCurrencies = currencyDrafts(settings, terms);
-  const [general, setGeneral] = useState<General>(savedGeneral);
-  const [drafts, setDrafts] = useState(savedCurrencies);
-  const [defaultCurrency, setDefaultCurrency] = useState(settings.currency);
   const [busy, setBusy] = useState(false);
-  const draft = drafts[currency];
-
-  const setG = (key: keyof General) => (value: string) =>
-    setGeneral((prev) => ({ ...prev, [key]: value }));
-  const set = (key: keyof CurrencyDraft) => (value: string) =>
-    setDrafts((prev) => ({
-      ...prev,
-      [currency]: { ...prev[currency], [key]: value },
-    }));
-
-  const badNumber = (text: string, whole = false) => {
-    const value = num(text);
-    return !(value >= 0) || (whole && !Number.isInteger(value));
-  };
-  const badG = (key: keyof General) =>
-    key !== "trialPlanId" && badNumber(general[key], true);
-  const bad = (key: keyof CurrencyDraft) => badNumber(draft[key]);
-  const invalid =
-    (["trialDays", "graceDays"] as const).some(badG) ||
-    Object.values(drafts).some((row) =>
-      Object.values(row).some((text) => badNumber(text))
-    );
-  const dirty =
-    !same(general, savedGeneral) ||
-    defaultCurrency !== settings.currency ||
-    Object.keys(drafts).some(
-      (code) => !same(drafts[code], savedCurrencies[code])
-    );
-
-  const gst = num(draft.gstPercent);
-  const priceMicros = toMicros(num(draft.extraAgentPrice) || 0);
-  const listMicros = toMicros(num(draft.extraAgentList) || 0);
-
-  const save = async () => {
-    if (invalid) return;
+  const save = async (args: Parameters<typeof updateSettings>[0]) => {
     setBusy(true);
     try {
-      await updateSettings({
-        trialDays: num(general.trialDays),
-        graceDays: num(general.graceDays),
-        trialPlanId: general.trialPlanId
-          ? (general.trialPlanId as Id<"billingPlans">)
-          : undefined,
-        currency: defaultCurrency,
-        terms: Object.entries(drafts).map(([code, row]) => ({
-          currency: code,
-          gstPercent: num(row.gstPercent),
-          extraAgentList: num(row.extraAgentList),
-          extraAgentPrice: num(row.extraAgentPrice),
-          minTopUp: num(row.minTopUp),
-          defaultThreshold: num(row.defaultThreshold),
-          welcomeBonus: num(row.welcomeBonus),
-        })),
-      });
+      await updateSettings(args);
       toast.add({
         title: "Terms saved",
         description:
@@ -358,11 +267,57 @@ function TermsForm({
       setBusy(false);
     }
   };
+  return [busy, save] as const;
+}
+
+function SaveFooter({
+  invalid,
+  dirty,
+  busy,
+  savedAt,
+  onSave,
+}: {
+  invalid: boolean;
+  dirty: boolean;
+  busy: boolean;
+  savedAt: number;
+  onSave: () => void;
+}) {
+  return (
+    <CardFooter className="justify-between gap-3">
+      <span className="text-xs text-muted-foreground">
+        {invalid
+          ? "Every box needs a number — zero if it is free."
+          : dirty
+            ? "Unsaved changes."
+            : `Saved ${formatDay(savedAt)}.`}
+      </span>
+      <Button disabled={busy || invalid || !dirty} onClick={onSave}>
+        {busy ? <Spinner /> : null} Save terms
+      </Button>
+    </CardFooter>
+  );
+}
+
+/**
+ * What every account shares whatever it pays in: the trial and the grace
+ * period. Remounted — keyed on `updatedAt` by its caller — whenever the
+ * settings change, so it always starts from what the server kept.
+ */
+function SharedTermsForm({ settings }: { settings: Settings }) {
+  const [busy, save] = useSaveTerms();
+  const [trialDays, setTrialDays] = useState(String(settings.trialDays));
+  const [graceDays, setGraceDays] = useState(String(settings.graceDays));
+
+  const invalid = badNumber(trialDays, true) || badNumber(graceDays, true);
+  const dirty =
+    trialDays !== String(settings.trialDays) ||
+    graceDays !== String(settings.graceDays);
 
   return (
     <>
-      <CardContent className="flex flex-col gap-5">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2">
           <Field
             id="terms-trial"
             label="Free trial"
@@ -372,9 +327,9 @@ function TermsForm({
               id="terms-trial"
               suffix="days"
               whole
-              value={general.trialDays}
-              invalid={badG("trialDays")}
-              onChange={setG("trialDays")}
+              value={trialDays}
+              invalid={badNumber(trialDays, true)}
+              onChange={setTrialDays}
             />
           </Field>
           <Field
@@ -386,172 +341,206 @@ function TermsForm({
               id="terms-grace"
               suffix="days"
               whole
-              value={general.graceDays}
-              invalid={badG("graceDays")}
-              onChange={setG("graceDays")}
-            />
-          </Field>
-          <Field
-            id="terms-default-currency"
-            label="Default currency"
-            hint="For a new account that is neither Indian nor has a currency with terms. Indian businesses start in INR, others in USD."
-          >
-            <SelectField
-              id="terms-default-currency"
-              className="w-full"
-              value={defaultCurrency}
-              onValueChange={setDefaultCurrency}
-              options={Object.keys(drafts).map((code) => ({
-                value: code,
-                label: code,
-              }))}
+              value={graceDays}
+              invalid={badNumber(graceDays, true)}
+              onChange={setGraceDays}
             />
           </Field>
         </div>
+      </CardContent>
+      <SaveFooter
+        invalid={invalid}
+        dirty={dirty}
+        busy={busy}
+        savedAt={settings.updatedAt}
+        onSave={() =>
+          void save({
+            trialDays: num(trialDays),
+            graceDays: num(graceDays),
+          })
+        }
+      />
+    </>
+  );
+}
 
+/**
+ * One currency's terms: the plan its trials run on, its GST, the price of an
+ * extra agent, the wallet's minimums and the welcome bonus. Keyed on the
+ * currency and `updatedAt` by its caller.
+ */
+function CurrencyTermsForm({
+  settings,
+  row,
+  plans,
+}: {
+  settings: Settings;
+  row: TermsRow;
+  /** This currency's plans. */
+  plans: PlanRow[];
+}) {
+  const currency = row.currency;
+  const money = moneyIn(currency);
+  const symbol = currencySymbol(currency);
+  const [busy, save] = useSaveTerms();
+  const saved = currencyDraft(settings, row);
+  const [draft, setDraft] = useState(saved);
+
+  const set = (key: keyof CurrencyDraft) => (value: string) =>
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  const bad = (key: keyof CurrencyDraft) =>
+    key !== "trialPlanId" && badNumber(draft[key]);
+  const invalid = (Object.keys(draft) as Array<keyof CurrencyDraft>).some(bad);
+  const dirty = !same(draft, saved);
+
+  const gst = num(draft.gstPercent);
+  const priceMicros = toMicros(num(draft.extraAgentPrice) || 0);
+  const listMicros = toMicros(num(draft.extraAgentList) || 0);
+
+  return (
+    <>
+      <CardContent className="flex flex-col gap-5">
         <Field
           id="terms-trial-plan"
           label="Trial plan"
-          hint={
-            <>
-              Whose limits a workspace on its free trial is held to. A trial
-              length changed here reaches workspaces that have not set up
-              billing yet; one already fixed on an account keeps its date —
-              extend it from Subscriptions.
-            </>
-          }
+          hint={`Whose limits a ${currency} workspace on its free trial is held to.`}
         >
           <SelectField
             id="terms-trial-plan"
             className="w-full sm:w-72"
-            value={general.trialPlanId}
-            placeholder="The first plan on sale"
-            onValueChange={setG("trialPlanId")}
+            value={draft.trialPlanId}
+            placeholder={`The first ${currency} plan on sale`}
+            onValueChange={set("trialPlanId")}
             options={plans.map((plan) => ({
               value: plan._id,
-              label: `${plan.name} · ${plan.currency}${plan.status === "hidden" ? " (hidden)" : ""}`,
+              label:
+                plan.status === "hidden" ? `${plan.name} (hidden)` : plan.name,
             }))}
           />
         </Field>
 
-        <div className="flex flex-col gap-3 border-t pt-5">
-          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {currency} accounts
-          </span>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field
+            id="terms-gst"
+            label="GST"
+            hint="Added on top of every plan, extra agent and top-up. Zero for none."
+          >
+            <NumberInput
               id="terms-gst"
-              label="GST"
-              hint="Added on top of every plan, extra agent and top-up."
-            >
-              <NumberInput
-                id="terms-gst"
-                suffix="%"
-                value={draft.gstPercent}
-                invalid={bad("gstPercent")}
-                onChange={set("gstPercent")}
-              />
-            </Field>
-            <Field id="terms-extra-list" label="Extra agent · list price">
-              <NumberInput
-                id="terms-extra-list"
-                prefix={symbol}
-                value={draft.extraAgentList}
-                invalid={bad("extraAgentList")}
-                onChange={set("extraAgentList")}
-              />
-            </Field>
-            <Field id="terms-extra-price" label="Extra agent · price">
-              <NumberInput
-                id="terms-extra-price"
-                prefix={symbol}
-                value={draft.extraAgentPrice}
-                invalid={bad("extraAgentPrice")}
-                onChange={set("extraAgentPrice")}
-              />
-            </Field>
-          </div>
-          {/* The figure a company will see on its plan picker, because two
-              bare boxes do not say which one is struck through. */}
-          {!bad("extraAgentPrice") && !bad("extraAgentList") ? (
-            <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              {listMicros > priceMicros ? (
-                <>
-                  <span className="line-through">{money(listMicros)}</span>{" "}
-                  →{" "}
-                </>
-              ) : null}
-              <span className="font-medium text-foreground">
-                {money(priceMicros)}
-              </span>{" "}
-              a month per extra agent
-              {gst > 0
-                ? `, ${money(withGst(priceMicros, gst).totalMicros)} with GST`
-                : ""}
-              . One pool: each can be an AI agent or a human one.
-              {listMicros > 0 && listMicros < priceMicros
-                ? " A list price below the price is saved as the price."
-                : ""}
-            </p>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field
+              suffix="%"
+              value={draft.gstPercent}
+              invalid={bad("gstPercent")}
+              onChange={set("gstPercent")}
+            />
+          </Field>
+          <Field id="terms-extra-list" label="Extra agent · list price">
+            <NumberInput
+              id="terms-extra-list"
+              prefix={symbol}
+              value={draft.extraAgentList}
+              invalid={bad("extraAgentList")}
+              onChange={set("extraAgentList")}
+            />
+          </Field>
+          <Field id="terms-extra-price" label="Extra agent · price">
+            <NumberInput
+              id="terms-extra-price"
+              prefix={symbol}
+              value={draft.extraAgentPrice}
+              invalid={bad("extraAgentPrice")}
+              onChange={set("extraAgentPrice")}
+            />
+          </Field>
+        </div>
+        {/* The figure a company will see on its plan picker, because two
+            bare boxes do not say which one is struck through. */}
+        {!bad("extraAgentPrice") && !bad("extraAgentList") ? (
+          <p className="-mt-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            {listMicros > priceMicros ? (
+              <>
+                <span className="line-through">{money(listMicros)}</span> →{" "}
+              </>
+            ) : null}
+            <span className="font-medium text-foreground">
+              {money(priceMicros)}
+            </span>{" "}
+            a month per extra agent
+            {gst > 0
+              ? `, ${money(withGst(priceMicros, gst).totalMicros)} with GST`
+              : ""}
+            . One pool: each can be an AI agent or a human one.
+            {listMicros > 0 && listMicros < priceMicros
+              ? " A list price below the price is saved as the price."
+              : ""}
+          </p>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field
+            id="terms-min-topup"
+            label="Minimum wallet top-up"
+            hint={`The smallest wallet payment a company can make. At least ${money(toMicros(1))}.`}
+          >
+            <NumberInput
               id="terms-min-topup"
-              label="Minimum wallet top-up"
-              hint="The smallest wallet payment a company can make. At least 1."
-            >
-              <NumberInput
-                id="terms-min-topup"
-                prefix={symbol}
-                value={draft.minTopUp}
-                invalid={bad("minTopUp")}
-                onChange={set("minTopUp")}
-              />
-            </Field>
-            <Field
+              prefix={symbol}
+              value={draft.minTopUp}
+              invalid={bad("minTopUp")}
+              onChange={set("minTopUp")}
+            />
+          </Field>
+          <Field
+            id="terms-threshold"
+            label="Default low-balance line"
+            hint="Below it the dashboard warns and auto-recharge fires. Each company can set its own."
+          >
+            <NumberInput
               id="terms-threshold"
-              label="Default low-balance line"
-              hint="Below it the dashboard warns and auto-recharge fires. Each company can set its own."
-            >
-              <NumberInput
-                id="terms-threshold"
-                prefix={symbol}
-                value={draft.defaultThreshold}
-                invalid={bad("defaultThreshold")}
-                onChange={set("defaultThreshold")}
-              />
-            </Field>
-            <Field
+              prefix={symbol}
+              value={draft.defaultThreshold}
+              invalid={bad("defaultThreshold")}
+              onChange={set("defaultThreshold")}
+            />
+          </Field>
+          <Field
+            id="terms-bonus"
+            label="Welcome bonus"
+            hint="Credited to a new workspace's wallet. Zero for none."
+          >
+            <NumberInput
               id="terms-bonus"
-              label="Welcome bonus"
-              hint="Credited to a new workspace's wallet. Zero for none."
-            >
-              <NumberInput
-                id="terms-bonus"
-                prefix={symbol}
-                value={draft.welcomeBonus}
-                invalid={bad("welcomeBonus")}
-                onChange={set("welcomeBonus")}
-              />
-            </Field>
-          </div>
+              prefix={symbol}
+              value={draft.welcomeBonus}
+              invalid={bad("welcomeBonus")}
+              onChange={set("welcomeBonus")}
+            />
+          </Field>
         </div>
       </CardContent>
-      <CardFooter className="justify-between gap-3">
-        <span className="text-xs text-muted-foreground">
-          {invalid
-            ? "Every box needs a number — zero if it is free."
-            : dirty
-              ? "Unsaved changes."
-              : `Saved ${formatDay(settings.updatedAt)}.`}
-        </span>
-        <Button
-          disabled={busy || invalid || !dirty}
-          onClick={() => void save()}
-        >
-          {busy ? <Spinner /> : null} Save terms
-        </Button>
-      </CardFooter>
+      <SaveFooter
+        invalid={invalid}
+        dirty={dirty}
+        busy={busy}
+        savedAt={settings.updatedAt}
+        onSave={() =>
+          void save({
+            terms: [
+              {
+                currency,
+                trialPlanId: draft.trialPlanId
+                  ? (draft.trialPlanId as Id<"billingPlans">)
+                  : undefined,
+                gstPercent: num(draft.gstPercent),
+                extraAgentList: num(draft.extraAgentList),
+                extraAgentPrice: num(draft.extraAgentPrice),
+                minTopUp: num(draft.minTopUp),
+                defaultThreshold: num(draft.defaultThreshold),
+                welcomeBonus: num(draft.welcomeBonus),
+              },
+            ],
+          })
+        }
+      />
     </>
   );
 }
@@ -1058,16 +1047,21 @@ export default function AdminPlansPage() {
 
   const settings = data?.settings ?? null;
   const allPlans = data?.plans ?? [];
-  const terms = data?.terms ?? [];
-  const currency = tab ?? settings?.currency ?? "INR";
+  // INR first, then the rest in order, whichever is the default.
+  const terms = [...(data?.terms ?? [])].sort(
+    (a, b) =>
+      Number(b.currency === "INR") - Number(a.currency === "INR") ||
+      a.currency.localeCompare(b.currency)
+  );
+  const currency = tab ?? terms[0]?.currency ?? "INR";
   const termsHere = terms.find((row) => row.currency === currency) ?? terms[0];
   const plans = allPlans.filter((plan) => plan.currency === currency);
   // The plan a trial runs on, worked out the way convex/lib/account.ts does
-  // when the settings name none.
+  // when the currency names none.
   const trialPlanId =
-    settings?.trialPlanId ??
-    allPlans.find((plan) => plan.status === "active")?._id ??
-    allPlans[0]?._id;
+    termsHere?.trialPlanId ??
+    plans.find((plan) => plan.status === "active")?._id ??
+    plans[0]?._id;
   const hidden = plans.filter((plan) => plan.status === "hidden").length;
 
   return (
@@ -1092,6 +1086,17 @@ export default function AdminPlansPage() {
         <EnableBilling />
       ) : (
         <>
+          <Card className="shrink-0">
+            <CardHeader>
+              <CardTitle>Shared terms</CardTitle>
+              <CardDescription>
+                The same for every account, whatever it pays in. Billing was
+                switched on {formatDay(settings.launchedAt)}.
+              </CardDescription>
+            </CardHeader>
+            <SharedTermsForm key={settings.updatedAt} settings={settings} />
+          </Card>
+
           {terms.length > 1 ? (
             <Tabs
               value={currency}
@@ -1100,28 +1105,29 @@ export default function AdminPlansPage() {
               <TabsList>
                 {terms.map((row) => (
                   <TabsTrigger key={row.currency} value={row.currency}>
-                    {row.currency} plans
+                    {row.currency}
                   </TabsTrigger>
                 ))}
               </TabsList>
             </Tabs>
           ) : null}
-          <Card className="shrink-0">
-            <CardHeader>
-              <CardTitle>Terms</CardTitle>
-              <CardDescription>
-                What every plan is sold on. Billing was switched on{" "}
-                {formatDay(settings.launchedAt)}.
-              </CardDescription>
-            </CardHeader>
-            <TermsForm
-              key={settings.updatedAt}
-              settings={settings}
-              terms={terms}
-              plans={allPlans}
-              currency={currency}
-            />
-          </Card>
+
+          {termsHere ? (
+            <Card className="shrink-0">
+              <CardHeader>
+                <CardTitle>{currency} terms</CardTitle>
+                <CardDescription>
+                  What an account billed in {currency} is sold on.
+                </CardDescription>
+              </CardHeader>
+              <CurrencyTermsForm
+                key={`${currency}-${settings.updatedAt}`}
+                settings={settings}
+                row={termsHere}
+                plans={plans}
+              />
+            </Card>
+          ) : null}
 
           <section className="flex shrink-0 flex-col gap-3">
             <div className="flex flex-wrap items-end justify-between gap-3">

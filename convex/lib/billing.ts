@@ -122,11 +122,9 @@ export function categoryOf(
 export type Markup = { fixedMicros: number; percent: number };
 
 export type MarkupCard = Record<MessageCategory, Markup> & {
-  /** What a message Meta did not charge for costs: its free tier, ad replies. */
-  freeMicros: number;
-  byCurrency?: Array<
-    Record<MessageCategory, number> & { currency: string; freeMicros: number }
-  >;
+  /** Bill a message Meta did not charge for — its free tier, ad replies — at full price. */
+  chargeFree?: boolean;
+  byCurrency?: Array<Record<MessageCategory, number> & { currency: string }>;
 };
 
 /** The markups' fixed amounts are stored in INR, with other currencies beside. */
@@ -140,14 +138,6 @@ export function fixedIn(
   if (currency === MARKUP_BASE_CURRENCY) return card[category].fixedMicros;
   return (
     card.byCurrency?.find((entry) => entry.currency === currency)?.[category] ??
-    0
-  );
-}
-
-export function freeIn(card: MarkupCard, currency: string): number {
-  if (currency === MARKUP_BASE_CURRENCY) return card.freeMicros;
-  return (
-    card.byCurrency?.find((entry) => entry.currency === currency)?.freeMicros ??
     0
   );
 }
@@ -340,14 +330,16 @@ export async function quote(
   const currency = await workspaceCurrency(ctx, args.workspaceId);
   const rates = await metaRatesFor(ctx, args.market, currency, args.at);
   const { card } = await effectiveMarkups(ctx, args.workspaceId);
-  if (args.billable === false) {
-    const fee = card ? freeIn(card, currency) : 0;
+  // A message Meta did not charge for is free, unless the markup says to
+  // bill it like any other — all of it then counts as the platform's.
+  const waived = args.billable === false;
+  if (waived && !card?.chargeFree) {
     return {
       market: args.market,
       currency,
       metaCostMicros: 0,
-      markupMicros: fee,
-      amountMicros: fee,
+      markupMicros: 0,
+      amountMicros: 0,
       rated: rates !== null,
     };
   }
@@ -368,8 +360,8 @@ export async function quote(
   return {
     market: args.market,
     currency,
-    metaCostMicros,
-    markupMicros,
+    metaCostMicros: waived ? 0 : metaCostMicros,
+    markupMicros: waived ? metaCostMicros + markupMicros : markupMicros,
     amountMicros: metaCostMicros + markupMicros,
     rated: true,
   };

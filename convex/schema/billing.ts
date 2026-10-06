@@ -23,6 +23,7 @@ export const currencyTerms = v.object({
   extraAgentPriceMicros: v.number(),
   minTopUpMicros: v.number(),
   defaultThresholdMicros: v.number(),
+  trialPlanId: v.optional(v.id("billingPlans")),
 });
 
 const usageChannel = v.optional(
@@ -209,7 +210,9 @@ export const billingTables = {
     utility: markup,
     marketing: markup,
     authentication: markup,
-    freeMicros: v.number(),
+    freeMicros: v.optional(v.number()),
+    /** Bill messages Meta did not charge for at the full price, or not at all. */
+    chargeFree: v.optional(v.boolean()),
     /** Fixed amounts in a currency other than INR, which the fields above are in. */
     byCurrency: v.optional(
       v.array(
@@ -219,7 +222,7 @@ export const billingTables = {
           utility: v.number(),
           marketing: v.number(),
           authentication: v.number(),
-          freeMicros: v.number(),
+          freeMicros: v.optional(v.number()),
         })
       )
     ),

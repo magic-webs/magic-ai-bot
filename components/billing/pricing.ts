@@ -3,7 +3,6 @@ import type { api } from "@/convex/_generated/api";
 import {
   fixedIn,
   formatMoney,
-  freeIn,
   markupOn,
   metaCostOf,
   type MessageCategory,
@@ -74,10 +73,4 @@ export function describeMarkup(
     card[category].percent > 0 ? `${card[category].percent}%` : "";
   const text = [fixed, percent].filter(Boolean).join(" + ");
   return text ? `+ ${text}` : "No markup";
-}
-
-export function describeFree(card: MarkupView, currencies: string[]): string {
-  return currencies
-    .map((currency) => formatMoney(freeIn(card, currency), currency))
-    .join(" / ");
 }

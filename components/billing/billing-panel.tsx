@@ -136,6 +136,7 @@ export function BillingPanel({ days }: { days: number }) {
         current={markups.own}
         fallback={markups.default}
         currencies={meta?.currencies ?? [data.currency]}
+        currency={data.currency}
         sample={ratesFor(
           ratesInForce(
             (meta?.rows ?? []).filter((row) => row.currency === data.currency),
@@ -228,8 +229,10 @@ export function BillingPanel({ days }: { days: number }) {
             <CardTitle>By conversation type</CardTitle>
             {data.prices ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Per message to {data.prices.marketLabel}. Meta&apos;s free
-                messages cost {money(data.prices.freeMicros)}.
+                Per message to {data.prices.marketLabel}.{" "}
+                {data.prices.chargeFree
+                  ? "Meta's free messages are charged as usual."
+                  : "Meta's free messages are free."}
                 {data.pending > 0
                   ? ` ${data.pending.toLocaleString()} recent ${data.pending === 1 ? "message is" : "messages are"} at an estimate until Meta confirms ${data.pending === 1 ? "it" : "them"}.`
                   : ""}

@@ -18,7 +18,6 @@ import {
   PLATFORM_CURRENCY,
   allCurrencyTerms,
   planCurrency,
-  type CurrencyTerms,
 } from "./lib/plans";
 import { isValidCurrency } from "./lib/regional";
 import { slugify } from "./lib/shared";
@@ -145,54 +144,64 @@ export const enable = mutation({
 });
 
 /**
- * The terms: the trial and grace that every account shares, the currency a
- * new account defaults to, and each currency's own GST, extra agent price,
- * wallet minimums and welcome bonus. Amounts arrive in whole units.
+ * The terms. The trial and grace every account shares and the default
+ * currency, and — merged by currency with what is saved — each currency's
+ * trial plan, GST, extra agent price, wallet minimums and welcome bonus.
+ * Amounts arrive in whole units.
  */
 export const updateSettings = mutation({
   args: {
-    trialDays: v.number(),
-    graceDays: v.number(),
-    trialPlanId: v.optional(v.id("billingPlans")),
-    currency: v.string(),
-    terms: v.array(
-      v.object({
-        currency: v.string(),
-        gstPercent: v.number(),
-        extraAgentList: v.number(),
-        extraAgentPrice: v.number(),
-        minTopUp: v.number(),
-        defaultThreshold: v.number(),
-        welcomeBonus: v.number(),
-      })
+    trialDays: v.optional(v.number()),
+    graceDays: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    terms: v.optional(
+      v.array(
+        v.object({
+          currency: v.string(),
+          trialPlanId: v.optional(v.id("billingPlans")),
+          gstPercent: v.number(),
+          extraAgentList: v.number(),
+          extraAgentPrice: v.number(),
+          minTopUp: v.number(),
+          defaultThreshold: v.number(),
+          welcomeBonus: v.number(),
+        })
+      )
     ),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const settings = await billingSettings(ctx);
     if (!settings) throw new Error("Switch billing on first.");
-    if (
-      args.trialPlanId &&
-      !(await ctx.db.get("billingPlans", args.trialPlanId))
-    ) {
-      throw new Error("That plan no longer exists.");
-    }
 
-    const seen = new Set<string>();
-    const terms: CurrencyTerms[] = [];
-    const welcomeBonus: Array<{ currency: string; amountMicros: number }> = [];
-    for (const entry of args.terms) {
+    const terms = new Map(
+      allCurrencyTerms(settings).map((entry) => [entry.currency, entry])
+    );
+    const bonus = new Map(
+      (settings.welcomeBonus ?? DEFAULT_SETTINGS.welcomeBonus).map((entry) => [
+        entry.currency,
+        entry.amountMicros,
+      ])
+    );
+    for (const entry of args.terms ?? []) {
       const code = entry.currency.trim().toUpperCase();
       if (!isValidCurrency(code))
         throw new Error(`${entry.currency} is not a currency code.`);
-      if (seen.has(code)) throw new Error(`${code} is listed twice.`);
-      seen.add(code);
       if (
         !Number.isFinite(entry.gstPercent) ||
         entry.gstPercent < 0 ||
         entry.gstPercent > 50
       ) {
         throw new Error(`${code} GST must be a percentage from 0 to 50.`);
+      }
+      if (entry.trialPlanId) {
+        const plan = await ctx.db.get("billingPlans", entry.trialPlanId);
+        if (!plan) throw new Error("That plan no longer exists.");
+        if (planCurrency(plan) !== code) {
+          throw new Error(
+            `The ${code} trial plan has to be one of the ${code} plans.`
+          );
+        }
       }
       const extraAgentPriceMicros = money(
         `The ${code} extra agent price`,
@@ -207,8 +216,9 @@ export const updateSettings = mutation({
           `The ${code} minimum top-up must be at least 1 — Razorpay's floor.`
         );
       }
-      terms.push({
+      terms.set(code, {
         currency: code,
+        trialPlanId: entry.trialPlanId,
         gstPercent: entry.gstPercent,
         extraAgentPriceMicros,
         // A list price below the price would show a discount that is not one.
@@ -222,14 +232,11 @@ export const updateSettings = mutation({
           entry.defaultThreshold
         ),
       });
-      welcomeBonus.push({
-        currency: code,
-        amountMicros: money(`The ${code} welcome bonus`, entry.welcomeBonus),
-      });
+      bonus.set(code, money(`The ${code} welcome bonus`, entry.welcomeBonus));
     }
 
-    const currency = args.currency.trim().toUpperCase();
-    const base = terms.find((entry) => entry.currency === currency);
+    const currency = (args.currency ?? settings.currency).trim().toUpperCase();
+    const base = terms.get(currency);
     if (!base)
       throw new Error(
         `Add terms for ${currency} before making it the default.`
@@ -250,11 +257,22 @@ export const updateSettings = mutation({
 
     await ctx.db.patch("billingSettings", settings._id, {
       ...base,
-      currencies: terms.filter((entry) => entry.currency !== currency),
-      welcomeBonus,
-      trialDays: wholeNumber("Trial days", args.trialDays, 365),
-      graceDays: wholeNumber("Grace days", args.graceDays, 60),
-      trialPlanId: args.trialPlanId ?? settings.trialPlanId,
+      trialPlanId: base.trialPlanId,
+      currencies: [...terms.values()].filter(
+        (entry) => entry.currency !== currency
+      ),
+      welcomeBonus: [...bonus.entries()].map(([code, amountMicros]) => ({
+        currency: code,
+        amountMicros,
+      })),
+      trialDays:
+        args.trialDays === undefined
+          ? settings.trialDays
+          : wholeNumber("Trial days", args.trialDays, 365),
+      graceDays:
+        args.graceDays === undefined
+          ? settings.graceDays
+          : wholeNumber("Grace days", args.graceDays, 60),
       updatedAt: Date.now(),
     });
     return null;

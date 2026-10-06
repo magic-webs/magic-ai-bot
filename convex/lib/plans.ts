@@ -9,6 +9,7 @@
  * Money is in millionths of the currency, as everywhere else in billing.
  */
 
+import type { Id } from "../_generated/dataModel";
 import { toMicros } from "./billing";
 
 /** Plans and the wallet are priced in Razorpay's own currency. */
@@ -58,6 +59,8 @@ export type CurrencyTerms = {
   extraAgentPriceMicros: number;
   minTopUpMicros: number;
   defaultThresholdMicros: number;
+  /** Whose limits a trial in this currency runs on. */
+  trialPlanId?: Id<"billingPlans">;
 };
 
 /** What a currency other than the default sells on until an admin edits it. */
@@ -83,6 +86,7 @@ export function allCurrencyTerms(settings: TermsCarrier): CurrencyTerms[] {
     extraAgentPriceMicros: settings.extraAgentPriceMicros,
     minTopUpMicros: settings.minTopUpMicros,
     defaultThresholdMicros: settings.defaultThresholdMicros,
+    trialPlanId: settings.trialPlanId,
   };
   const others = (settings.currencies ?? DEFAULT_CURRENCY_TERMS).filter(
     (entry) => entry.currency !== settings.currency
@@ -99,7 +103,9 @@ export function termsIn<T extends TermsCarrier>(
   const terms = allCurrencyTerms(settings).find(
     (entry) => entry.currency === currency
   );
-  return terms ? { ...settings, ...terms } : settings;
+  return terms
+    ? { ...settings, ...terms, trialPlanId: terms.trialPlanId }
+    : settings;
 }
 
 /** A plan made before plans had a currency is in INR. */

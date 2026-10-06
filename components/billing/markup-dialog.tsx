@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -34,8 +35,9 @@ import { toast } from "@/components/ui/toast";
 
 type Draft = {
   percent: Record<MessageCategory, string>;
-  /** Per currency: each category's fixed amount, and the free-message fee. */
-  fixed: Record<string, Record<MessageCategory | "free", string>>;
+  /** Per currency: each category's fixed amount. */
+  fixed: Record<string, Record<MessageCategory, string>>;
+  chargeFree: boolean;
 };
 
 // Plain decimals, not formatMoney: this is what goes back in the box.
@@ -58,10 +60,9 @@ function draftOf(card: MarkupView | null, currencies: string[]): Draft {
       authentication: show(
         base ? card?.authentication.fixedMicros : other?.authentication
       ),
-      free: show(base ? card?.freeMicros : other?.freeMicros),
     };
   }
-  return { percent, fixed };
+  return { percent, fixed, chargeFree: card?.chargeFree ?? false };
 }
 
 const valid = (value: string) => value.trim() !== "" && Number(value) >= 0;
@@ -78,6 +79,7 @@ export function MarkupDialog({
   current,
   fallback,
   currencies,
+  currency: shown,
   sample,
   trigger,
 }: {
@@ -87,6 +89,8 @@ export function MarkupDialog({
   fallback?: MarkupView | null;
   /** The currencies accounts are billed in; INR first. */
   currencies: string[];
+  /** The one currency whose fixed amounts to show; the others keep theirs. */
+  currency?: string;
   /** One market's Meta rates, to show what a message ends up costing. */
   sample?: MetaRateRow;
   trigger: React.ReactElement;
@@ -95,12 +99,18 @@ export function MarkupDialog({
   const clearMarkups = useMutation(api.billing.clearMarkups);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"save" | "clear" | null>(null);
-  const columns = [
-    MARKUP_BASE_CURRENCY,
-    ...currencies.filter((code) => code !== MARKUP_BASE_CURRENCY),
+  const known = [
+    ...new Set([
+      MARKUP_BASE_CURRENCY,
+      ...currencies,
+      ...(shown ? [shown] : []),
+      ...((current ?? fallback)?.byCurrency.map((entry) => entry.currency) ??
+        []),
+    ]),
   ];
+  const columns = shown ? [shown] : known;
   const [draft, setDraft] = useState<Draft>(() =>
-    draftOf(current ?? fallback ?? null, columns)
+    draftOf(current ?? fallback ?? null, known)
   );
 
   const custom = Boolean(workspaceId && current);
@@ -109,11 +119,7 @@ export function MarkupDialog({
       ...prev,
       percent: { ...prev.percent, [category]: value },
     }));
-  const setFixed = (
-    currency: string,
-    key: MessageCategory | "free",
-    value: string
-  ) =>
+  const setFixed = (currency: string, key: MessageCategory, value: string) =>
     setDraft((prev) => ({
       ...prev,
       fixed: {
@@ -125,9 +131,7 @@ export function MarkupDialog({
   const invalid =
     MESSAGE_CATEGORIES.some((category) => !valid(draft.percent[category])) ||
     columns.some((currency) =>
-      [...MESSAGE_CATEGORIES, "free" as const].some(
-        (key) => !valid(draft.fixed[currency][key])
-      )
+      MESSAGE_CATEGORIES.some((key) => !valid(draft.fixed[currency][key]))
     );
 
   const save = async () => {
@@ -145,8 +149,8 @@ export function MarkupDialog({
         utility: entry("utility"),
         marketing: entry("marketing"),
         authentication: entry("authentication"),
-        free: Number(base.free),
-        byCurrency: columns
+        chargeFree: draft.chargeFree,
+        byCurrency: known
           .filter((currency) => currency !== MARKUP_BASE_CURRENCY)
           .map((currency) => ({
             currency,
@@ -154,7 +158,6 @@ export function MarkupDialog({
             utility: Number(draft.fixed[currency].utility),
             marketing: Number(draft.fixed[currency].marketing),
             authentication: Number(draft.fixed[currency].authentication),
-            free: Number(draft.fixed[currency].free),
           })),
       });
       toast.add({
@@ -199,11 +202,7 @@ export function MarkupDialog({
   const grid = {
     gridTemplateColumns: `minmax(0,1fr) repeat(${columns.length}, 7rem) 5.5rem`,
   };
-  const box = (
-    currency: string,
-    key: MessageCategory | "free",
-    label: string
-  ) => (
+  const box = (currency: string, key: MessageCategory, label: string) => (
     <div className="relative" key={currency}>
       <Input
         type="number"
@@ -226,7 +225,7 @@ export function MarkupDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) setDraft(draftOf(current ?? fallback ?? null, columns));
+        if (next) setDraft(draftOf(current ?? fallback ?? null, known));
         setOpen(next);
       }}
     >
@@ -235,6 +234,7 @@ export function MarkupDialog({
         <DialogHeader>
           <DialogTitle>
             {workspaceName ? `Markup for ${workspaceName}` : "Default markup"}
+            {shown ? ` · ${shown}` : ""}
           </DialogTitle>
           <DialogDescription>
             Added on top of Meta&apos;s rate for each message: a percentage of
@@ -322,22 +322,22 @@ export function MarkupDialog({
               );
             })}
 
-            <div
-              className="grid items-center gap-x-3 border-t pt-3"
-              style={grid}
-            >
-              <div className="min-w-0">
-                <Label>Messages Meta does not charge</Label>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  The monthly free service messages and replies to ads. Zero
-                  makes them free for the account too.
-                </p>
-              </div>
-              {columns.map((currency) =>
-                box(currency, "free", `Free-message fee in ${currency}`)
-              )}
-              <span />
-            </div>
+            <label className="flex items-start justify-between gap-4 border-t pt-3">
+              <span className="min-w-0">
+                <span className="text-sm font-medium">
+                  Charge for messages Meta does not charge
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Free-tier replies and ad replies. Off, they cost nothing.
+                </span>
+              </span>
+              <Switch
+                checked={draft.chargeFree}
+                onCheckedChange={(checked) =>
+                  setDraft((prev) => ({ ...prev, chargeFree: checked }))
+                }
+              />
+            </label>
           </div>
         </div>
 

@@ -19,13 +19,13 @@ import {
   MetaRatesDialog,
 } from "@/components/billing/meta-rates";
 import {
-  describeFree,
   describeMarkup,
   priceOf,
   ratesInForce,
 } from "@/components/billing/pricing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -97,8 +97,12 @@ export default function AdminBillingPage() {
     now,
   });
   const meta = useQuery(api.billing.metaRates, {});
-  const currency = meta?.currency ?? "INR";
-  const currencies = meta?.currencies ?? [currency];
+  const [tab, setTab] = useState<string | null>(null);
+  // INR first, then the rest, whichever is the default.
+  const currencies = [...(meta?.currencies ?? ["INR"])].sort(
+    (a, b) => Number(b === "INR") - Number(a === "INR") || a.localeCompare(b)
+  );
+  const currency = tab ?? currencies[0];
   const inForceIn = (code: string) =>
     ratesInForce(
       (meta?.rows ?? []).filter((row) => row.currency === code),
@@ -110,13 +114,29 @@ export default function AdminBillingPage() {
   const money = (micros: number) => formatMoney(micros, currency);
 
   const needle = search.trim().toLowerCase();
-  const rows = (data?.workspaces ?? []).filter(
+  const accounts = (data?.workspaces ?? []).filter(
+    (row) => row.billedIn === currency
+  );
+  const rows = accounts.filter(
     (row) =>
       !needle ||
       row.name.toLowerCase().includes(needle) ||
       row.slug.includes(needle)
   );
-  const ownCards = (data?.workspaces ?? []).filter((row) => row.markups).length;
+  const ownCards = accounts.filter((row) => row.markups).length;
+  const inCurrency = <T extends { currency: string }>(list: T[]) =>
+    list.filter((entry) => entry.currency === currency);
+  const totals = {
+    messages: accounts.reduce((sum, row) => sum + row.messages, 0),
+    byCategory: Object.fromEntries(
+      MESSAGE_CATEGORIES.map((category) => [
+        category,
+        accounts.reduce((sum, row) => sum + row.byCategory[category], 0),
+      ])
+    ) as Record<(typeof MESSAGE_CATEGORIES)[number], number>,
+    spend: inCurrency(data?.totals.spend ?? []),
+    margin: inCurrency(data?.totals.margin ?? []),
+  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -163,6 +183,21 @@ export default function AdminBillingPage() {
             </Alert>
           ) : null}
 
+          {currencies.length > 1 ? (
+            <Tabs
+              value={currency}
+              onValueChange={(value) => setTab(String(value))}
+            >
+              <TabsList>
+                {currencies.map((code) => (
+                  <TabsTrigger key={code} value={code}>
+                    {code}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          ) : null}
+
           <div className="grid gap-3 lg:grid-cols-3">
             {/* ---------------------------------------------- Meta's rates */}
             <Card>
@@ -178,6 +213,7 @@ export default function AdminBillingPage() {
                 <div className="flex gap-1.5">
                   {meta && meta.rows.length > 0 ? (
                     <MetaRatesDialog
+                      key={currency}
                       rows={meta.rows}
                       billedIn={currency}
                       now={now}
@@ -234,14 +270,15 @@ export default function AdminBillingPage() {
                 <div>
                   <CardTitle>Default markup</CardTitle>
                   <CardDescription>
-                    For every account without its own —{" "}
-                    {data.workspaces.length - ownCards} of{" "}
-                    {data.workspaces.length}.
+                    For every {currency} account without its own —{" "}
+                    {accounts.length - ownCards} of {accounts.length}. The
+                    percentages are shared by every currency.
                   </CardDescription>
                 </div>
                 <MarkupDialog
                   current={data.defaultMarkups}
                   currencies={currencies}
+                  currency={currency}
                   sample={india}
                   trigger={
                     <Button size="sm" variant="outline">
@@ -264,11 +301,9 @@ export default function AdminBillingPage() {
                           {CATEGORY_LABELS[category]}
                         </span>
                         <span className="text-right tabular-nums">
-                          {describeMarkup(
-                            data.defaultMarkups!,
-                            category,
-                            currencies
-                          )}
+                          {describeMarkup(data.defaultMarkups!, category, [
+                            currency,
+                          ])}
                           {india ? (
                             <span className="ml-2 text-xs text-muted-foreground">
                               ={" "}
@@ -285,7 +320,9 @@ export default function AdminBillingPage() {
                         Free from Meta
                       </span>
                       <span className="tabular-nums">
-                        {describeFree(data.defaultMarkups, currencies)}
+                        {data.defaultMarkups.chargeFree
+                          ? "Charged as usual"
+                          : "Free"}
                       </span>
                     </li>
                   </ul>
@@ -300,9 +337,9 @@ export default function AdminBillingPage() {
             {/* ------------------------------------------------ consumption */}
             <Card>
               <CardHeader>
-                <CardTitle>Across every account</CardTitle>
+                <CardTitle>Across {currency} accounts</CardTitle>
                 <CardDescription>
-                  {data.totals.messages.toLocaleString()} messages billed in{" "}
+                  {totals.messages.toLocaleString()} messages billed in{" "}
                   {data.windowDays} days.
                 </CardDescription>
               </CardHeader>
@@ -318,7 +355,7 @@ export default function AdminBillingPage() {
                         {CATEGORY_LABELS[category]}
                       </span>
                       <span className="tabular-nums">
-                        {data.totals.byCategory[category].toLocaleString()}
+                        {totals.byCategory[category].toLocaleString()}
                       </span>
                     </li>
                   ))}
@@ -327,7 +364,7 @@ export default function AdminBillingPage() {
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-muted-foreground">Billed</span>
                     <span className="text-right font-medium tabular-nums">
-                      <SpendList spend={data.totals.spend} />
+                      <SpendList spend={totals.spend} />
                     </span>
                   </div>
                   <div className="flex items-start justify-between gap-2">
@@ -335,7 +372,7 @@ export default function AdminBillingPage() {
                       Margin over Meta
                     </span>
                     <span className="text-right font-medium tabular-nums">
-                      <MarginList margin={data.totals.margin} />
+                      <MarginList margin={totals.margin} />
                     </span>
                   </div>
                 </div>
@@ -347,7 +384,7 @@ export default function AdminBillingPage() {
           <Card className="shrink-0">
             <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
               <div>
-                <CardTitle>Accounts</CardTitle>
+                <CardTitle>{currency} accounts</CardTitle>
                 <CardDescription>
                   Price per message to India, and what each account consumed in
                   the period. Open one for its per-message ledger.
@@ -459,11 +496,14 @@ export default function AdminBillingPage() {
                             {row.messages.toLocaleString()}
                           </TableCell>
                           <TableCell className="text-right font-medium whitespace-nowrap tabular-nums">
-                            <SpendList spend={row.spend} locale={row.locale} />
+                            <SpendList
+                              spend={inCurrency(row.spend)}
+                              locale={row.locale}
+                            />
                           </TableCell>
                           <TableCell className="hidden text-right whitespace-nowrap tabular-nums sm:table-cell">
                             <MarginList
-                              margin={row.margin}
+                              margin={inCurrency(row.margin)}
                               locale={row.locale}
                             />
                           </TableCell>
@@ -474,6 +514,7 @@ export default function AdminBillingPage() {
                               current={row.markups}
                               fallback={data.defaultMarkups}
                               currencies={currencies}
+                              currency={row.billedIn}
                               sample={rates}
                               trigger={
                                 <Button
@@ -509,7 +550,7 @@ export default function AdminBillingPage() {
                           {data.deleted.messages.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          <SpendList spend={data.deleted.spend} />
+                          <SpendList spend={inCurrency(data.deleted.spend)} />
                         </TableCell>
                         <TableCell className="hidden sm:table-cell" />
                         <TableCell />
