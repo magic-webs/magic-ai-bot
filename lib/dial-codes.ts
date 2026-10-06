@@ -188,6 +188,17 @@ export function guessIso(): string {
   return DEFAULT_ISO;
 }
 
+/** The country a locale names outright — `en-IN` is India, a bare `en` is none. */
+export function isoFromLocale(locale: string | null | undefined): string | null {
+  if (!locale) return null;
+  try {
+    const region = new Intl.Locale(locale).region;
+    return region && BY_ISO.has(region) ? region : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Split a number that already carries its country code, longest code first so
  * +91 is not read as +9. Anything that does not start with a `+` is returned

@@ -1,11 +1,17 @@
 "use client";
 
-import { use, useRef, useState, useSyncExternalStore } from "react";
+import {
+  Fragment,
+  use,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Image from "next/image";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
@@ -25,12 +31,14 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
 } from "@/components/ui/message-scroller";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   ArrowRightIcon,
   PaperPlaneRightIcon,
   UserIcon,
+  WarningCircleIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -39,13 +47,24 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Robot01Icon } from "@hugeicons/core-free-icons";
 import { toast } from "@/components/ui/toast";
-import { RichMessage, parseRichPayload } from "@/components/rich-message";
+import {
+  MetaSpacer,
+  MetaStamp,
+  RichMessage,
+  parseRichPayload,
+  quotedChoice,
+  type ChatMeta,
+} from "@/components/rich-message";
+import { WhatsAppText, isJumboEmoji } from "@/components/whatsapp-text";
+import { DeliveryTicks } from "@/components/delivery-ticks";
+import type { Outbound } from "@/convex/lib/whatsappSend";
 import { TypingBubble } from "@/components/typing-bubble";
 import {
   DEFAULT_ISO,
   DIAL_CODES,
   dialCodeFor,
   guessIso,
+  isoFromLocale,
   splitDialCode,
   stripDialCode,
 } from "@/lib/dial-codes";
@@ -177,6 +196,35 @@ function useAccent(): React.CSSProperties | undefined {
   return useSyncExternalStore(noopSubscribe, readAccent, () => undefined);
 }
 
+// On <html> as well as the wrapper, so portalled sheets, popups and toasts
+// take the widget palette instead of the console's.
+function useWidgetDocument(
+  accent: React.CSSProperties | undefined,
+  embedded: boolean
+) {
+  useEffect(() => {
+    const root = document.documentElement;
+    const tokens = Object.entries(accent ?? {});
+    root.dataset.theme = "widget";
+    for (const [name, value] of tokens) root.style.setProperty(name, String(value));
+    return () => {
+      delete root.dataset.theme;
+      for (const [name] of tokens) root.style.removeProperty(name);
+    };
+  }, [accent]);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"], [role="listbox"]')) return;
+      closePanel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [embedded]);
+}
+
 /**
  * Which country the code select starts on, from the browser locale.
  *
@@ -299,12 +347,14 @@ function WidgetShell({
   title,
   logoSrc,
   embedded,
+  typing = false,
   children,
 }: {
   title: string;
   /** The company's logo, drawn in place of the robot when it has one. */
   logoSrc: string | null;
   embedded: boolean;
+  typing?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -336,7 +386,9 @@ function WidgetShell({
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-semibold tracking-tight">{title}</h1>
-          <p className="truncate text-xs opacity-90">Online &middot; replies instantly</p>
+          <p className="truncate text-xs opacity-90" aria-live="polite">
+            {typing ? "typing…" : "Online · replies instantly"}
+          </p>
         </div>
         {embedded ? (
           <Button
@@ -364,6 +416,8 @@ export default function WidgetPage({
   const sessionId = useSessionId(channelKey);
   const embedded = useEmbedded();
   const accent = useAccent();
+  const [typing, setTyping] = useState(false);
+  useWidgetDocument(accent, embedded);
 
   const widget = useQuery(api.widget.bootstrap, { channelKey });
   const session = useQuery(
@@ -417,18 +471,26 @@ export default function WidgetPage({
           channelKey={channelKey}
           sessionId={sessionId}
           workspaceName={widget.workspaceName}
+          defaultIso={isoFromLocale(widget.locale)}
         />
       </WidgetShell>
     );
   }
 
   return theme(
-    <WidgetShell title={title} logoSrc={widget.logoSrc} embedded={embedded}>
+    <WidgetShell
+      title={title}
+      logoSrc={widget.logoSrc}
+      embedded={embedded}
+      typing={typing}
+    >
       <WidgetChat
         channelKey={channelKey}
         sessionId={sessionId}
+        title={title}
         greeting={widget.agent.greeting}
         messages={session.messages}
+        onTyping={setTyping}
       />
     </WidgetShell>
   );
@@ -438,10 +500,13 @@ function RegisterForm({
   channelKey,
   sessionId,
   workspaceName,
+  defaultIso,
 }: {
   channelKey: string;
   sessionId: string;
   workspaceName: string;
+  /** The country the company profile's locale names, which outranks the browser's. */
+  defaultIso: string | null;
 }) {
   const register = useMutation(api.widget.register);
   const guessed = useGuessedIso();
@@ -462,12 +527,17 @@ function RegisterForm({
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const iso = form.iso ?? guessed;
+  const iso = form.iso ?? defaultIso ?? guessed;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!form.name.trim() || !form.phone.trim()) {
       toast.add({ title: "Please fill in both fields", type: "error" });
+      return;
+    }
+    const digits = stripDialCode(form.phone).replace(/\D/g, "");
+    if (digits.length < 6 || digits.length > 15) {
+      toast.add({ title: "Enter a valid phone number", type: "error" });
       return;
     }
 
@@ -607,6 +677,7 @@ function RegisterForm({
   );
 }
 
+
 type WidgetMessage = {
   id: string;
   role: "user" | "assistant";
@@ -617,128 +688,414 @@ type WidgetMessage = {
   createdAt: number;
 };
 
+type Outgoing = {
+  key: string;
+  text: string;
+  status: "queued" | "sending" | "sent" | "failed";
+  at: number;
+  /** The newest transcript time when it was sent; its echo is newer than this. */
+  after: number;
+  error?: string;
+};
+
+type Quote = { author: string; body: string };
+
+type Row =
+  | { type: "greeting"; key: string; at: number }
+  | {
+      type: "message";
+      key: string;
+      at: number;
+      message: WidgetMessage;
+      rich: Outbound | null;
+      quote: Quote | null;
+      read: boolean;
+    }
+  | { type: "outgoing"; key: string; at: number; item: Outgoing; quote: Quote | null };
+
+let outgoingSeq = 0;
+
+// Each outgoing message is hidden once the transcript holds its echo, matched
+// oldest first so two identical messages each claim their own.
+function unconfirmed(messages: WidgetMessage[], outbox: Outgoing[]): Outgoing[] {
+  const claimed = new Set<string>();
+  return outbox.filter((item) => {
+    const echo = messages.find(
+      (m) =>
+        m.role === "user" &&
+        !claimed.has(m.id) &&
+        m.createdAt > item.after &&
+        m.text.trim() === item.text
+    );
+    if (echo) claimed.add(echo.id);
+    return !echo;
+  });
+}
+
+function dayOf(at: number): string {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function dayLabel(at: number, now: number): string {
+  const day = new Date(at);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return day.toLocaleDateString(undefined, { weekday: "long" });
+  return day.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function DayChip({ label }: { label: string }) {
+  return (
+    <div className="flex justify-center py-1">
+      <span className="rounded-lg bg-(--chat-chip) px-3 py-1 text-xs text-muted-foreground shadow-xs">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function QuoteBlock({ quote }: { quote: Quote }) {
+  return (
+    <div className="-mx-1.5 -mt-0.5 mb-1 flex overflow-hidden rounded-md bg-foreground/6 whitespace-normal">
+      <span className="w-1 shrink-0 bg-primary" />
+      <div className="min-w-0 px-2 py-1.5">
+        <p className="truncate text-xs font-semibold text-primary">{quote.author}</p>
+        <p className="line-clamp-2 text-xs text-muted-foreground">{quote.body}</p>
+      </div>
+    </div>
+  );
+}
+
+function ChatBubble({
+  mine,
+  text,
+  rich,
+  meta,
+  quote,
+  onPick,
+  footer,
+}: {
+  mine: boolean;
+  text: string;
+  rich: Outbound | null;
+  meta: ChatMeta;
+  quote: Quote | null;
+  onPick: (text: string) => void;
+  footer?: React.ReactNode;
+}) {
+  if (!rich && !quote && isJumboEmoji(text)) {
+    return (
+      <Message align={mine ? "end" : "start"}>
+        <MessageContent>
+          <div
+            data-slot="chat-jumbo"
+            className={`flex flex-col gap-0.5 ${mine ? "items-end" : "items-start"}`}
+          >
+            <span className="text-5xl leading-tight">{text.trim()}</span>
+            <MetaStamp meta={meta} />
+          </div>
+          {footer}
+        </MessageContent>
+      </Message>
+    );
+  }
+
+  return (
+    <Message align={mine ? "end" : "start"}>
+      <MessageContent>
+        <Bubble variant={mine ? "tinted" : "outline"}>
+          <BubbleContent className={rich ? "min-w-0" : "whitespace-pre-wrap"}>
+            {quote ? <QuoteBlock quote={quote} /> : null}
+            {rich ? (
+              <RichMessage message={rich} onPick={onPick} meta={meta} />
+            ) : (
+              <>
+                <WhatsAppText text={text}>
+                  <MetaSpacer meta={meta} />
+                </WhatsAppText>
+                <MetaStamp meta={meta} mode="pin" />
+              </>
+            )}
+          </BubbleContent>
+        </Bubble>
+        {footer}
+      </MessageContent>
+    </Message>
+  );
+}
+
+function FollowOutbox({ signal }: { signal: string | undefined }) {
+  const { scrollToEnd } = useMessageScroller();
+  const handled = useRef(signal);
+  useEffect(() => {
+    if (!signal || signal === handled.current) return;
+    handled.current = signal;
+    const frame = requestAnimationFrame(() => scrollToEnd());
+    return () => cancelAnimationFrame(frame);
+  }, [signal, scrollToEnd]);
+  return null;
+}
+
+function Composer({
+  value,
+  onChange,
+  onSend,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSend: () => void;
+}) {
+  return (
+    <div className="shrink-0 bg-(--chat-ground) px-2 pt-1.5 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+      <form
+        className="mx-auto flex w-full max-w-2xl items-end gap-1.5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSend();
+        }}
+      >
+        <div className="flex min-h-11 min-w-0 flex-1 items-center rounded-3xl bg-background px-4 shadow-xs">
+          <textarea
+            rows={1}
+            value={value}
+            placeholder="Message"
+            aria-label="Message"
+            maxLength={2000}
+            autoFocus
+            className="field-sizing-content max-h-32 min-h-0 w-full resize-none bg-transparent py-2.5 text-[0.9375rem] leading-snug outline-none placeholder:text-muted-foreground"
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+          />
+        </div>
+        <button
+          type="submit"
+          aria-label="Send message"
+          disabled={!value.trim()}
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs transition-[opacity,transform] outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95 disabled:opacity-60"
+        >
+          <PaperPlaneRightIcon weight="fill" className="size-5" />
+        </button>
+      </form>
+      <PoweredBy className="pt-1" />
+    </div>
+  );
+}
+
 function WidgetChat({
   channelKey,
   sessionId,
+  title,
   greeting,
   messages,
+  onTyping,
 }: {
   channelKey: string;
   sessionId: string;
+  title: string;
   greeting: string;
   messages: WidgetMessage[];
+  onTyping: (typing: boolean) => void;
 }) {
   const respond = useAction(api.engine.respondFromWidget);
 
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [outbox, setOutbox] = useState<Outgoing[]>([]);
+  const [openedAt] = useState(() => Date.now());
+  // One turn at a time, in order: two racing turns would interleave replies.
+  const chain = useRef<Promise<void>>(Promise.resolve());
 
-  const send = async (override?: string) => {
-    const text = (override ?? input).trim();
-    if (!text || sending) return;
+  const patch = (key: string, next: Partial<Outgoing>) =>
+    setOutbox((prev) =>
+      prev.map((item) => (item.key === key ? { ...item, ...next } : item))
+    );
 
-    // Only the composer is cleared, and only when it is the source: a tapped
-    // button must not throw away half-typed text sitting beside it.
-    if (override === undefined) setInput("");
-    setSending(true);
-    try {
-      const result = await respond({ channelKey, sessionId, text });
-      if (!result.delivered) {
-        // Nothing was recorded, so hand the text back rather than losing it.
-        if (override === undefined) setInput(text);
-        toast.add({
-          title: "Not sent",
-          description: result.error,
-          type: "error",
-        });
+  const deliver = (key: string, text: string) => {
+    chain.current = chain.current.then(async () => {
+      patch(key, { status: "sending", error: undefined });
+      onTyping(true);
+      try {
+        const result = await respond({ channelKey, sessionId, text });
+        if (result.delivered) {
+          patch(key, { status: "sent" });
+        } else {
+          patch(key, { status: "failed", error: result.error });
+          toast.add({ title: "Not sent", description: result.error, type: "error" });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        patch(key, { status: "failed", error: message });
+        toast.add({ title: "Could not send", description: message, type: "error" });
+      } finally {
+        onTyping(false);
       }
-      // A delivered message that failed to generate a proper answer needs no
-      // toast: it is in the transcript, and so is the apology. Offering the
-      // text back would invite the visitor to send it twice.
-    } catch (error) {
-      if (override === undefined) setInput(text);
-      toast.add({
-        title: "Could not send",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
-    }
+    });
   };
 
-  return (
-    <>
-      <MessageScrollerProvider autoScroll defaultScrollPosition="end">
-        <MessageScroller
-          data-chat="whatsapp"
-          className="min-h-0 min-w-0 flex-1"
-        >
-          <MessageScrollerViewport aria-label="Conversation">
-            <MessageScrollerContent className="mx-auto w-full max-w-2xl justify-end gap-3 p-4">
-              <MessageScrollerItem messageId="greeting">
-                <Message align="start">
-                  <MessageContent>
-                    <Bubble variant="outline">
-                      <BubbleContent className="whitespace-pre-wrap">
-                        {greeting}
-                      </BubbleContent>
-                    </Bubble>
-                  </MessageContent>
-                </Message>
-              </MessageScrollerItem>
+  const send = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return;
+    const key = `out-${++outgoingSeq}`;
+    const after = messages.at(-1)?.createdAt ?? 0;
+    setOutbox((prev) => [
+      ...unconfirmed(messages, prev),
+      { key, text, status: "queued", at: Date.now(), after },
+    ]);
+    deliver(key, text);
+  };
 
-              {messages.map((message) => {
-                const isUser = message.role === "user";
-                const rich = parseRichPayload(message.payload);
-                return (
-                  <MessageScrollerItem key={message.id} messageId={message.id}>
-                    <Message align={isUser ? "end" : "start"}>
-                      <MessageContent>
-                        <Bubble variant={isUser ? "tinted" : "outline"}>
-                          {/* A rich payload carries its own body text, so
-                              rendering message.text as well would print the
-                              question twice — once as prose and once above the
-                              buttons. */}
-                          <BubbleContent
-                            className={
-                              rich
-                                ? "flex min-w-56 flex-col gap-1.5"
-                                : "whitespace-pre-wrap"
+  const retry = (item: Outgoing) => {
+    patch(item.key, { status: "queued", error: undefined });
+    deliver(item.key, item.text);
+  };
+
+  const pending = unconfirmed(messages, outbox);
+  const typing = outbox.some((item) => item.status === "sending");
+
+  const rows: Row[] = [
+    { type: "greeting", key: "greeting", at: messages[0]?.createdAt ?? openedAt },
+  ];
+  const lastAssistant = messages.findLastIndex((m) => m.role === "assistant");
+  let prompt: { rich: Outbound | null; author: string } = { rich: null, author: title };
+  const quoteFor = (text: string): Quote | null => {
+    const hit = quotedChoice(prompt.rich, text.trim());
+    return hit ? { author: prompt.author, body: hit.body } : null;
+  };
+  messages.forEach((message, index) => {
+    const rich = parseRichPayload(message.payload);
+    const assistant = message.role === "assistant";
+    rows.push({
+      type: "message",
+      key: message.id,
+      at: message.createdAt,
+      message,
+      rich,
+      quote: assistant ? null : quoteFor(message.text),
+      read: index < lastAssistant,
+    });
+    if (assistant) prompt = { rich, author: message.botName ?? title };
+  });
+  for (const item of pending) {
+    rows.push({ type: "outgoing", key: item.key, at: item.at, item, quote: quoteFor(item.text) });
+  }
+
+  let lastDay = "";
+
+  return (
+    <div data-chat="whatsapp" className="flex min-h-0 flex-1 flex-col">
+      <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+        <MessageScroller className="min-h-0 min-w-0 flex-1">
+          <MessageScrollerViewport aria-label="Conversation">
+            <MessageScrollerContent className="mx-auto w-full max-w-2xl justify-end gap-1.5 px-3 py-3">
+              {rows.map((row) => {
+                const day = dayOf(row.at);
+                const chip =
+                  day !== lastDay ? (
+                    <MessageScrollerItem messageId={`day-${day}`}>
+                      <DayChip label={dayLabel(row.at, openedAt)} />
+                    </MessageScrollerItem>
+                  ) : null;
+                lastDay = day;
+
+                let body: React.ReactNode;
+                if (row.type === "greeting") {
+                  body = (
+                    <ChatBubble
+                      mine={false}
+                      text={greeting}
+                      rich={null}
+                      quote={null}
+                      meta={{ time: clockTime(row.at) }}
+                      onPick={send}
+                    />
+                  );
+                } else if (row.type === "message") {
+                  const mine = row.message.role === "user";
+                  body = (
+                    <ChatBubble
+                      mine={mine}
+                      text={row.message.text}
+                      rich={row.rich}
+                      quote={row.quote}
+                      onPick={send}
+                      meta={{
+                        time: clockTime(row.at),
+                        ticks: mine ? (
+                          <DeliveryTicks
+                            status={row.read ? "read" : "delivered"}
+                            className="size-3.5"
+                          />
+                        ) : undefined,
+                      }}
+                    />
+                  );
+                } else {
+                  const { item } = row;
+                  body = (
+                    <ChatBubble
+                      mine
+                      text={item.text}
+                      rich={null}
+                      quote={row.quote}
+                      onPick={send}
+                      meta={{
+                        time: clockTime(item.at),
+                        ticks: (
+                          <DeliveryTicks
+                            status={
+                              item.status === "failed"
+                                ? "failed"
+                                : item.status === "sent"
+                                  ? "sent"
+                                  : "pending"
                             }
+                            error={item.error}
+                            className="size-3.5"
+                          />
+                        ),
+                      }}
+                      footer={
+                        item.status === "failed" ? (
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 text-[0.6875rem] font-medium text-destructive hover:underline"
+                            onClick={() => retry(item)}
                           >
-                            {rich ? (
-                              <>
-                                <RichMessage
-                                  message={rich}
-                                  onPick={(label) => void send(label)}
-                                />
-                                <span data-slot="chat-time">
-                                  {clockTime(message.createdAt)}
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                {/* Before the text, not after: it is floated,
-                                    so the last line wraps around it the way
-                                    WhatsApp's does. */}
-                                <span data-slot="chat-time">
-                                  {clockTime(message.createdAt)}
-                                </span>
-                                {message.text}
-                              </>
-                            )}
-                          </BubbleContent>
-                        </Bubble>
-                      </MessageContent>
-                    </Message>
-                  </MessageScrollerItem>
+                            <WarningCircleIcon weight="fill" className="size-3.5" />
+                            Not sent · Tap to retry
+                          </button>
+                        ) : null
+                      }
+                    />
+                  );
+                }
+
+                return (
+                  <Fragment key={row.key}>
+                    {chip}
+                    <MessageScrollerItem messageId={row.key}>{body}</MessageScrollerItem>
+                  </Fragment>
                 );
               })}
 
-              {sending ? (
+              {typing ? (
                 <MessageScrollerItem messageId="typing">
                   <TypingBubble />
                 </MessageScrollerItem>
@@ -747,37 +1104,17 @@ function WidgetChat({
           </MessageScrollerViewport>
           <MessageScrollerButton />
         </MessageScroller>
+        <FollowOutbox signal={outbox.at(-1)?.key} />
+        <Composer
+          value={input}
+          onChange={setInput}
+          onSend={() => {
+            if (!input.trim()) return;
+            setInput("");
+            send(input);
+          }}
+        />
       </MessageScrollerProvider>
-
-      <div className="shrink-0 border-t p-3">
-        <div className="flex w-full items-end gap-2">
-          <Textarea
-            ref={inputRef}
-            rows={1}
-            value={input}
-            placeholder="Type a message…"
-            className="min-h-11 resize-none"
-            maxLength={2000}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-          />
-          <Button
-            size="icon-lg"
-            aria-label="Send message"
-            disabled={sending || !input.trim()}
-            onClick={() => void send()}
-            className="shrink-0"
-          >
-            {sending ? <Spinner /> : <PaperPlaneRightIcon />}
-          </Button>
-        </div>
-        <PoweredBy className="mt-1" />
-      </div>
-    </>
+    </div>
   );
 }

@@ -425,7 +425,7 @@ export function TranscriptView({
                     other side keeps its time in the footer underneath —
                     there are no ticks to pair it with, and a bubble with
                     nothing in the corner reads as somebody else's. */}
-                {mine ? (
+                {mine && !rich ? (
                   <span
                     data-slot="chat-time"
                     className="flex items-center gap-0.5"
@@ -438,7 +438,23 @@ export function TranscriptView({
                   </span>
                 ) : null}
                 {rich ? (
-                  <RichMessage message={rich} interactive={false} />
+                  <RichMessage
+                    message={rich}
+                    interactive={false}
+                    meta={
+                      mine
+                        ? {
+                            time: timeOf(message.createdAt),
+                            ticks: (
+                              <DeliveryTicks
+                                status={message.delivery}
+                                error={message.deliveryError}
+                              />
+                            ),
+                          }
+                        : undefined
+                    }
+                  />
                 ) : (
                   message.text
                 )}

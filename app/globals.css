@@ -379,10 +379,14 @@
 
 [data-chat="whatsapp"] {
   --chat-ground: oklch(0.939 0.012 79.8);
+  --chat-action: #027eb5;
+  --chat-chip: oklch(1 0 0 / 0.92);
 }
 
 .dark [data-chat="whatsapp"] {
   --chat-ground: oklch(0.185 0.018 238.2);
+  --chat-action: #53bdeb;
+  --chat-chip: oklch(0.27 0.02 238);
 }
 
 [data-chat="whatsapp"] [data-slot="message-scroller-viewport"],
@@ -513,6 +517,55 @@
   /* A float is ignored on a flex item, and a rich message lays its parts out in
      a column — so the same element also has to know how to be the last row. */
   align-self: flex-end;
+}
+
+/* Pinned to the bottom corner, with an inline spacer at the end of the text
+   reserving its room, so it sits beside the last line however many there are. */
+[data-chat="whatsapp"] [data-slot="chat-time"][data-pin] {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.3125rem;
+  margin: 0;
+  float: none;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+[data-chat="whatsapp"] [data-slot="chat-time-spacer"] {
+  display: inline-block;
+  height: 0.5rem;
+  vertical-align: middle;
+}
+
+/* Over a photo with no caption the clock sits on the image itself. */
+[data-chat="whatsapp"] [data-slot="chat-time"][data-overlay] {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.375rem;
+  margin: 0;
+  float: none;
+  color: white;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+}
+
+[data-chat="whatsapp"] [data-slot="chat-jumbo"] [data-slot="chat-time"] {
+  float: none;
+  margin: 0.125rem 0 0;
+  padding: 0.125rem 0.375rem;
+  border-radius: 9999px;
+  background: var(--chat-chip);
+}
+
+@keyframes chat-sheet-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+[data-slot="chat-send-fab"] {
+  animation: chat-sheet-pop 160ms ease-out;
 }
 
 /* ---------------------------------------------------------------------------
