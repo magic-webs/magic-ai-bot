@@ -20,7 +20,7 @@ import {
   billingSettings,
   ensureAccount,
 } from "./lib/account";
-import { effectiveRates, toMicros } from "./lib/billing";
+import { homeMarket, metaRatesFor, toMicros } from "./lib/billing";
 import { razorpayConfig } from "./lib/razorpay";
 import {
   APPROVAL_LIMIT_MICROS,
@@ -50,7 +50,11 @@ export const summary = query({
 
     const account = await accountFor(ctx, args.workspaceId);
     const wallet = await walletFor(ctx, args.workspaceId);
-    const { card } = await effectiveRates(ctx, args.workspaceId);
+    const rates = await metaRatesFor(
+      ctx,
+      await homeMarket(ctx, args.workspaceId),
+      settings.currency
+    );
     const balanceMicros = wallet?.balanceMicros ?? 0;
     const thresholdMicros =
       account?.lowBalanceThresholdMicros ?? settings.defaultThresholdMicros;
@@ -85,7 +89,7 @@ export const summary = query({
       spent7dMicros,
       spendTruncated: recent.length === SPEND_SCAN_CAP,
       // Rates in another currency cannot come off a rupee balance.
-      rateCurrency: card?.currency ?? null,
+      rateCurrency: rates?.currency ?? null,
       autoRecharge: {
         enabled: recharge?.enabled ?? false,
         amountMicros: recharge?.amountMicros ?? toMicros(2000),

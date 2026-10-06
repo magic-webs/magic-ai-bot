@@ -1160,6 +1160,7 @@ export const recordBatch = internalMutation({
           source: "campaign",
           preview: result.text,
           templateName: args.templateName,
+          wamid: result.wamid,
         });
       }
       if (!thread) continue;
@@ -1330,6 +1331,7 @@ export const recordTest = internalMutation({
       source: "campaign",
       preview: `Test · ${args.text}`,
       templateName: args.templateName,
+      wamid: args.wamid,
     });
     if (thread) {
       await writeMarketingMessage(ctx, thread, {

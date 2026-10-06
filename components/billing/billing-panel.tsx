@@ -19,7 +19,9 @@ import {
   CategoryDot,
   categoryBarClass,
 } from "@/components/billing/category";
-import { RateCardDialog } from "@/components/billing/rate-card-dialog";
+import { MarkupDialog } from "@/components/billing/markup-dialog";
+import { ratesFor, ratesInForce } from "@/components/billing/pricing";
+import { marketLabel } from "@/convex/lib/markets";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,8 +88,9 @@ function useStamp() {
  * A workspace's billing: what each WhatsApp message cost, by category, and
  * every one of them in a ledger.
  *
- * Read-only for the company. An administrator sees an edit button on the
- * rates, which is the same dialog the admin billing page uses.
+ * Read-only for the company, which sees only what it pays. An administrator
+ * sees an edit button on the markup, the same dialog the admin billing page
+ * uses.
  */
 export function BillingPanel({ days }: { days: number }) {
   const workspace = useWorkspace();
@@ -98,8 +101,11 @@ export function BillingPanel({ days }: { days: number }) {
     days,
     now,
   });
-  // Admin-only, for prefilling an account that has no rates of its own.
-  const defaults = useQuery(api.billing.defaultRates, isAdmin ? {} : "skip");
+  const markups = useQuery(
+    api.billing.markups,
+    isAdmin ? { workspaceId: workspace._id } : "skip"
+  );
+  const meta = useQuery(api.billing.metaRates, isAdmin ? {} : "skip");
 
   if (data === undefined) {
     return (
@@ -125,34 +131,40 @@ export function BillingPanel({ days }: { days: number }) {
       ? Math.round(data.totals.amountMicros / data.totals.messages)
       : 0;
   const rateOf = (category: MessageCategory) =>
-    data.rates
-      ? data.rates[`${category}Micros` as `${MessageCategory}Micros`]
-      : null;
+    data.prices ? data.prices[`${category}Micros`] : null;
 
-  const editRates = isAdmin ? (
-    <RateCardDialog
-      workspaceId={workspace._id}
-      workspaceName={workspace.name}
-      current={data.rates?.scope === "workspace" ? data.rates : null}
-      fallback={defaults ?? data.rates}
-      defaultCurrency={workspace.currency}
-      trigger={
-        <Button size="sm" variant="outline">
-          <PencilSimpleIcon /> Edit rates
-        </Button>
-      }
-    />
-  ) : null;
+  const editMarkup =
+    isAdmin && markups ? (
+      <MarkupDialog
+        workspaceId={workspace._id}
+        workspaceName={workspace.name}
+        current={markups.own}
+        fallback={markups.default}
+        currency={data.currency}
+        sample={ratesFor(
+          ratesInForce(
+            (meta?.rows ?? []).filter((row) => row.currency === meta?.currency),
+            now
+          ),
+          data.prices?.market ?? "IN"
+        )}
+        trigger={
+          <Button size="sm" variant="outline">
+            <PencilSimpleIcon /> Edit markup
+          </Button>
+        }
+      />
+    ) : null;
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      {!data.rates ? (
+      {!data.prices ? (
         <Alert>
           <WarningIcon />
           <AlertTitle>No rates are set for this account yet</AlertTitle>
           <AlertDescription>
             Messages are still counted, at zero, so nothing is lost — they are
-            priced from the moment an administrator sets the rates.
+            priced from the moment an administrator loads the rates.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -215,8 +227,19 @@ export function BillingPanel({ days }: { days: number }) {
       {/* ----------------------------------------------- by category */}
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-          <CardTitle>By conversation type</CardTitle>
-          {editRates}
+          <div>
+            <CardTitle>By conversation type</CardTitle>
+            {data.prices ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Per message to {data.prices.marketLabel}. Meta&apos;s free
+                messages cost {money(data.prices.freeMicros)}.
+                {data.pending > 0
+                  ? ` ${data.pending.toLocaleString()} recent ${data.pending === 1 ? "message is" : "messages are"} at an estimate until Meta confirms ${data.pending === 1 ? "it" : "them"}.`
+                  : ""}
+              </p>
+            ) : null}
+          </div>
+          {editMarkup}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {/* Share of spend as one stacked bar: part-to-whole across four
@@ -387,11 +410,13 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
                         <span className="block truncate text-sm font-medium">
                           {row.contactName ?? `+${row.to.replace(/^\+/, "")}`}
                         </span>
-                        {row.contactName ? (
-                          <span className="block truncate font-mono text-xs text-muted-foreground">
-                            +{row.to.replace(/^\+/, "")}
-                          </span>
-                        ) : null}
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {row.contactName ? (
+                            <span className="font-mono">+{row.to.replace(/^\+/, "")}</span>
+                          ) : null}
+                          {row.contactName && row.market ? " · " : null}
+                          {row.market ? marketLabel(row.market) : null}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <CategoryBadge category={row.category} />
@@ -428,6 +453,7 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
                             {row.currency}
                           </span>
                         ) : null}
+                        <LedgerStatus row={row} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -450,5 +476,26 @@ function Ledger({ currency, locale }: { currency: string; locale: string }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function LedgerStatus({
+  row,
+}: {
+  row: { status?: "pending" | "settled" | "refunded"; billable?: boolean };
+}) {
+  const label =
+    row.status === "pending"
+      ? "Estimate"
+      : row.status === "refunded"
+        ? "Refunded"
+        : row.billable === false
+          ? "Free from Meta"
+          : null;
+  if (!label) return null;
+  return (
+    <span className="block text-[11px] font-normal text-muted-foreground">
+      {label}
+    </span>
   );
 }

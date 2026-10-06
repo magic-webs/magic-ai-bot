@@ -1243,6 +1243,7 @@ export const recordResults = internalMutation({
         source: "notification",
         preview: result.preview,
         templateName: result.templateName,
+        wamid: result.messageId,
       });
 
       if (toThread && thread && result.preview && !result.kind) {

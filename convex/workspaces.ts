@@ -440,6 +440,11 @@ export const remove = mutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .first();
     if (rateCard) await ctx.db.delete(rateCard._id);
+    const markups = await ctx.db
+      .query("billingMarkups")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .first();
+    if (markups) await ctx.db.delete(markups._id);
 
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (workspace?.logoStorageId) {

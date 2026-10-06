@@ -4,7 +4,7 @@ import { internalMutation, mutation, query, type QueryCtx } from "./_generated/s
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireWorkspace } from "./lib/auth";
-import { effectiveRates, rateFor } from "./lib/billing";
+import { homeMarket, quote } from "./lib/billing";
 import { walletFor } from "./lib/wallet";
 import { isEveryone, measureAudience, type AudienceSelection } from "./lib/audience";
 import { isLocalDate, templateBlocker, zonedToInstant } from "./lib/marketing";
@@ -87,14 +87,24 @@ export const estimate = query({
     const template = args.templateId
       ? await templateInWorkspace(ctx, args.workspaceId, args.templateId)
       : null;
-    const { card } = await effectiveRates(ctx, args.workspaceId);
-    const rate = card && template ? rateFor(card, template.category ?? "marketing") : 0;
+    let currency: string | null = null;
+    let costMicros = 0;
+    if (template) {
+      for (const [market, count] of Object.entries(size.byMarket)) {
+        const priced = await quote(ctx, {
+          workspaceId: args.workspaceId,
+          market,
+          category: template.category ?? "marketing",
+        });
+        currency ??= priced.currency;
+        costMicros += priced.amountMicros * count;
+      }
+    }
     const wallet = await walletFor(ctx, args.workspaceId);
     return {
       ...size,
-      currency: card?.currency ?? null,
-      rateMicros: rate,
-      costMicros: rate * size.reachable,
+      currency,
+      costMicros,
       balanceMicros: wallet?.balanceMicros ?? null,
     };
   },
@@ -268,9 +278,12 @@ export const report = query({
     }
 
     const template = event.templateId ? await ctx.db.get("marketingTemplates", event.templateId) : null;
-    const { card } = await effectiveRates(ctx, event.workspaceId);
     const stats = await statsFor(ctx, key);
-    const rate = card ? rateFor(card, template?.category ?? "marketing") : 0;
+    const priced = await quote(ctx, {
+      workspaceId: event.workspaceId,
+      market: await homeMarket(ctx, event.workspaceId),
+      category: template?.category ?? "marketing",
+    });
 
     return {
       stats,
@@ -282,8 +295,8 @@ export const report = query({
       firstSentAt: first,
       lastSentAt: last,
       partial: sends.length >= REPORT_SCAN,
-      currency: card?.currency ?? null,
-      costMicros: rate * stats.sent,
+      currency: priced.currency,
+      costMicros: priced.amountMicros * stats.sent,
     };
   },
 });

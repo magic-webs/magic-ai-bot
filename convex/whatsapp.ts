@@ -18,8 +18,8 @@ import { categoryOf, type BillingSource } from "./lib/billing";
 import { transcribe as transcribeAudio } from "ai";
 import { aiGateway, TRANSCRIPTION_MODEL } from "./lib/gateway";
 
-// WhatsApp caps a text body at 4096 characters.
-const MAX_BODY = 3900;
+// WhatsApp caps a text body at 4096 characters, and every part is billed.
+const MAX_BODY = 4096;
 
 type WhatsAppConfig = {
   apiBaseUrl: string;
@@ -71,12 +71,20 @@ async function bill(
     conversationId?: Id<"conversations">;
     to: string;
     source: BillingSource;
-    messages: Outbound[];
+    messages: Array<{ message: Outbound; wamid?: string }>;
   }
 ): Promise<void> {
-  const messages = args.messages.flatMap((message) => {
+  const messages = args.messages.flatMap(({ message, wamid }) => {
     const category = categoryOf(message);
-    return category ? [{ category, preview: summarise(message) }] : [];
+    if (!category) return [];
+    return [
+      {
+        category,
+        preview: summarise(message),
+        wamid,
+        templateName: "templateName" in message ? message.templateName : undefined,
+      },
+    ];
   });
   if (messages.length === 0) return;
   try {
@@ -278,7 +286,7 @@ export const sendOutbound = internalAction({
         conversationId: args.conversationId,
         to: args.to,
         source: args.source ?? "agent",
-        messages: [message],
+        messages: [{ message, wamid: result.wamid }],
       });
     }
     if (!result.ok) {
@@ -371,13 +379,14 @@ export const handleInbound = internalAction({
             kind: "text",
             body: "Sorry, I could not make out that voice note. Could you type it instead?",
           };
-          if ((await send(config, from, apology)).ok) {
+          const sent = await send(config, from, apology);
+          if (sent.ok) {
             await bill(ctx, {
               workspaceId: channel.workspaceId,
               channelId: channel._id,
               to: from,
               source: "system",
-              messages: [apology],
+              messages: [{ message: apology, wamid: sent.wamid }],
             });
           }
           return { handled: true, reason: "voice_failed" };
@@ -390,13 +399,14 @@ export const handleInbound = internalAction({
         kind: "text",
         body: "I can read text messages and listen to voice notes. Could you send your question that way?",
       };
-      if ((await send(config, from, hint)).ok) {
+      const sent = await send(config, from, hint);
+      if (sent.ok) {
         await bill(ctx, {
           workspaceId: channel.workspaceId,
           channelId: channel._id,
           to: from,
           source: "system",
-          messages: [hint],
+          messages: [{ message: hint, wamid: sent.wamid }],
         });
       }
       return { handled: true, reason: "unsupported_type" };
@@ -468,7 +478,7 @@ async function deliverReply(
 
   // Billed together once the loop ends: a long reply is several WhatsApp
   // messages and each one is charged, but only the ones that went out.
-  const delivered: Outbound[] = [];
+  const delivered: Array<{ message: Outbound; wamid?: string }> = [];
   for (const part of splitForWhatsApp(result.text)) {
     const message: Outbound = { kind: "text", body: part };
     const sent = await send(config, to, message);
@@ -487,7 +497,7 @@ async function deliverReply(
       });
       break;
     }
-    delivered.push(message);
+    delivered.push({ message, wamid: sent.wamid });
   }
   await bill(ctx, {
     workspaceId: channel.workspaceId,

@@ -4,6 +4,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { audienceCategory, audienceSelection } from "../schema/marketing";
 import { sentRecently } from "./marketingStats";
 import { tidyName } from "./contactClean";
+import { marketOf } from "./markets";
 
 const SIZE_SCAN_CAP = 5000;
 const CAP_CHECKS = 1500;
@@ -146,6 +147,7 @@ export async function measureAudience(
   let optedOut = 0;
   let overCap = 0;
   let capChecks = 0;
+  const byMarket: Record<string, number> = {};
   for (const contact of contacts) {
     if (contact.channelType !== "whatsapp") continue;
     if (!matchesWith(contact, selection, sets)) continue;
@@ -161,9 +163,12 @@ export async function measureAudience(
       }
     }
     matched++;
+    const market = marketOf(contact.externalId);
+    byMarket[market] = (byMarket[market] ?? 0) + 1;
   }
   return {
     reachable: matched,
+    byMarket,
     optedOut,
     overCap,
     partial: contacts.length >= SIZE_SCAN_CAP || capChecks >= CAP_CHECKS,

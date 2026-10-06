@@ -52,6 +52,14 @@ crons.interval(
 
 /* Meta reviews a template in minutes to a day. Half-hourly is soon enough to
    notice an approval, and the sweep reads nothing when nothing is waiting. */
+/* A message Meta never sent pricing for keeps its estimate after a day. */
+crons.interval(
+  "settle stale message charges",
+  { hours: 1 },
+  internal.billing.settleStale,
+  {}
+);
+
 crons.interval(
   "check marketing templates in review",
   { minutes: 30 },

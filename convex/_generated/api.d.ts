@@ -56,6 +56,7 @@ import type * as lib_jev from "../lib/jev.js";
 import type * as lib_links from "../lib/links.js";
 import type * as lib_marketing from "../lib/marketing.js";
 import type * as lib_marketingStats from "../lib/marketingStats.js";
+import type * as lib_markets from "../lib/markets.js";
 import type * as lib_metaErrors from "../lib/metaErrors.js";
 import type * as lib_modelCatalogue from "../lib/modelCatalogue.js";
 import type * as lib_notifications from "../lib/notifications.js";
@@ -171,6 +172,7 @@ declare const fullApi: ApiFromModules<{
   "lib/links": typeof lib_links;
   "lib/marketing": typeof lib_marketing;
   "lib/marketingStats": typeof lib_marketingStats;
+  "lib/markets": typeof lib_markets;
   "lib/metaErrors": typeof lib_metaErrors;
   "lib/modelCatalogue": typeof lib_modelCatalogue;
   "lib/notifications": typeof lib_notifications;

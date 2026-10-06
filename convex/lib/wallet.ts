@@ -16,9 +16,9 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   CATEGORY_LABELS,
-  effectiveRates,
   formatMoney,
-  rateFor,
+  homeMarket,
+  quote,
   type MessageCategory,
   type TemplateCategory,
 } from "./billing";
@@ -93,6 +93,41 @@ export async function debitWallet(
     account?.lowBalanceThresholdMicros ?? settings.defaultThresholdMicros;
   if (balanceMicros < threshold) {
     await onLowBalance(ctx, args.workspaceId, balanceMicros, settings);
+  }
+}
+
+/**
+ * Give back what a message was held at and Meta did not charge. Not logged as
+ * a wallet transaction: the ledger row it settles is the record, as it is for
+ * the debit.
+ */
+export async function refundWallet(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    currency: string;
+    amountMicros: number;
+  }
+): Promise<void> {
+  if (args.amountMicros <= 0) return;
+  const settings = await billingSettings(ctx);
+  if (!settings || settings.currency !== args.currency) return;
+
+  const wallet = await ensureWallet(ctx, args.workspaceId, settings.currency);
+  const balanceMicros = wallet.balanceMicros + args.amountMicros;
+  await ctx.db.patch("wallets", wallet._id, {
+    balanceMicros,
+    updatedAt: Date.now(),
+  });
+
+  const account = await accountFor(ctx, args.workspaceId);
+  if (
+    account?.lowBalanceAlertedAt !== undefined &&
+    balanceMicros >= account.lowBalanceThresholdMicros
+  ) {
+    await ctx.db.patch("billingAccounts", account._id, {
+      lowBalanceAlertedAt: undefined,
+    });
   }
 }
 
@@ -236,6 +271,24 @@ export async function creditWallet(
   return balanceMicros;
 }
 
+/** One template's price at the account's home market, in the wallet's currency. */
+async function templatePrice(
+  ctx: Ctx,
+  workspaceId: Id<"workspaces">,
+  category: MessageCategory,
+  currency: string
+): Promise<number> {
+  const priced = await quote(ctx, {
+    workspaceId,
+    market: await homeMarket(ctx, workspaceId),
+    category,
+  });
+  return priced.currency === currency ? priced.amountMicros : 0;
+}
+
+const blockMessage = (balance: string, category: MessageCategory) =>
+  `The wallet holds ${balance}, less than one ${CATEGORY_LABELS[category].toLowerCase()} template costs. Top up on the Billing page to send it.`;
+
 /**
  * Why a template of this category cannot go out now, or null when it can.
  *
@@ -251,15 +304,15 @@ export async function templateBlock(
 ): Promise<string | null> {
   const settings = await billingSettings(ctx);
   if (!settings) return null;
-  const { card } = await effectiveRates(ctx, workspaceId);
-  if (!card || card.currency !== settings.currency) return null;
-  const rate = rateFor(card, category);
+  const rate = await templatePrice(ctx, workspaceId, category, settings.currency);
   if (rate <= 0) return null;
 
   const balanceMicros = (await walletFor(ctx, workspaceId))?.balanceMicros ?? 0;
   if (balanceMicros >= rate) return null;
-  const balance = formatMoney(balanceMicros, settings.currency, PLATFORM_LOCALE);
-  return `The wallet holds ${balance}, less than one ${CATEGORY_LABELS[category].toLowerCase()} template costs. Top up on the Billing page to send it.`;
+  return blockMessage(
+    formatMoney(balanceMicros, settings.currency, PLATFORM_LOCALE),
+    category
+  );
 }
 
 /**
@@ -278,15 +331,13 @@ export async function templateBlocks(
   };
   const settings = await billingSettings(ctx);
   if (!settings) return blocks;
-  const { card } = await effectiveRates(ctx, workspaceId);
-  if (!card || card.currency !== settings.currency) return blocks;
 
   const balanceMicros = (await walletFor(ctx, workspaceId))?.balanceMicros ?? 0;
   const balance = formatMoney(balanceMicros, settings.currency, PLATFORM_LOCALE);
   for (const category of Object.keys(blocks) as TemplateCategory[]) {
-    const rate = rateFor(card, category);
+    const rate = await templatePrice(ctx, workspaceId, category, settings.currency);
     if (rate > 0 && balanceMicros < rate) {
-      blocks[category] = `The wallet holds ${balance}, less than one ${CATEGORY_LABELS[category].toLowerCase()} template costs. Top up on the Billing page to send it.`;
+      blocks[category] = blockMessage(balance, category);
     }
   }
   return blocks;

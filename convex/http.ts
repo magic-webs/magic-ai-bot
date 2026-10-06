@@ -77,6 +77,7 @@ type WebhookValue = {
     id?: string;
     status?: string;
     errors?: Array<{ title?: string; message?: string; error_data?: { details?: string } }>;
+    pricing?: { billable?: unknown; category?: unknown; type?: unknown };
   }>;
 };
 
@@ -126,11 +127,21 @@ function deliveryStatuses(shape: Record<string, unknown>) {
       const problem = status.errors?.[0];
       const error =
         problem?.error_data?.details ?? problem?.message ?? problem?.title;
+      const pricing = status.pricing;
       return [
         {
           wamid: status.id,
           status: status.status as "sent" | "delivered" | "read" | "failed",
           ...(error ? { error: error.slice(0, 300) } : {}),
+          ...(pricing && typeof pricing === "object"
+            ? {
+                pricing: {
+                  ...(typeof pricing.billable === "boolean" ? { billable: pricing.billable } : {}),
+                  ...(typeof pricing.category === "string" ? { category: pricing.category } : {}),
+                  ...(typeof pricing.type === "string" ? { type: pricing.type } : {}),
+                },
+              }
+            : {}),
         },
       ];
     })

@@ -3,9 +3,10 @@
  *
  * Every send path — an agent's reply, a rich message, a colleague's manual
  * reply, a follow-up nudge, a marketing template — ends by calling `charge`
- * (./charge), which prices the message at the account's rate for its category
- * and writes one `billingEvents` row. The amount is fixed there and then, so
- * repricing an account changes the next message, never the ledger.
+ * (./charge). A message costs Meta's rate for the recipient's market and its
+ * category, plus the platform's markup — fixed, a percentage, or both. It is
+ * held at that estimate and settled when Meta's status webhook says what was
+ * actually billed.
  *
  * The pure half of this file is imported by React for labels and formatting;
  * the context types below are type-only imports and never reach the bundle.
@@ -14,6 +15,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { Outbound } from "./whatsappSend";
+import { marketChain, marketOf } from "./markets";
 
 export type MessageCategory =
   | "service"
@@ -64,7 +66,7 @@ export const SOURCE_LABELS: Record<BillingSource, string> = {
 
 // --- Money ----------------------------------------------------------------
 
-/** Millionths of a currency unit. See `billingRates` in the schema for why. */
+/** Millionths of a currency unit: a message can cost a fraction of a paisa. */
 export const MICROS = 1_000_000;
 
 export function toMicros(amount: number): number {
@@ -122,60 +124,210 @@ export function categoryOf(
   return "service";
 }
 
-export function rateFor(
-  card: Pick<
-    Doc<"billingRates">,
-    "serviceMicros" | "utilityMicros" | "marketingMicros" | "authenticationMicros"
-  >,
-  category: MessageCategory
+// --- Pricing --------------------------------------------------------------
+
+export type Markup = { fixedMicros: number; percent: number };
+
+export type MarkupCard = Record<MessageCategory, Markup> & {
+  /** What a message Meta did not charge for costs: its free tier, ad replies. */
+  freeMicros: number;
+};
+
+type MetaRates = Pick<
+  Doc<"metaRates">,
+  | "serviceMicros"
+  | "utilityMicros"
+  | "marketingMicros"
+  | "authenticationMicros"
+  | "authenticationIntlMicros"
+>;
+
+export function metaCostOf(
+  rates: MetaRates,
+  category: MessageCategory,
+  international = false
 ): number {
   switch (category) {
     case "service":
-      return card.serviceMicros;
+      return rates.serviceMicros;
     case "utility":
-      return card.utilityMicros;
+      return rates.utilityMicros;
     case "marketing":
-      return card.marketingMicros;
+      return rates.marketingMicros;
     case "authentication":
-      return card.authenticationMicros;
+      return international
+        ? (rates.authenticationIntlMicros ?? rates.authenticationMicros)
+        : rates.authenticationMicros;
   }
 }
 
-// --- Rate cards -----------------------------------------------------------
+export function markupOn(metaCostMicros: number, markup: Markup): number {
+  return markup.fixedMicros + Math.round((metaCostMicros * markup.percent) / 100);
+}
 
-export type EffectiveRates = {
-  /** Whose card applies: the account's own, the platform default, or none. */
-  scope: "workspace" | "default" | "none";
-  card: Doc<"billingRates"> | null;
-};
+/** Meta's `pricing.category` on a status webhook, as the ledger bills it. */
+export function metaCategory(
+  category: string | undefined
+): { category: MessageCategory; international: boolean } | null {
+  switch (category) {
+    case "service":
+    case "utility":
+    case "marketing":
+    case "authentication":
+      return { category, international: false };
+    case "marketing_lite":
+      return { category: "marketing", international: false };
+    case "authentication_international":
+      return { category: "authentication", international: true };
+    default:
+      return null;
+  }
+}
 
-export async function defaultRateCard(
+// --- Rates and markups ------------------------------------------------------
+
+/** The currency the wallet is billed in, and so the one Meta's rates are read in. */
+export async function billingCurrency(ctx: QueryCtx): Promise<string> {
+  const settings = await ctx.db.query("billingSettings").first();
+  return settings?.currency ?? "INR";
+}
+
+/**
+ * Meta's rates for a market as they stood at `at`, falling back through the
+ * market's old region to Other. Without `at`, the newest imported rates.
+ */
+export async function metaRatesFor(
+  ctx: QueryCtx,
+  market: string,
+  currency: string,
+  at?: number
+): Promise<Doc<"metaRates"> | null> {
+  for (const key of marketChain(market)) {
+    const row = await ctx.db
+      .query("metaRates")
+      .withIndex("by_currency_market_effectiveFrom", (q) =>
+        at === undefined
+          ? q.eq("currency", currency).eq("market", key)
+          : q.eq("currency", currency).eq("market", key).lte("effectiveFrom", at)
+      )
+      .order("desc")
+      .first();
+    if (row) return row;
+  }
+  return null;
+}
+
+export async function defaultMarkups(
   ctx: QueryCtx
-): Promise<Doc<"billingRates"> | null> {
+): Promise<Doc<"billingMarkups"> | null> {
   return await ctx.db
-    .query("billingRates")
+    .query("billingMarkups")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", undefined))
     .first();
 }
 
-export async function workspaceRateCard(
+export async function workspaceMarkups(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">
-): Promise<Doc<"billingRates"> | null> {
+): Promise<Doc<"billingMarkups"> | null> {
   return await ctx.db
-    .query("billingRates")
+    .query("billingMarkups")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .first();
 }
 
-/** The account's own card, else the platform default, else nothing. */
-export async function effectiveRates(
+export type EffectiveMarkups = {
+  scope: "workspace" | "default" | "none";
+  card: Doc<"billingMarkups"> | null;
+};
+
+/** The account's own markup, else the platform default, else none. */
+export async function effectiveMarkups(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">
-): Promise<EffectiveRates> {
-  const own = await workspaceRateCard(ctx, workspaceId);
+): Promise<EffectiveMarkups> {
+  const own = await workspaceMarkups(ctx, workspaceId);
   if (own) return { scope: "workspace", card: own };
-  const fallback = await defaultRateCard(ctx);
+  const fallback = await defaultMarkups(ctx);
   if (fallback) return { scope: "default", card: fallback };
   return { scope: "none", card: null };
+}
+
+/** Where most of an account's customers are: its default calling code. */
+export async function homeMarket(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">
+): Promise<string> {
+  const settings = await ctx.db
+    .query("notificationSettings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return marketOf(settings?.defaultCountryCode ?? "91");
+}
+
+export type Quote = {
+  market: string;
+  currency: string | null;
+  metaCostMicros: number;
+  markupMicros: number;
+  amountMicros: number;
+  /** False when no Meta rates cover the market: counted at zero. */
+  rated: boolean;
+};
+
+/**
+ * What one message costs an account: Meta's rate for the market and
+ * category, plus the account's markup on it. A message Meta did not bill
+ * costs only the free-message fee.
+ */
+export async function quote(
+  ctx: QueryCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    market: string;
+    category: MessageCategory;
+    billable?: boolean;
+    international?: boolean;
+    at?: number;
+  }
+): Promise<Quote> {
+  const rates = await metaRatesFor(
+    ctx,
+    args.market,
+    await billingCurrency(ctx),
+    args.at
+  );
+  const { card } = await effectiveMarkups(ctx, args.workspaceId);
+  const currency = rates?.currency ?? null;
+  if (args.billable === false) {
+    const fee = card?.freeMicros ?? 0;
+    return {
+      market: args.market,
+      currency,
+      metaCostMicros: 0,
+      markupMicros: fee,
+      amountMicros: fee,
+      rated: rates !== null,
+    };
+  }
+  if (!rates) {
+    return {
+      market: args.market,
+      currency,
+      metaCostMicros: 0,
+      markupMicros: 0,
+      amountMicros: 0,
+      rated: false,
+    };
+  }
+  const metaCostMicros = metaCostOf(rates, args.category, args.international);
+  const markupMicros = card ? markupOn(metaCostMicros, card[args.category]) : 0;
+  return {
+    market: args.market,
+    currency,
+    metaCostMicros,
+    markupMicros,
+    amountMicros: metaCostMicros + markupMicros,
+    rated: true,
+  };
 }

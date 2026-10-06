@@ -3,6 +3,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { deliveryStatus } from "./schema";
 import { linkWamids, setDelivery } from "./lib/delivery";
+import { billingEventFor, refund, settle } from "./lib/charge";
 
 // Receipts and the queue report race each other, so one that finds no message
 // yet is tried again a few times before it is dropped.
@@ -48,6 +49,13 @@ export const applyStatuses = internalMutation({
         wamid: v.string(),
         status: deliveryStatus,
         error: v.optional(v.string()),
+        pricing: v.optional(
+          v.object({
+            billable: v.optional(v.boolean()),
+            category: v.optional(v.string()),
+            type: v.optional(v.string()),
+          })
+        ),
       })
     ),
     attempt: v.optional(v.number()),
@@ -58,12 +66,16 @@ export const applyStatuses = internalMutation({
 
     const unmatched = [];
     for (const status of args.statuses) {
-      const link = await linkFor(ctx, status.wamid);
-      if (!link) {
-        unmatched.push(status);
-        continue;
+      const event = await billingEventFor(ctx, status.wamid);
+      if (event && event.workspaceId === workspaceId) {
+        if (status.status === "failed") await refund(ctx, event);
+        else if (status.pricing) await settle(ctx, event, status.pricing);
       }
-      if (link.workspaceId !== workspaceId) continue;
+      const link = await linkFor(ctx, status.wamid);
+      // A message can be billed before it is linked, or linked before it is
+      // billed, so a receipt that found only one half waits for the other.
+      if (!link || !event) unmatched.push(status);
+      if (!link || link.workspaceId !== workspaceId) continue;
       const message = await ctx.db.get("messages", link.messageId);
       if (message) await setDelivery(ctx, message, status.status, status.error);
     }
@@ -94,26 +106,29 @@ export const resolveQueued = internalMutation({
     const workspaceId = await workspaceOf(ctx, args.channelKey);
     if (!workspaceId) return;
 
-    const link = await linkFor(ctx, args.queueId);
-    if (!link) {
-      const attempt = (args.attempt ?? 0) + 1;
-      if (attempt < MAX_ATTEMPTS) {
-        await ctx.scheduler.runAfter(RETRY_MS, internal.deliveries.resolveQueued, {
-          ...args,
-          attempt,
-        });
-      }
-      return;
+    const event = await billingEventFor(ctx, args.queueId);
+    if (event && event.workspaceId === workspaceId) {
+      if (args.wamid) await ctx.db.patch("billingEvents", event._id, { wamid: args.wamid });
+      if (args.failed) await refund(ctx, event);
     }
-    if (link.workspaceId !== workspaceId) return;
 
-    const message = await ctx.db.get("messages", link.messageId);
-    if (!message) return;
-    if (args.wamid && !(await linkFor(ctx, args.wamid))) {
-      await linkWamids(ctx, message, [args.wamid]);
+    const link = await linkFor(ctx, args.queueId);
+    if (link && link.workspaceId === workspaceId) {
+      const message = await ctx.db.get("messages", link.messageId);
+      if (message && args.wamid && !(await linkFor(ctx, args.wamid))) {
+        await linkWamids(ctx, message, [args.wamid]);
+      }
+      if (message && args.failed) {
+        await setDelivery(ctx, message, "failed", args.error ?? "WhatsApp did not accept the message.");
+      }
     }
-    if (args.failed) {
-      await setDelivery(ctx, message, "failed", args.error ?? "WhatsApp did not accept the message.");
+
+    const attempt = (args.attempt ?? 0) + 1;
+    if ((!link || !event) && attempt < MAX_ATTEMPTS) {
+      await ctx.scheduler.runAfter(RETRY_MS, internal.deliveries.resolveQueued, {
+        ...args,
+        attempt,
+      });
     }
   },
 });

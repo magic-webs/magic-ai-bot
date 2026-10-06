@@ -8,16 +8,21 @@ import {
   CATEGORY_LABELS,
   MESSAGE_CATEGORIES,
   formatMoney,
-  type MessageCategory,
 } from "@/convex/lib/billing";
 import { useHourBucket } from "@/components/use-now";
 import { SelectField } from "@/components/select-field";
 import { CompanyLogo } from "@/components/company-logo";
 import { CategoryDot } from "@/components/billing/category";
+import { MarkupDialog } from "@/components/billing/markup-dialog";
 import {
-  RateCardDialog,
-  type RateView,
-} from "@/components/billing/rate-card-dialog";
+  ImportMetaRatesDialog,
+  MetaRatesDialog,
+} from "@/components/billing/meta-rates";
+import {
+  describeMarkup,
+  priceOf,
+  ratesInForce,
+} from "@/components/billing/pricing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,13 +46,13 @@ import {
 import {
   MagnifyingGlassIcon,
   PencilSimpleIcon,
+  TableIcon,
+  UploadSimpleIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 
 type Spend = Array<{ currency: string; amountMicros: number; messages: number }>;
-
-const rateOf = (card: RateView, category: MessageCategory) =>
-  card[`${category}Micros` as `${MessageCategory}Micros`];
+type Margin = Array<{ currency: string; marginMicros: number }>;
 
 /** Several currencies side by side, never summed. */
 function SpendList({ spend, locale }: { spend: Spend; locale?: string }) {
@@ -63,6 +68,19 @@ function SpendList({ spend, locale }: { spend: Spend; locale?: string }) {
   );
 }
 
+function MarginList({ margin, locale }: { margin: Margin; locale?: string }) {
+  if (margin.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="flex flex-col items-end gap-0.5">
+      {margin.map((row) => (
+        <span key={row.currency}>
+          {formatMoney(row.marginMicros, row.currency, locale)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function AdminBillingPage() {
   const [days, setDays] = useState("30");
   const [search, setSearch] = useState("");
@@ -71,6 +89,14 @@ export default function AdminBillingPage() {
     days: Number(days),
     now,
   });
+  const meta = useQuery(api.billing.metaRates, {});
+  const currency = meta?.currency ?? "INR";
+  const inForce = ratesInForce(
+    (meta?.rows ?? []).filter((row) => row.currency === currency),
+    now
+  );
+  const india = inForce.get("IN");
+  const money = (micros: number) => formatMoney(micros, currency);
 
   const needle = search.trim().toLowerCase();
   const rows = (data?.workspaces ?? []).filter(
@@ -79,7 +105,7 @@ export default function AdminBillingPage() {
       row.name.toLowerCase().includes(needle) ||
       row.slug.includes(needle)
   );
-  const ownCards = (data?.workspaces ?? []).filter((row) => row.rates).length;
+  const ownCards = (data?.workspaces ?? []).filter((row) => row.markups).length;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -89,8 +115,8 @@ export default function AdminBillingPage() {
             Message billing
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            What each account pays per WhatsApp message — service, utility,
-            marketing and authentication — and what each has consumed.
+            Meta&apos;s rate for each WhatsApp message plus the platform
+            markup, what each account consumed, and what the platform kept.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -126,64 +152,123 @@ export default function AdminBillingPage() {
             </Alert>
           ) : null}
 
-          <div className="grid gap-3 lg:grid-cols-5">
-            {/* ------------------------------------------- default rates */}
-            <Card className="lg:col-span-3">
+          <div className="grid gap-3 lg:grid-cols-3">
+            {/* ---------------------------------------------- Meta's rates */}
+            <Card>
               <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
                 <div>
-                  <CardTitle>Platform default rates</CardTitle>
+                  <CardTitle>Meta&apos;s rates</CardTitle>
                   <CardDescription>
-                    Billed to every account without rates of its own —{" "}
-                    {data.workspaces.length - ownCards} of{" "}
-                    {data.workspaces.length} right now.
+                    {inForce.size > 0
+                      ? `${inForce.size} markets in force, in ${currency}. India shown.`
+                      : `No ${currency} rates. Messages count at zero until they are imported.`}
                   </CardDescription>
                 </div>
-                <RateCardDialog
-                  current={data.defaultRates}
-                  defaultCurrency="USD"
-                  trigger={
-                    <Button size="sm" variant="outline">
-                      <PencilSimpleIcon />
-                      {data.defaultRates ? "Edit" : "Set default rates"}
-                    </Button>
-                  }
-                />
+                <div className="flex gap-1.5">
+                  {meta && meta.rows.length > 0 ? (
+                    <MetaRatesDialog
+                      rows={meta.rows}
+                      billedIn={currency}
+                      now={now}
+                      trigger={
+                        <Button size="icon-sm" variant="outline" aria-label="Every market">
+                          <TableIcon />
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                  <ImportMetaRatesDialog
+                    defaultCurrency={currency}
+                    trigger={
+                      <Button size="sm" variant="outline">
+                        <UploadSimpleIcon /> Import
+                      </Button>
+                    }
+                  />
+                </div>
               </CardHeader>
               <CardContent>
-                {data.defaultRates ? (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {india ? (
+                  <ul className="flex flex-col gap-1.5 text-sm">
                     {MESSAGE_CATEGORIES.map((category) => (
-                      <div
-                        key={category}
-                        className="flex flex-col gap-1 rounded-lg border p-3"
-                      >
-                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <li key={category} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-2 text-muted-foreground">
                           <CategoryDot category={category} />
                           {CATEGORY_LABELS[category]}
                         </span>
-                        <span className="font-heading text-lg leading-tight font-semibold tabular-nums">
-                          {formatMoney(
-                            rateOf(data.defaultRates!, category),
-                            data.defaultRates!.currency
-                          )}
+                        <span className="tabular-nums">
+                          {money(india[`${category}Micros`])}
                         </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          per message
-                        </span>
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : (
                   <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                    Not set. Accounts without their own rates have their
-                    messages counted at zero until you set these.
+                    Import the rates CSV from Meta&apos;s pricing page.
                   </p>
                 )}
               </CardContent>
             </Card>
 
-            {/* --------------------------------------------- consumption */}
-            <Card className="lg:col-span-2">
+            {/* -------------------------------------------- default markup */}
+            <Card>
+              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Default markup</CardTitle>
+                  <CardDescription>
+                    For every account without its own —{" "}
+                    {data.workspaces.length - ownCards} of{" "}
+                    {data.workspaces.length}.
+                  </CardDescription>
+                </div>
+                <MarkupDialog
+                  current={data.defaultMarkups}
+                  currency={currency}
+                  sample={india}
+                  trigger={
+                    <Button size="sm" variant="outline">
+                      <PencilSimpleIcon />
+                      {data.defaultMarkups ? "Edit" : "Set markup"}
+                    </Button>
+                  }
+                />
+              </CardHeader>
+              <CardContent>
+                {data.defaultMarkups ? (
+                  <ul className="flex flex-col gap-1.5 text-sm">
+                    {MESSAGE_CATEGORIES.map((category) => (
+                      <li key={category} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                          <CategoryDot category={category} />
+                          {CATEGORY_LABELS[category]}
+                        </span>
+                        <span className="text-right tabular-nums">
+                          {describeMarkup(data.defaultMarkups![category], money)}
+                          {india ? (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              = {money(priceOf(india, data.defaultMarkups, category))}
+                            </span>
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                    <li className="flex items-center justify-between gap-2 border-t pt-1.5">
+                      <span className="text-muted-foreground">Free from Meta</span>
+                      <span className="tabular-nums">
+                        {money(data.defaultMarkups.freeMicros)}
+                      </span>
+                    </li>
+                  </ul>
+                ) : (
+                  <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    Not set. Accounts pay Meta&apos;s rate and nothing more.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ------------------------------------------------ consumption */}
+            <Card>
               <CardHeader>
                 <CardTitle>Across every account</CardTitle>
                 <CardDescription>
@@ -208,11 +293,19 @@ export default function AdminBillingPage() {
                     </li>
                   ))}
                 </ul>
-                <div className="flex items-start justify-between gap-2 border-t pt-3 text-sm">
-                  <span className="text-muted-foreground">Billed</span>
-                  <span className="text-right font-medium tabular-nums">
-                    <SpendList spend={data.totals.spend} />
-                  </span>
+                <div className="flex flex-col gap-1.5 border-t pt-3 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-muted-foreground">Billed</span>
+                    <span className="text-right font-medium tabular-nums">
+                      <SpendList spend={data.totals.spend} />
+                    </span>
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-muted-foreground">Margin over Meta</span>
+                    <span className="text-right font-medium tabular-nums">
+                      <MarginList margin={data.totals.margin} />
+                    </span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -224,8 +317,8 @@ export default function AdminBillingPage() {
               <div>
                 <CardTitle>Accounts</CardTitle>
                 <CardDescription>
-                  Rates per message, and what each account consumed in the
-                  period. Open one for its per-message ledger.
+                  Price per message to India, and what each account consumed
+                  in the period. Open one for its per-message ledger.
                 </CardDescription>
               </div>
               <div className="relative w-full sm:w-64">
@@ -264,12 +357,15 @@ export default function AdminBillingPage() {
                       ))}
                       <TableHead className="text-right">Messages</TableHead>
                       <TableHead className="text-right">Billed</TableHead>
+                      <TableHead className="hidden text-right sm:table-cell">
+                        Margin
+                      </TableHead>
                       <TableHead className="w-12" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rows.map((row) => {
-                      const card = row.rates ?? data.defaultRates;
+                      const markups = row.markups ?? data.defaultMarkups;
                       return (
                         <TableRow key={row.workspaceId}>
                           <TableCell className="max-w-64 min-w-0">
@@ -291,11 +387,11 @@ export default function AdminBillingPage() {
                                   ) : null}
                                 </span>
                                 <span className="truncate text-xs text-muted-foreground">
-                                  {row.rates
-                                    ? `Own rates · ${row.rates.currency}`
-                                    : data.defaultRates
-                                      ? `Default rates · ${data.defaultRates.currency}`
-                                      : "No rates"}
+                                  {row.markups
+                                    ? "Own markup"
+                                    : data.defaultMarkups
+                                      ? "Default markup"
+                                      : "No markup"}
                                 </span>
                               </span>
                             </Link>
@@ -305,15 +401,15 @@ export default function AdminBillingPage() {
                               key={category}
                               className="hidden text-right whitespace-nowrap tabular-nums md:table-cell"
                             >
-                              {card ? (
+                              {india ? (
                                 <span
                                   className={
-                                    row.rates ? "" : "text-muted-foreground"
+                                    row.markups ? "" : "text-muted-foreground"
                                   }
                                 >
                                   {formatMoney(
-                                    rateOf(card, category),
-                                    card.currency,
+                                    priceOf(india, markups, category),
+                                    india.currency,
                                     row.locale
                                   )}
                                 </span>
@@ -331,18 +427,22 @@ export default function AdminBillingPage() {
                           <TableCell className="text-right font-medium whitespace-nowrap tabular-nums">
                             <SpendList spend={row.spend} locale={row.locale} />
                           </TableCell>
+                          <TableCell className="hidden text-right whitespace-nowrap tabular-nums sm:table-cell">
+                            <MarginList margin={row.margin} locale={row.locale} />
+                          </TableCell>
                           <TableCell>
-                            <RateCardDialog
+                            <MarkupDialog
                               workspaceId={row.workspaceId}
                               workspaceName={row.name}
-                              current={row.rates}
-                              fallback={data.defaultRates}
-                              defaultCurrency={row.currency}
+                              current={row.markups}
+                              fallback={data.defaultMarkups}
+                              currency={currency}
+                              sample={india}
                               trigger={
                                 <Button
                                   size="icon-sm"
                                   variant="ghost"
-                                  aria-label={`Edit rates for ${row.name}`}
+                                  aria-label={`Edit markup for ${row.name}`}
                                 >
                                   <PencilSimpleIcon />
                                 </Button>
@@ -371,6 +471,7 @@ export default function AdminBillingPage() {
                         <TableCell className="text-right tabular-nums">
                           <SpendList spend={data.deleted.spend} />
                         </TableCell>
+                        <TableCell className="hidden sm:table-cell" />
                         <TableCell />
                       </TableRow>
                     ) : null}

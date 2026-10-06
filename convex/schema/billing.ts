@@ -14,6 +14,8 @@ const usageSource = v.union(
   v.literal("draft_marketing"),
   v.literal("sort_contacts")
 );
+const markup = v.object({ fixedMicros: v.number(), percent: v.number() });
+
 const usageChannel = v.optional(v.union(v.literal("whatsapp"), v.literal("web")));
 const usageKind = v.union(v.literal("chat"), v.literal("embedding"));
 
@@ -168,6 +170,32 @@ export const billingTables = {
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
 
+  metaRates: defineTable({
+    market: v.string(),
+    currency: v.string(),
+    serviceMicros: v.number(),
+    utilityMicros: v.number(),
+    marketingMicros: v.number(),
+    authenticationMicros: v.number(),
+    authenticationIntlMicros: v.optional(v.number()),
+    effectiveFrom: v.number(),
+    updatedAt: v.number(),
+  }).index("by_currency_market_effectiveFrom", [
+    "currency",
+    "market",
+    "effectiveFrom",
+  ]),
+
+  billingMarkups: defineTable({
+    workspaceId: v.optional(v.id("workspaces")),
+    service: markup,
+    utility: markup,
+    marketing: markup,
+    authentication: markup,
+    freeMicros: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
   billingEvents: defineTable({
     workspaceId: v.id("workspaces"),
     conversationId: v.optional(v.id("conversations")),
@@ -187,9 +215,22 @@ export const billingTables = {
     currency: v.string(),
     amountMicros: v.number(),
     rated: v.boolean(),
+    market: v.optional(v.string()),
+    metaCostMicros: v.optional(v.number()),
+    markupMicros: v.optional(v.number()),
+    wamid: v.optional(v.string()),
+    status: v.optional(
+      v.union(v.literal("pending"), v.literal("settled"), v.literal("refunded"))
+    ),
+    billable: v.optional(v.boolean()),
+    pricingCategory: v.optional(v.string()),
+    pricingType: v.optional(v.string()),
+    settledAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
+    .index("by_wamid", ["wamid"])
+    .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_workspace_createdAt", ["workspaceId", "createdAt"])
     .index("by_workspace_category_createdAt", [
       "workspaceId",
