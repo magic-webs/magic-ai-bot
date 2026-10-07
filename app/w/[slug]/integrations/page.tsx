@@ -216,6 +216,13 @@ const OTHER_TOOLS: OtherTool[] = [
 type GoogleConnection = FunctionReturnType<typeof api.integrations.list>[number];
 type AppConnection = FunctionReturnType<typeof api.apps.list>[number];
 
+function catalogueCount(connection: AppConnection, app: AppSpec): string {
+  const items = plural(connection.items.length, app.noun);
+  return connection.groups.length > 0
+    ? `${items} · ${plural(connection.groups.length, "group")}`
+    : items;
+}
+
 const plural = (count: number, noun: string) =>
   `${count} ${noun}${count === 1 ? "" : "s"}`;
 
@@ -322,9 +329,7 @@ export default function IntegrationsPage() {
           : connection.status === "error"
             ? "attention"
             : "connected",
-        stateDetail: connection
-          ? plural(connection.items.length, app.noun)
-          : undefined,
+        stateDetail: connection ? catalogueCount(connection, app) : undefined,
       };
     }),
     ...INTEGRATIONS.map((integration): Entry => {
@@ -983,6 +988,7 @@ function AgentsTab({
 
   if (app) {
     const items = appConnection?.items ?? [];
+    const groups = appConnection?.groups ?? [];
     return (
       <div className="flex flex-col gap-3">
         <div className="divide-y rounded-xl border">
@@ -998,6 +1004,26 @@ function AgentsTab({
                   {item.title}
                 </span>
               ))}
+            </div>
+          ) : null}
+          {groups.length > 0 ? (
+            <div className="flex flex-col gap-2 p-4">
+              <p className="text-xs font-medium text-muted-foreground">Groups</p>
+              <div className="flex flex-wrap gap-1.5">
+                {groups.map((group) => (
+                  <span
+                    key={group.key}
+                    className="max-w-full truncate rounded-md border border-primary/30 bg-primary/5 px-2 py-0.5 text-xs"
+                    title={group.forms.join(", ")}
+                  >
+                    {group.title}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {plural(group.forms.length, app.noun)}
+                    </span>
+                  </span>
+                ))}
+              </div>
             </div>
           ) : null}
         </div>
@@ -1287,7 +1313,7 @@ function AppAction({
             </span>
           </p>
           <p className="text-muted-foreground">
-            {plural(connection.items.length, app.noun)} ·{" "}
+            {catalogueCount(connection, app)} ·{" "}
             {connection.sentCount} sent · {connection.resultCount} came back
           </p>
         </ConnectedBox>

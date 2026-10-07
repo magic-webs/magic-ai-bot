@@ -54,6 +54,7 @@ export const integrationsTables = {
         description: v.optional(v.string()),
         url: v.optional(v.string()),
         kind: v.optional(v.string()),
+        groupKey: v.optional(v.string()),
         prefill: v.optional(
           v.array(
             v.object({

@@ -37,7 +37,10 @@ import {
   BUTTON_TEXT_MAX,
   buildPrefill,
   formatPhone,
+  formGroups,
+  groupPrefillFields,
   type AppItem,
+  type AppPrefillField,
 } from "./lib/apps";
 import { callApp } from "./lib/appClient";
 import { summarise, type HeaderSpec, type Outbound } from "./lib/whatsappSend";
@@ -1325,6 +1328,7 @@ function buildAppTools(
     ),
     email: turn.contact.email,
     company: turn.contact.company,
+    attributes: turn.contact.attributes,
   };
 
   const text = (value: unknown) =>
@@ -1343,7 +1347,11 @@ function buildAppTools(
       return item;
     };
 
-    const fileLink = async (item: AppItem, ref: string, url: string) =>
+    const fileLink = async (
+      item: { key: string; title: string },
+      ref: string,
+      url: string
+    ) =>
       ctx.runMutation(internal.apps.recordLink, {
         connectionId: connection._id,
         ref,
@@ -1356,15 +1364,28 @@ function buildAppTools(
       });
 
     if (connection.app === "magic_forms") {
+      const groups = formGroups(connection.items);
+      const fieldList = (fields: AppPrefillField[]) =>
+        fields
+          .slice(0, 12)
+          .map((field) => `${field.key} (${field.label})`)
+          .join(", ");
       const catalogue = connection.items
         .map((item) => {
-          const fields = (item.prefill ?? [])
-            .slice(0, 12)
-            .map((field) => `${field.key} (${field.label})`)
-            .join(", ");
+          const fields = fieldList(item.prefill ?? []);
           return [
             `- ${item.key}: ${item.title}`,
             item.description ? ` — ${item.description}` : "",
+            item.groupKey ? ` [in group ${item.groupKey}]` : "",
+            fields ? `. Can prefill: ${fields}` : "",
+          ].join("");
+        })
+        .join("\n");
+      const groupCatalogue = groups
+        .map((group) => {
+          const fields = fieldList(groupPrefillFields(group));
+          return [
+            `- ${group.key}: ${group.title} — the customer picks one of: ${group.forms.map((form) => form.title).join(", ")}`,
             fields ? `. Can prefill: ${fields}` : "",
           ].join("");
         })
@@ -1376,6 +1397,9 @@ function buildAppTools(
           "Their name, number and email are filled in for them where the form asks; put anything else they have already told you in prefill, so they do not type it twice.",
           'When they submit it, their answers arrive in this conversation as their next message, starting "[Form submitted". Do not ask them to tell you once they are done.',
           `The forms:\n${catalogue}`,
+          groups.length > 0
+            ? `\nForm groups — one link where the customer picks the form that fits them. Send a group instead of a form when it holds the forms they might need and you cannot tell which one applies:\n${groupCatalogue}`
+            : "",
         ].join(" "),
         inputSchema: jsonSchema({
           type: "object" as const,
@@ -1383,8 +1407,21 @@ function buildAppTools(
             form: {
               type: "string",
               enum: connection.items.map((item) => item.key),
-              description: "Which form, by its key from the list",
+              description:
+                groups.length > 0
+                  ? "Which form, by its key from the list. Leave it out when you send a group."
+                  : "Which form, by its key from the list",
             },
+            ...(groups.length > 0
+              ? {
+                  group: {
+                    type: "string",
+                    enum: groups.map((group) => group.key),
+                    description:
+                      "Which form group, by its key from the list, instead of a single form",
+                  },
+                }
+              : {}),
             message: {
               type: "string",
               description:
@@ -1401,16 +1438,43 @@ function buildAppTools(
               additionalProperties: { type: "string" },
             },
           },
-          required: ["form", "message"],
+          required: groups.length > 0 ? ["message"] : ["form", "message"],
           additionalProperties: false as const,
         }),
         execute: traced(trace, "send_form", async (rawInput: unknown) => {
           const input = (rawInput ?? {}) as Record<string, unknown>;
           if (turn.askedThisTurn) return { ok: false, error: ALREADY_ASKED };
-          const item = find(input.form);
+
+          const groupKey = text(input.group);
+          const group = groupKey
+            ? groups.find((row) => row.key === groupKey)
+            : undefined;
+          if (groupKey && !group) {
+            throw new ConvexError(
+              `There is no form group called "${groupKey}". Use one of: ${groups.map((row) => row.key).join(", ")}.`
+            );
+          }
+          const account = encodeURIComponent(connection.account.slug);
+          const target = group
+            ? {
+                key: group.key,
+                title: group.title,
+                fields: groupPrefillFields(group),
+                path: `/api/v1/links/group/${account}/${encodeURIComponent(group.key)}`,
+              }
+            : (() => {
+                const item = find(input.form);
+                return {
+                  key: item.key,
+                  title: item.title,
+                  fields: item.prefill ?? [],
+                  path: `/api/v1/links/form/${account}/${encodeURIComponent(item.key)}`,
+                };
+              })();
+          const path = target.path;
 
           const prefill = buildPrefill(
-            item.prefill ?? [],
+            target.fields,
             (input.prefill ?? {}) as Record<string, unknown>,
             known
           );
@@ -1423,7 +1487,6 @@ function buildAppTools(
             turn.channelType === "whatsapp"
               ? turn.externalId.replace(/\D/g, "") || undefined
               : undefined;
-          const path = `/api/v1/links/form/${encodeURIComponent(connection.account.slug)}/${encodeURIComponent(item.key)}`;
 
           let link = await callApp(connection, "POST", path, {
             data: prefill,
@@ -1449,25 +1512,31 @@ function buildAppTools(
                 connectionId: connection._id,
               });
               throw new ConvexError(
-                `"${item.title}" is no longer available. Do not offer it again.`
+                `"${target.title}" is no longer available. Do not offer it again.`
               );
             }
             throw new ConvexError(`The form link could not be made: ${link.error}`);
           }
-          const url = text((link.body as { url?: unknown } | null)?.url);
+          const body = link.body as { url?: unknown; warning?: unknown } | null;
+          if (group && text(body?.warning)) {
+            throw new ConvexError(
+              `The "${group.title}" group's link is switched off in Magic Forms. Send one of its forms instead: ${group.forms.map((form) => form.key).join(", ")}.`
+            );
+          }
+          const url = text(body?.url);
           if (!url) throw new ConvexError("Magic Forms returned no link.");
 
-          await fileLink(item, ref, url);
+          await fileLink(target, ref, url);
           const sent = await deliver({
             kind: "cta_url",
-            body: text(input.message) ?? `Please fill in ${item.title}.`,
+            body: text(input.message) ?? `Please fill in ${target.title}.`,
             displayText: buttonLabel(input.buttonText, "Open form"),
             url,
           });
           if (!sent.ok) return sent;
           return {
             ...sent,
-            form: item.title,
+            form: target.title,
             note: `${sent.note} Their answers will arrive here as their next message.`,
           };
         }),

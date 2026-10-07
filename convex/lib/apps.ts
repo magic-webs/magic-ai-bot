@@ -53,6 +53,7 @@ export type AppItem = {
   url?: string;
   /** A form's group, or an offer's game type ("Spin the Wheel"). */
   kind?: string;
+  groupKey?: string;
   prefill?: AppPrefillField[];
   prizes?: Array<{ label: string; isWin: boolean }>;
 };
@@ -224,13 +225,16 @@ export function readItems(app: AppId, body: unknown): AppItem[] {
         .filter((f): f is AppPrefillField => f !== null)
         .slice(0, MAX_PREFILL_FIELDS);
 
+      const group = asObject(row.group);
+      const groupKey = asString(group.slug);
       items.push({
         id,
         key: slug,
         title,
         description: asString(row.description),
         url: asString(row.url),
-        kind: asString(asObject(row.group).name),
+        kind: asString(group.name) ?? groupKey,
+        ...(groupKey ? { groupKey } : {}),
         prefill,
       });
     } else {
@@ -259,6 +263,39 @@ export function readItems(app: AppId, body: unknown): AppItem[] {
   return items;
 }
 
+export type AppGroup = { key: string; title: string; forms: AppItem[] };
+
+export function formGroups(items: AppItem[]): AppGroup[] {
+  const groups = new Map<string, AppGroup>();
+  for (const item of items) {
+    if (!item.groupKey) continue;
+    const group = groups.get(item.groupKey);
+    if (group) group.forms.push(item);
+    else {
+      groups.set(item.groupKey, {
+        key: item.groupKey,
+        title: item.kind ?? item.groupKey,
+        forms: [item],
+      });
+    }
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    forms: group.forms.sort((a, b) => a.title.localeCompare(b.title)),
+  }));
+}
+
+/** Magic Forms takes a shared key's rules from the first form by title, so this does too. */
+export function groupPrefillFields(group: AppGroup): AppPrefillField[] {
+  const fields = new Map<string, AppPrefillField>();
+  for (const form of group.forms) {
+    for (const field of form.prefill ?? []) {
+      if (!fields.has(field.key)) fields.set(field.key, field);
+    }
+  }
+  return [...fields.values()];
+}
+
 // ---------------------------------------------------------------------------
 // Prefilling a form
 // ---------------------------------------------------------------------------
@@ -268,7 +305,11 @@ export type KnownContact = {
   phone?: string;
   email?: string;
   company?: string;
+  attributes?: Array<{ key: string; value: string }>;
 };
+
+const normaliseKey = (text: string) =>
+  text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
 /**
  * The answers to send with a form link.
@@ -286,19 +327,30 @@ export function buildPrefill(
 ): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
 
+  const [firstName, ...otherNames] = contact.name?.trim().split(/\s+/) ?? [];
+
   const guess = (field: AppPrefillField): string | undefined => {
-    const words = `${field.key} ${field.label}`.toLowerCase();
+    const words = `${field.key.replace(/[_-]+/g, " ")} ${field.label}`.toLowerCase();
     if (field.type === "phone" || /\b(phone|mobile|whatsapp)\b/.test(words)) {
       return contact.phone;
     }
     if (field.type === "email" || /\be-?mail\b/.test(words)) {
       return contact.email;
     }
+    const keys = [normaliseKey(field.key), normaliseKey(field.label)];
+    const attribute = contact.attributes?.find((row) =>
+      keys.includes(normaliseKey(row.key))
+    )?.value;
+    if (attribute?.trim()) return attribute;
     if (field.type !== "text") return undefined;
     if (/\b(company|business|organi[sz]ation)\b/.test(words)) {
       return contact.company;
     }
-    if (/\bname\b|full_?name|your_?name/.test(words)) return contact.name;
+    if (/\b(first|given|fore) ?name\b/.test(words)) return firstName;
+    if (/\b(last|sur|family) ?name\b/.test(words)) {
+      return otherNames.length > 0 ? otherNames.join(" ") : undefined;
+    }
+    if (/\bname\b/.test(words)) return contact.name;
     return undefined;
   };
 

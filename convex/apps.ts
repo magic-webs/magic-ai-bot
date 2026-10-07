@@ -24,6 +24,7 @@ import { publicSiteUrl } from "./lib/publicUrl";
 import {
   APP_TOOL_NAMES,
   findApp,
+  formGroups,
   readAccount,
   readItems,
   type AppId,
@@ -41,6 +42,7 @@ const appItem = v.object({
   description: v.optional(v.string()),
   url: v.optional(v.string()),
   kind: v.optional(v.string()),
+  groupKey: v.optional(v.string()),
   prefill: v.optional(
     v.array(
       v.object({
@@ -99,6 +101,11 @@ export const list = query({
         title: item.title,
         kind: item.kind ?? null,
         url: item.url ?? null,
+      })),
+      groups: formGroups(row.items).map((group) => ({
+        key: group.key,
+        title: group.title,
+        forms: group.forms.map((form) => form.title),
       })),
       replyOnResult: row.replyOnResult,
       status: row.status,
