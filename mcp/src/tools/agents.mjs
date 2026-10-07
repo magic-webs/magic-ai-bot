@@ -310,7 +310,7 @@ export function register(server) {
     {
       title: "Talk to an agent",
       description:
-        "Send a message as a test customer and get the agent's real reply — the same engine WhatsApp and the website widget use, so knowledge retrieval, catalogue lookups, tools and routing all run. Point it at the front desk to test routing: handoffPath shows which agents the message passed through. Costs model tokens against the workspace.",
+        "Send a message as a test customer and get the agent's real reply — the same engine WhatsApp and the website widget use, so knowledge retrieval, catalogue lookups, tools and routing all run. Point it at the front desk to test routing: handoffPath shows which agents the message passed through. The thread shows in the inbox under a tester name — \"Tester 1\" by default; give each separate session its own (\"Tester 2\", \"Tester 3\"…) and never name it after MCP. Costs model tokens against the workspace.",
       inputSchema: {
         ...workspaceArg,
         agent: z
@@ -319,6 +319,12 @@ export function register(server) {
             "Which agent receives the message. Use the front desk to test routing."
           ),
         message: z.string().describe("What the customer says"),
+        tester: z
+          .string()
+          .optional()
+          .describe(
+            "Name the test customer appears under in the inbox, like \"Tester 1\". Defaults to \"Tester 1\". Only takes effect on a new session."
+          ),
         session: z
           .string()
           .optional()
@@ -331,7 +337,7 @@ export function register(server) {
           .describe("Wipe the thread first and start from a clean conversation"),
       },
     },
-    handler(async ({ workspace, agent, message, session: sessionId, restart }) => {
+    handler(async ({ workspace, agent, message, tester, session: sessionId, restart }) => {
       const found = await resolveWorkspace(workspace);
       const target = await findAgent(found._id, agent);
       const externalId = sessionId?.trim() || `mcp-${target._id}`;
@@ -352,7 +358,7 @@ export function register(server) {
         agentId: target._id,
         channelType: "web",
         externalId,
-        contactName: "MCP test",
+        contactName: tester?.trim() || "Tester 1",
         text: message,
       });
 

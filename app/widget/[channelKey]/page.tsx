@@ -62,11 +62,13 @@ import { TypingBubble } from "@/components/typing-bubble";
 import {
   DEFAULT_ISO,
   DIAL_CODES,
+  clampPhone,
   dialCodeFor,
   guessIso,
   isoFromLocale,
+  mobileDigits,
+  nationalNumber,
   splitDialCode,
-  stripDialCode,
 } from "@/lib/dial-codes";
 import { friendlyError } from "@/lib/errors";
 
@@ -519,7 +521,7 @@ function RegisterForm({
     const split = splitDialCode(prefill.phone ?? "");
     return {
       name: prefill.name ?? "",
-      phone: split.rest,
+      phone: prefill.phone ? clampPhone(split.iso, split.rest) : "",
       // Null until either the prefill says so or the visitor picks: the guess
       // is not state, and storing it here would freeze whatever the server
       // rendered before the browser locale was readable.
@@ -536,9 +538,14 @@ function RegisterForm({
       toast.add({ title: "Please fill in both fields", type: "error" });
       return;
     }
-    const digits = stripDialCode(form.phone).replace(/\D/g, "");
-    if (digits.length < 6 || digits.length > 15) {
-      toast.add({ title: "Enter a valid phone number", type: "error" });
+    const national = nationalNumber(iso, form.phone);
+    if (!national) {
+      const { min, max } = mobileDigits(iso);
+      toast.add({
+        title: "Enter a valid phone number",
+        description: `${dialCodeFor(iso).name} numbers have ${min === max ? min : `${min}–${max}`} digits.`,
+        type: "error",
+      });
       return;
     }
 
@@ -551,7 +558,7 @@ function RegisterForm({
         // Stored in full, with the code: the number is what WhatsApp dials and
         // what the team reads off the contacts table, and neither can do
         // anything with a local number whose country is only in the widget.
-        phone: `${dialCodeFor(iso).dial} ${stripDialCode(form.phone)}`,
+        phone: `${dialCodeFor(iso).dial} ${national}`,
       });
       // No local flag to set: `widget.session` now reports this visitor as
       // registered, and the subscription re-renders into the chat by itself.
@@ -637,21 +644,37 @@ function RegisterForm({
               <DialCodeSelect
                 iso={iso}
                 disabled={submitting}
-                onChange={(iso) => setForm((prev) => ({ ...prev, iso }))}
+                onChange={(iso) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    iso,
+                    phone: clampPhone(iso, prev.phone),
+                  }))
+                }
               />
               <span aria-hidden className="my-2 w-px shrink-0 bg-border" />
               <Input
                 id="widget-phone"
                 type="tel"
-                inputMode="tel"
+                inputMode="numeric"
                 autoComplete="tel-national"
-                placeholder="Phone number"
+                placeholder={`${mobileDigits(iso).max}-digit number`}
                 className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
                 value={form.phone}
                 disabled={submitting}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, phone: event.target.value }))
-                }
+                onChange={(event) => {
+                  const value = event.target.value.trim();
+                  if (value.startsWith("+")) {
+                    const split = splitDialCode(value);
+                    setForm((prev) => ({
+                      ...prev,
+                      iso: split.iso,
+                      phone: clampPhone(split.iso, split.rest),
+                    }));
+                    return;
+                  }
+                  setForm((prev) => ({ ...prev, phone: clampPhone(iso, value) }));
+                }}
               />
             </div>
           </div>

@@ -250,6 +250,7 @@ export default function AgentTestPage({
         messages={messages}
         showTools={showTools}
         agents={agent ? [agent] : undefined}
+        onPick={(text) => void send(text)}
         leading={
           <>
             <TranscriptItem messageId="greeting">

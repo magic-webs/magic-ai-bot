@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { Outbound } from "@/convex/lib/whatsappSend";
 import { cn } from "@/lib/utils";
@@ -541,6 +541,7 @@ function ListSheet({
   onPick?: (text: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const group = useId();
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title={message.buttonText}>
@@ -557,10 +558,7 @@ function ListSheet({
               return (
                 <label
                   key={row.id}
-                  className={cn(
-                    "flex items-center gap-3 px-5 py-3",
-                    onPick ? "cursor-pointer hover:bg-muted/60" : "cursor-default"
-                  )}
+                  className="flex cursor-pointer items-center gap-3 px-5 py-3 hover:bg-muted/60"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-[0.9375rem]">{row.title}</span>
@@ -572,9 +570,8 @@ function ListSheet({
                   </span>
                   <input
                     type="radio"
-                    name={`list-${message.buttonText}`}
+                    name={group}
                     className="peer sr-only"
-                    disabled={!onPick}
                     checked={checked}
                     onChange={() => setSelected(row.id)}
                   />

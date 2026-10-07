@@ -154,6 +154,53 @@ export const DIAL_CODES: DialCode[] = [
   { iso: "ZW", name: "Zimbabwe", dial: "+263", flag: "🇿🇼" },
 ];
 
+/**
+ * How many digits a mobile number has after the country code, without a trunk
+ * `0`. One number where the country has a single length, a range otherwise.
+ */
+const MOBILE_DIGITS: Record<string, number | [number, number]> = {
+  AF: 9, AL: 9, DZ: 9, AR: [10, 11], AM: 8, AU: 9, AT: [10, 13], AZ: 9,
+  BH: 8, BD: 10, BY: 9, BE: 9, BT: 8, BO: 8, BA: [8, 9], BW: 8, BR: [10, 11],
+  BN: 7, BG: [8, 9], KH: [8, 9], CM: 9, CA: 10, CL: 9, CN: 11, CO: 10, CR: 8,
+  HR: [8, 9], CY: 8, CZ: 9, DK: 8, DO: 10, EC: 9, EG: 10, SV: 8, EE: [7, 8],
+  ET: 9, FI: [6, 10], FR: 9, GE: 9, DE: [10, 11], GH: 9, GR: 10, GT: 8, HN: 8,
+  HK: 8, HU: 9, IS: 7, IN: 10, ID: [9, 12], IQ: 10, IE: 9, IL: 9, IT: [9, 10],
+  CI: 10, JM: 10, JP: 10, JO: 9, KZ: 10, KE: 9, KW: 8, KG: 9, LA: [8, 10],
+  LV: 8, LB: [7, 8], LY: 9, LT: 8, LU: 9, MO: 8, MG: 9, MW: 9, MY: [9, 10],
+  MV: 7, MT: 8, MU: 8, MX: 10, MD: 8, MN: 8, ME: 8, MA: 9, MZ: 9, MM: [8, 10],
+  NA: 9, NP: 10, NL: 9, NZ: [8, 10], NI: 8, NG: 10, MK: 8, NO: 8, OM: 8,
+  PK: 10, PS: 9, PA: 8, PY: 9, PE: 9, PH: 10, PL: 9, PT: 9, PR: 10, QA: 8,
+  RO: 9, RU: 10, RW: 9, SA: 9, SN: 9, RS: [8, 9], SG: 8, SK: 9, SI: 8, ZA: 9,
+  KR: [9, 10], ES: 9, LK: 9, SE: [7, 9], CH: 9, TW: 9, TZ: 9, TH: [8, 9],
+  TT: 10, TN: 8, TR: 10, UG: 9, UA: 9, AE: 9, GB: 10, US: 10, UY: 8, UZ: 9,
+  VE: 10, VN: [9, 10], YE: 9, ZM: 9, ZW: 9,
+};
+
+/** Where the leading `0` is part of the number rather than a trunk prefix. */
+const ZERO_IS_DIGIT = new Set(["IT", "CI"]);
+
+export function mobileDigits(iso: string): { min: number; max: number } {
+  const entry = MOBILE_DIGITS[iso] ?? [6, 15];
+  return typeof entry === "number"
+    ? { min: entry, max: entry }
+    : { min: entry[0], max: entry[1] };
+}
+
+/** Digits only, capped at the country's length plus room for a trunk `0`. */
+export function clampPhone(iso: string, raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  const trunk = digits.startsWith("0") && !ZERO_IS_DIGIT.has(iso) ? 1 : 0;
+  return digits.slice(0, mobileDigits(iso).max + trunk);
+}
+
+/** The number as it follows the country code, or null if its length is wrong. */
+export function nationalNumber(iso: string, raw: string): string | null {
+  let digits = raw.replace(/\D/g, "");
+  if (!ZERO_IS_DIGIT.has(iso)) digits = digits.replace(/^0/, "");
+  const { min, max } = mobileDigits(iso);
+  return digits.length >= min && digits.length <= max ? digits : null;
+}
+
 /** The fallback, and the one most of this platform's traffic dials from. */
 export const DEFAULT_ISO = "IN";
 

@@ -215,6 +215,7 @@ export function TranscriptView({
   contentClassName,
   perspective = "customer",
   agents,
+  onPick,
 }: {
   /** `undefined` while the query is in flight. */
   messages: Doc<"messages">[] | undefined;
@@ -241,6 +242,8 @@ export function TranscriptView({
    * whichever one wrote it. Omit and the bubbles are unattributed.
    */
   agents?: TranscriptAgent[];
+  /** Answers a tapped button or list row as the customer. Playground only. */
+  onPick?: (text: string) => void;
 }) {
   const visible = (messages ?? []).filter((message) =>
     message.kind === "tool" ? showTools : true
@@ -370,8 +373,8 @@ export function TranscriptView({
     // What the customer was actually shown, rendered the same way
     // the chat renders it — a line of prose describing a menu is no
     // use to someone working out why a conversation went wrong.
-    // Inert here: clicking a button in a transcript must not answer
-    // on the customer's behalf.
+    // Inert unless `onPick` is given: clicking a button in the inbox
+    // must not answer on the customer's behalf.
     const rich = parseRichPayload(message.payload);
 
     // How long the model took. Diagnostic rather than conversational, so on
@@ -440,7 +443,8 @@ export function TranscriptView({
                 {rich ? (
                   <RichMessage
                     message={rich}
-                    interactive={false}
+                    interactive={Boolean(onPick) && !isCustomer}
+                    onPick={onPick}
                     meta={
                       mine
                         ? {
