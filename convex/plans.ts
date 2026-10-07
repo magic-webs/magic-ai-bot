@@ -6,7 +6,7 @@
 // checks out. What changes at once is what the plan cards show and — for a
 // plan's included agents — the limits every account on it is held to.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAdmin, requireWorkspace } from "./lib/auth";
 import { allPlans, billingSettings, billingTermsFor } from "./lib/account";
@@ -27,15 +27,15 @@ const MAX_PRICE = 10_000_000;
 
 function money(label: string, amount: number): number {
   if (!Number.isFinite(amount) || amount < 0) {
-    throw new Error(`${label} must be zero or more.`);
+    throw new ConvexError(`${label} must be zero or more.`);
   }
-  if (amount > MAX_PRICE) throw new Error(`${label} looks too high.`);
+  if (amount > MAX_PRICE) throw new ConvexError(`${label} looks too high.`);
   return toMicros(amount);
 }
 
 function wholeNumber(label: string, value: number, max: number): number {
   if (!Number.isInteger(value) || value < 0 || value > max) {
-    throw new Error(`${label} must be a whole number from 0 to ${max}.`);
+    throw new ConvexError(`${label} must be a whole number from 0 to ${max}.`);
   }
   return value;
 }
@@ -172,7 +172,7 @@ export const updateSettings = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const settings = await billingSettings(ctx);
-    if (!settings) throw new Error("Switch billing on first.");
+    if (!settings) throw new ConvexError("Switch billing on first.");
 
     const terms = new Map(
       allCurrencyTerms(settings).map((entry) => [entry.currency, entry])
@@ -186,19 +186,19 @@ export const updateSettings = mutation({
     for (const entry of args.terms ?? []) {
       const code = entry.currency.trim().toUpperCase();
       if (!isValidCurrency(code))
-        throw new Error(`${entry.currency} is not a currency code.`);
+        throw new ConvexError(`${entry.currency} is not a currency code.`);
       if (
         !Number.isFinite(entry.gstPercent) ||
         entry.gstPercent < 0 ||
         entry.gstPercent > 50
       ) {
-        throw new Error(`${code} GST must be a percentage from 0 to 50.`);
+        throw new ConvexError(`${code} GST must be a percentage from 0 to 50.`);
       }
       if (entry.trialPlanId) {
         const plan = await ctx.db.get("billingPlans", entry.trialPlanId);
-        if (!plan) throw new Error("That plan no longer exists.");
+        if (!plan) throw new ConvexError("That plan no longer exists.");
         if (planCurrency(plan) !== code) {
-          throw new Error(
+          throw new ConvexError(
             `The ${code} trial plan has to be one of the ${code} plans.`
           );
         }
@@ -212,7 +212,7 @@ export const updateSettings = mutation({
         entry.minTopUp
       );
       if (minTopUpMicros < toMicros(1)) {
-        throw new Error(
+        throw new ConvexError(
           `The ${code} minimum top-up must be at least 1 — Razorpay's floor.`
         );
       }
@@ -238,7 +238,7 @@ export const updateSettings = mutation({
     const currency = (args.currency ?? settings.currency).trim().toUpperCase();
     const base = terms.get(currency);
     if (!base)
-      throw new Error(
+      throw new ConvexError(
         `Add terms for ${currency} before making it the default.`
       );
 
@@ -301,7 +301,7 @@ export const savePlan = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const name = args.name.trim();
-    if (!name) throw new Error("A plan needs a name.");
+    if (!name) throw new ConvexError("A plan needs a name.");
 
     const priceMicros = money("The price", args.price);
     const fields = {
@@ -338,7 +338,7 @@ export const savePlan = mutation({
       ? planCurrency(existing)
       : (args.currency ?? PLATFORM_CURRENCY).trim().toUpperCase();
     if (!isValidCurrency(currency))
-      throw new Error("Pick a currency for the plan.");
+      throw new ConvexError("Pick a currency for the plan.");
 
     // One card is "most popular" at most, in each currency.
     if (fields.highlighted) {
@@ -355,7 +355,7 @@ export const savePlan = mutation({
 
     if (args.planId) {
       const plan = await ctx.db.get("billingPlans", args.planId);
-      if (!plan) throw new Error("Plan not found");
+      if (!plan) throw new ConvexError("Plan not found");
       await ctx.db.patch("billingPlans", args.planId, fields);
       return args.planId;
     }
@@ -435,7 +435,7 @@ export const removePlan = mutation({
       .first();
     const settings = await billingSettings(ctx);
     if (inUse || subscribed || settings?.trialPlanId === args.planId) {
-      throw new Error(
+      throw new ConvexError(
         inUse || subscribed
           ? "Accounts are on this plan. Hide it instead, so nobody new can choose it."
           : "Trials run on this plan. Pick another trial plan first."

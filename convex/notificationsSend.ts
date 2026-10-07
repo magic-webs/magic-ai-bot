@@ -1,10 +1,10 @@
 // Sending alerts: WhatsApp templates through the channel's panel, email
-// through Zoho ZeptoMail, and the template sync that feeds the first.
+// through the platform's mail account, and the template sync that feeds the first.
 //
 // Default runtime rather than Node: all of this is fetch, and the payloads are
 // built by lib/notifications so they can be reasoned about without a network.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -16,16 +16,17 @@ import {
   normaliseEmail,
   normalisePhone,
   parseTemplate,
+  platformEmail,
   renderText,
   resolveRecipients,
   sampleData,
+  senderName,
   setPath,
   templateComponents,
   templateMessage,
   templatePreview,
   textToHtml,
   zeptoAuthorization,
-  zeptoEndpoint,
   type NotificationChannel,
 } from "./lib/notifications";
 import {
@@ -50,9 +51,6 @@ type Channel = {
 
 type Settings = {
   defaultCountryCode?: string;
-  zeptoRegion?: string;
-  zeptoToken?: string;
-  fromEmail?: string;
   fromName?: string;
   replyTo?: string;
 };
@@ -126,24 +124,27 @@ async function postWhatsApp(channel: Channel, body: Json): Promise<Delivery> {
 }
 
 async function postEmail(
+  workspace: Workspace,
   settings: Settings,
   message: { to: string; subject: string; html: string }
 ): Promise<Delivery> {
-  if (!settings.zeptoToken || !settings.fromEmail) {
-    return { ok: false, error: "Email is not set up — add the ZeptoMail token and sender address." };
+  const platform = platformEmail();
+  if (!platform) {
+    console.error("ZEPTOMAIL_TOKEN is not set on the deployment; email not sent.");
+    return { ok: false, error: "Email sending is not available right now." };
   }
   try {
-    const response = await request(zeptoEndpoint(settings.zeptoRegion), {
+    const response = await request(platform.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        Authorization: zeptoAuthorization(settings.zeptoToken),
+        Authorization: zeptoAuthorization(platform.token),
       },
       body: JSON.stringify({
         from: {
-          address: settings.fromEmail,
-          ...(settings.fromName ? { name: settings.fromName } : {}),
+          address: platform.fromEmail,
+          name: senderName(workspace.name, settings.fromName, platform.fromName),
         },
         to: [{ email_address: { address: message.to } }],
         ...(settings.replyTo ? { reply_to: [{ address: settings.replyTo }] } : {}),
@@ -287,6 +288,7 @@ async function runRule(
   rule: Rule,
   payload: Json,
   context: {
+    workspace: Workspace;
     settings: Settings;
     channel: Channel | null;
     templates: Templates;
@@ -405,7 +407,7 @@ async function runRule(
   }
   const sent: Result[] = [];
   for (const to of recipients.valid) {
-    const delivery = await postEmail(context.settings, {
+    const delivery = await postEmail(context.workspace, context.settings, {
       to,
       subject: rendered.subject,
       html: rendered.html,
@@ -517,7 +519,7 @@ function recipientFor(channel: NotificationChannel, raw: string, code?: string):
   const address =
     channel === "whatsapp" ? normalisePhone(raw, code) : normaliseEmail(raw);
   if (!address) {
-    throw new Error(
+    throw new ConvexError(
       channel === "whatsapp"
         ? "That is not a WhatsApp number. Include the country code."
         : "That is not an email address."
@@ -542,7 +544,7 @@ export const testRule = action({
     const context = await ctx.runQuery(internal.notifications.testContext, {
       ruleId: args.ruleId,
     });
-    if (!context) throw new Error("Alert not found");
+    if (!context) throw new ConvexError("Alert not found");
 
     const to = recipientFor(
       context.rule.channel,
@@ -588,7 +590,7 @@ export const sendMessage = action({
       whatsappLanguage: args.whatsappLanguage,
       emailTemplateId: args.emailTemplateId,
     });
-    if (!context) throw new Error("Workspace not found");
+    if (!context) throw new ConvexError("Workspace not found");
 
     const to = recipientFor(args.channel, args.to, context.settings.defaultCountryCode);
     const data: Json = {};
@@ -618,20 +620,20 @@ export const sendMessage = action({
   },
 });
 
-/** Proves the ZeptoMail settings with one plain email. */
+/** Proves the email sender settings with one plain email. */
 export const sendTestEmail = action({
   args: { workspaceId: v.id("workspaces"), to: v.string() },
   handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const context = await ctx.runQuery(internal.notifications.manualContext, {
       workspaceId: args.workspaceId,
     });
-    if (!context) throw new Error("Workspace not found");
+    if (!context) throw new ConvexError("Workspace not found");
     const to = recipientFor("email", args.to);
     const subject = `Test email from ${context.workspace.name}`;
     const html = textToHtml(
       `This is a test from Magic Agent.\n\nIf you are reading it, ${context.workspace.name}'s email alerts are set up and will arrive from this address.`
     );
-    const delivery = await postEmail(context.settings, { to, subject, html });
+    const delivery = await postEmail(context.workspace, context.settings, { to, subject, html });
     await record(ctx, {
       workspaceId: args.workspaceId,
       results: [
@@ -661,7 +663,7 @@ export const syncWhatsAppTemplates = action({
       workspaceId: args.workspaceId,
     });
     if (!config) {
-      throw new Error("Connect a WhatsApp number under Channels first.");
+      throw new ConvexError("Connect a WhatsApp number under Channels first.");
     }
 
     const fail = async (message: string): Promise<never> => {
@@ -669,7 +671,7 @@ export const syncWhatsAppTemplates = action({
         workspaceId: args.workspaceId,
         error: message,
       });
-      throw new Error(message);
+      throw new ConvexError(message);
     };
 
     const wabaId = config.wabaId ?? (await discoverWaba(config));

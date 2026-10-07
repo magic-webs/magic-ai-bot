@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateText } from "ai";
@@ -36,12 +36,12 @@ export const ask = action({
     });
 
     const question = args.question.trim();
-    if (!question) throw new Error("Ask a question first.");
+    if (!question) throw new ConvexError("Ask a question first.");
 
     const found = await ctx.runQuery(internal.agents.getInternal, {
       agentId: args.agentId,
     });
-    if (!found) throw new Error("Agent not found");
+    if (!found) throw new ConvexError("Agent not found");
     const { agent } = found;
 
     /* The question is stored before the model runs, not after. The screen
@@ -69,7 +69,7 @@ export const ask = action({
       workspaceId: args.workspaceId,
       now: Date.now(),
     });
-    if (!data) throw new Error("Workspace not found");
+    if (!data) throw new ConvexError("Workspace not found");
 
     const who = data.workspace.ownerName ?? data.workspace.name;
 

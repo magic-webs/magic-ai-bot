@@ -62,6 +62,7 @@ import {
 } from "@/convex/lib/integrations";
 import { APPS, type AppSpec } from "@/convex/lib/apps";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import {
   ArrowSquareOutIcon,
   ArrowsClockwiseIcon,
@@ -221,7 +222,7 @@ const plural = (count: number, noun: string) =>
 const fail = (title: string, error: unknown) =>
   toast.add({
     title,
-    description: error instanceof Error ? error.message : String(error),
+    description: friendlyError(error),
     type: "error",
   });
 
@@ -1119,13 +1120,8 @@ function GoogleAction({
       {!configured ? (
         <Alert variant="destructive">
           <WarningIcon />
-          <AlertTitle>Google is not set up on this deployment</AlertTitle>
-          <AlertDescription>
-            Set <code>GOOGLE_CLIENT_ID</code> and{" "}
-            <code>GOOGLE_CLIENT_SECRET</code> on the Convex deployment, and add
-            its <code>/integrations/google/callback</code> URL as an authorised
-            redirect URI in the Google Cloud console.
-          </AlertDescription>
+          <AlertTitle>Google sign-in isn&apos;t available yet</AlertTitle>
+          <AlertDescription>Contact support.</AlertDescription>
         </Alert>
       ) : null}
 

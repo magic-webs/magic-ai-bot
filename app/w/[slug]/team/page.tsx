@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import {
   ArrowRightIcon,
   ArrowsClockwiseIcon,
@@ -102,11 +103,19 @@ type Member = Doc<"teamMembers"> & {
 type DeskLogin = {
   memberId: Id<"teamMembers">;
   username: string;
+  email: string | null;
   status: "active" | "revoked";
   issuedAt: number;
   lastLoginAt: number | null;
   /** They have set up an authenticator app on it. */
   twoFactor: boolean;
+};
+
+type IssuedLogin = {
+  name: string;
+  username: string;
+  email: string | null;
+  password: string;
 };
 
 const STATUSES = [
@@ -507,7 +516,7 @@ function MemberDialog({
     } catch (error) {
       toast.add({
         title: "Could not save",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -586,10 +595,14 @@ function MemberDialog({
               <Label htmlFor="member-email">Email</Label>
               <Input
                 id="member-email"
+                type="email"
                 value={email}
                 placeholder="priya@example.com"
                 onChange={(event) => setEmail(event.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Their dashboard login signs in with this.
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="member-phone">Phone</Label>
@@ -666,7 +679,7 @@ function IssuedLoginDialog({
   issued,
   onClose,
 }: {
-  issued: { name: string; username: string; password: string } | null;
+  issued: IssuedLogin | null;
   onClose: () => void;
 }) {
   const signInUrl =
@@ -685,12 +698,11 @@ function IssuedLoginDialog({
 
         {issued ? (
           <div className="flex flex-col gap-3">
-            {(
-              [
-                ["Username", issued.username, "font-mono"],
-                ["Password", issued.password, "font-mono text-base tracking-wide"],
-              ] as const
-            ).map(([label, value, className]) => (
+            {[
+              ...(issued.email ? [["Email", issued.email, ""] as const] : []),
+              ["Username", issued.username, "font-mono"] as const,
+              ["Password", issued.password, "font-mono text-base tracking-wide"] as const,
+            ].map(([label, value, className]) => (
               <div key={label} className="flex flex-col gap-1">
                 <Label className="text-xs tracking-wide text-muted-foreground uppercase">
                   {label}
@@ -713,13 +725,24 @@ function IssuedLoginDialog({
               variant="outline"
               onClick={() =>
                 void copy(
-                  `Sign in at ${signInUrl}\nUsername: ${issued.username}\nPassword: ${issued.password}`,
+                  `Sign in at ${signInUrl}\n${
+                    issued.email
+                      ? `Email: ${issued.email}`
+                      : `Username: ${issued.username}`
+                  }\nPassword: ${issued.password}`,
                   "Sign-in details"
                 )
               }
             >
               <CopyIcon /> Copy all sign-in details
             </Button>
+
+            {issued.email ? null : (
+              <p className="text-xs text-muted-foreground">
+                Add an email to {issued.name}&apos;s card and they can sign in
+                with that instead of the username.
+              </p>
+            )}
 
             <Alert>
               <WarningIcon />
@@ -759,11 +782,7 @@ function MemberMenu({
   const [confirmingLogin, setConfirmingLogin] = useState<
     "reset" | "revoke" | null
   >(null);
-  const [issued, setIssued] = useState<{
-    name: string;
-    username: string;
-    password: string;
-  } | null>(null);
+  const [issued, setIssued] = useState<IssuedLogin | null>(null);
 
   const issue = async () => {
     try {
@@ -772,7 +791,7 @@ function MemberMenu({
     } catch (error) {
       toast.add({
         title: "Could not issue a login",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -808,7 +827,7 @@ function MemberMenu({
             <DropdownMenuLabel className="flex flex-col gap-0.5">
               <span>Dashboard login</span>
               <span className="truncate font-mono text-[11px] font-normal">
-                {login ? login.username : "No login yet"}
+                {login ? (login.email ?? login.username) : "No login yet"}
               </span>
               {login ? (
                 <span className="text-[11px] font-normal">
@@ -866,7 +885,11 @@ function MemberMenu({
                     login?.twoFactor
                       ? " Their two-factor authentication is turned off too, so they can get back in if they lost their phone, and set it up again."
                       : ""
-                  } The new one is shown once; the username stays the same.`
+                  } The new one is shown once; ${
+                    login?.email
+                      ? `they still sign in with ${login.email}.`
+                      : "the username stays the same."
+                  }`
                 : "They are signed out straight away and cannot sign in again until you generate a new login. It frees their human-agent seat on your plan."}
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -364,7 +364,8 @@ An **extra agent** is one more of either, from a single pool: an account on
 Starter with two extras can run three custom agents and one person, or one
 custom agent and three people. Its list price (₹2,499) is shown struck through
 beside its price (₹999); both are the administrator's to change, and so is a
-per-account discount off the plan and a per-account extra-agent price, set on
+per-account discount off the plan (a percentage or a fixed amount in the
+account's currency) and a per-account extra-agent price, set on
 **/admin/subscriptions**.
 
 Limits are enforced where a seat is taken: making an agent live

@@ -9,15 +9,17 @@ import {
 } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { BUILTIN_TOOLS } from "@/convex/lib/shared";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import { useWorkspace } from "@/components/workspace-provider";
 import { useHourBucket } from "@/components/use-now";
 import { AgentAvatar } from "@/components/agent-avatar";
+import { AgentMap } from "@/components/agent-map";
 import { AgentTemplatePicker } from "@/components/agent-templates";
 import { SelectField } from "@/components/select-field";
 import { Button } from "@/components/ui/button";
@@ -64,7 +66,6 @@ import {
   CrosshairSimpleIcon,
   DotsThreeVerticalIcon,
   FunnelIcon,
-  ListIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   RobotIcon,
@@ -251,7 +252,7 @@ function NewAgentDialog() {
     } catch (error) {
       toast.add({
         title: "Could not create the agent",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -284,7 +285,7 @@ function NewAgentDialog() {
     } catch (error) {
       toast.add({
         title: "Drafting failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -561,7 +562,9 @@ function AgentMenu({ agent, base }: { agent: Agent; base: string }) {
         >
           <ChatsIcon /> Test
         </DropdownMenuItem>
-        <DropdownMenuItem render={<Link href={`${base}/agent-config`} />}>
+        <DropdownMenuItem
+          render={<Link href={`${base}/agents?view=map&agent=${agent._id}`} />}
+        >
           <ArrowsSplitIcon /> Show in map
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -680,73 +683,6 @@ function AgentCard({
   );
 }
 
-function AgentRow({
-  agent,
-  stats,
-  base,
-}: {
-  agent: Agent;
-  stats: AgentStats | undefined;
-  base: string;
-}) {
-  return (
-    <Card className="shrink-0 rounded-2xl transition-shadow hover:shadow-md">
-      <CardHeader className="flex items-center gap-3">
-        <AgentAvatar name={agent.botName} gender={agent.gender} size={44} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-heading text-sm font-semibold">
-              {agent.botName}
-            </span>
-            <StatusPill status={agent.status} />
-          </div>
-          <p className="truncate text-xs text-muted-foreground">
-            {agent.role} · {summaryOf(agent)}
-          </p>
-        </div>
-
-        <div className="hidden shrink-0 items-center gap-6 xl:flex">
-          <StatFigure
-            icon={ChatsIcon}
-            value={count(stats?.conversations)}
-            label="Conversations"
-          />
-          <StatFigure
-            icon={CrosshairSimpleIcon}
-            value={percent(stats?.resolutionRate)}
-            label="Resolution rate"
-          />
-          <StatFigure
-            icon={ClockIcon}
-            value={duration(stats?.avgLatencyMs)}
-            label="Avg. response"
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            size="lg"
-            variant="outline"
-            className="max-sm:hidden"
-            nativeButton={false}
-            render={<Link href={`${base}/agents/${agent._id}/test`} />}
-          >
-            <ChatsIcon /> Test
-          </Button>
-          <Button
-            size="lg"
-            nativeButton={false}
-            render={<Link href={`${base}/agents/${agent._id}`} />}
-          >
-            <SlidersIcon /> Configure
-          </Button>
-          <AgentMenu agent={agent} base={base} />
-        </div>
-      </CardHeader>
-    </Card>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // The follow-up desk
 // ---------------------------------------------------------------------------
@@ -842,7 +778,12 @@ export default function AgentsPage() {
   const [provisioning, setProvisioning] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("updated");
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") === "map" ? "map" : "cards";
+  const focusAgent = searchParams.get("agent") as Id<"agents"> | null;
+  const setView = (next: "cards" | "map") =>
+    router.replace(next === "map" ? `${base}/agents?view=map` : `${base}/agents`);
   const searchRef = useRef<HTMLInputElement>(null);
   const mac = useIsMac();
 
@@ -927,7 +868,7 @@ export default function AgentsPage() {
     } catch (error) {
       toast.add({
         title: "Could not create the front desk",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -935,21 +876,42 @@ export default function AgentsPage() {
     }
   };
 
-  return (
-    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
-      {/* ------------------------------------------------------------ header */}
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
-            Agents
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Build AI teammates that understand your business and work on your
-            channels.
-          </p>
-        </div>
+  const viewSwitch = (
+    <div className="flex items-center gap-0.5 rounded-lg border p-0.5">
+      {(
+        [
+          { value: "cards", label: "Cards", icon: SquaresFourIcon },
+          { value: "map", label: "Map", icon: ArrowsSplitIcon },
+        ] as const
+      ).map((option) => (
+        <Button
+          key={option.value}
+          size="sm"
+          variant="ghost"
+          aria-pressed={view === option.value}
+          className={cn(view === option.value && "bg-primary/10 text-primary")}
+          onClick={() => setView(option.value)}
+        >
+          <option.icon /> {option.label}
+        </Button>
+      ))}
+    </div>
+  );
 
-        <div className="flex flex-wrap items-center gap-2">
+  const header = (
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          Agents
+        </h1>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Build AI teammates that understand your business and work on your
+          channels.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {view === "cards" ? (
           <div className="relative w-full sm:w-64">
             <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -965,18 +927,35 @@ export default function AgentsPage() {
               <Kbd>K</Kbd>
             </KbdGroup>
           </div>
-          {/* The other way of doing this page, for comparison. */}
-          <Button
-            size="lg"
-            variant="outline"
-            nativeButton={false}
-            render={<Link href={`${base}/agent-config`} />}
-          >
-            <ArrowsSplitIcon /> Map view
-          </Button>
-          <NewAgentDialog />
-        </div>
-      </header>
+        ) : null}
+        {viewSwitch}
+        <NewAgentDialog />
+      </div>
+    </header>
+  );
+
+  if (view === "map") {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="shrink-0 border-b p-4 sm:px-6">{header}</div>
+        {agents === undefined ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Loading agents…
+          </div>
+        ) : agents.length === 0 ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+            No agents in this workspace yet.
+          </div>
+        ) : (
+          <AgentMap agents={agents} base={base} initialSelected={focusAgent} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
+      {header}
 
       {/* -------------------------------------------------------- front desk */}
       {frontDesk ? (
@@ -1062,32 +1041,6 @@ export default function AgentsPage() {
                 aria-label="Sort agents"
                 className="w-40"
               />
-              <div className="flex items-center gap-0.5 rounded-lg border p-0.5">
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label="Grid view"
-                  aria-pressed={view === "grid"}
-                  className={cn(
-                    view === "grid" && "bg-primary/10 text-primary"
-                  )}
-                  onClick={() => setView("grid")}
-                >
-                  <SquaresFourIcon />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label="List view"
-                  aria-pressed={view === "list"}
-                  className={cn(
-                    view === "list" && "bg-primary/10 text-primary"
-                  )}
-                  onClick={() => setView("list")}
-                >
-                  <ListIcon />
-                </Button>
-              </div>
             </div>
           </div>
 
@@ -1103,21 +1056,10 @@ export default function AgentsPage() {
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
-          ) : view === "grid" ? (
+          ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {visible.map((agent) => (
                 <AgentCard
-                  key={agent._id}
-                  agent={agent}
-                  stats={statsById.get(agent._id)}
-                  base={base}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {visible.map((agent) => (
-                <AgentRow
                   key={agent._id}
                   agent={agent}
                   stats={statsById.get(agent._id)}

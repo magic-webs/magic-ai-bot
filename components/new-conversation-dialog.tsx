@@ -23,6 +23,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import {
   GlobeIcon,
   MagnifyingGlassIcon,
@@ -108,7 +109,7 @@ export function NewConversationDialog({
     } catch (caught) {
       toast.add({
         title: "Could not start the conversation",
-        description: caught instanceof Error ? caught.message : String(caught),
+        description: friendlyError(caught),
         type: "error",
       });
     } finally {

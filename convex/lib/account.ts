@@ -22,6 +22,7 @@ import {
   type SeatKind,
   type SeatUsage,
 } from "./plans";
+import { ConvexError } from "convex/values";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -130,7 +131,7 @@ export async function ensureAccount(
 
   const base = await billingSettings(ctx);
   const workspace = await ctx.db.get("workspaces", workspaceId);
-  if (!workspace) throw new Error("Workspace not found");
+  if (!workspace) throw new ConvexError("Workspace not found");
   const currency = base ? guessCurrency(base, workspace) : undefined;
   const settings = base && currency ? termsIn(base, currency) : base;
 
@@ -272,7 +273,7 @@ export async function assertSeat(
   if (isFullAdmin(await getPrincipal(ctx))) return;
 
   const workspace = await ctx.db.get("workspaces", workspaceId);
-  if (!workspace) throw new Error("Workspace not found");
+  if (!workspace) throw new ConvexError("Workspace not found");
   const standing = await standingOf(ctx, workspace, Date.now());
   if (!standing.plan || !standing.seats) return;
   if (hasRoomFor(standing.seats, kind)) return;
@@ -288,7 +289,7 @@ export async function assertSeat(
       : `all ${seats.extra.bought} extra ${seats.extra.bought === 1 ? "agent is" : "agents are"} in use`;
   const instead =
     kind === "ai" ? "pause another agent first" : "revoke another login first";
-  throw new Error(
+  throw new ConvexError(
     `The ${plan.name} plan includes ${included}, and ${extras}. Add an extra agent on the Billing page, or ${instead}.`
   );
 }

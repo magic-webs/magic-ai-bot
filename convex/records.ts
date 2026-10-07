@@ -6,7 +6,7 @@
 // records by calling them. See `lib/records.ts` for why the shape is data
 // rather than a table per vertical.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalAction,
@@ -295,7 +295,7 @@ export async function insertBook(
   }
 ): Promise<{ bookId: Id<"recordBooks">; handle: string }> {
   const name = args.name.trim();
-  if (!name) throw new Error("Give the record a name, such as “Membership”.");
+  if (!name) throw new ConvexError("Give the record a name, such as “Membership”.");
 
   // The handle is the model's tool name, so two books cannot share one —
   // `file_membership` can only mean one thing.
@@ -359,7 +359,7 @@ export const updateBook = mutation({
     }
     if (typeof patch.name === "string") {
       const name = patch.name.trim();
-      if (!name) throw new Error("A record book needs a name.");
+      if (!name) throw new ConvexError("A record book needs a name.");
       patch.name = name;
       // The handle is deliberately not recomputed: it is the model's tool name
       // and the agents' job descriptions are written around it, so a rename in
@@ -386,7 +386,7 @@ export const removeBook = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const book = await ctx.db.get("recordBooks", args.bookId);
-    if (!book) throw new Error("Record book not found");
+    if (!book) throw new ConvexError("Record book not found");
 
     // Everything hanging off the book goes with it: its records, its
     // destinations, its delivery log, and the switch on every agent that had
@@ -517,7 +517,7 @@ export const createRecord = mutation({
   handler: async (ctx, args) => {
     const book = await requireRecordBook(ctx, args.bookId);
     if (book.status === "archived") {
-      throw new Error(
+      throw new ConvexError(
         `${book.pluralName} is archived. Reopen it before adding records.`
       );
     }
@@ -527,10 +527,10 @@ export const createRecord = mutation({
       detailsObject(args.values)
     );
     if (checked.missing.length > 0) {
-      throw new Error(`Still needed: ${checked.missing.join(", ")}.`);
+      throw new ConvexError(`Still needed: ${checked.missing.join(", ")}.`);
     }
     if (checked.problems.length > 0) {
-      throw new Error(checked.problems.join(" "));
+      throw new ConvexError(checked.problems.join(" "));
     }
 
     const now = Date.now();
@@ -627,7 +627,7 @@ export const updateRecord = mutation({
   handler: async (ctx, args) => {
     const record = await requireRecord(ctx, args.recordId);
     const book = await ctx.db.get("recordBooks", record.bookId);
-    if (!book) throw new Error("Record book not found");
+    if (!book) throw new ConvexError("Record book not found");
 
     const values = args.values
       ? checkValues(book.fields as RecordField[], detailsObject(args.values))
@@ -712,7 +712,7 @@ export const createWebhook = mutation({
     const book = await requireRecordBook(ctx, args.bookId);
     const url = args.url.trim();
     if (!/^https?:\/\//i.test(url)) {
-      throw new Error("The address has to start with http:// or https://.");
+      throw new ConvexError("The address has to start with http:// or https://.");
     }
 
     const now = Date.now();
@@ -754,7 +754,7 @@ export const updateWebhook = mutation({
     if (typeof patch.url === "string") {
       const url = patch.url.trim();
       if (!/^https?:\/\//i.test(url)) {
-        throw new Error("The address has to start with http:// or https://.");
+        throw new ConvexError("The address has to start with http:// or https://.");
       }
       patch.url = url;
     }
@@ -959,7 +959,7 @@ export const sendTestWebhook = action({
     const hook = await ctx.runQuery(internal.records.webhookForTest, {
       webhookId: args.webhookId,
     });
-    if (!hook) throw new Error("Webhook not found");
+    if (!hook) throw new ConvexError("Webhook not found");
 
     const wireName = wireEventName("filed");
     const body = JSON.stringify({
@@ -1095,7 +1095,7 @@ export const fileFromTool = internalMutation({
   },
   handler: async (ctx, args) => {
     const book = await ctx.db.get("recordBooks", args.bookId);
-    if (!book) throw new Error("Record book not found");
+    if (!book) throw new ConvexError("Record book not found");
 
     const now = Date.now();
     const reference = await freshReference(
@@ -1197,12 +1197,12 @@ export const updateFromTool = internalMutation({
   },
   handler: async (ctx, args) => {
     const record = await ctx.db.get("records", args.recordId);
-    if (!record) throw new Error("Record not found");
+    if (!record) throw new ConvexError("Record not found");
     // The tool resolves the record by reference, and a reference is only unique
     // within a workspace — so the book has to be checked here rather than
     // trusted from the lookup.
     if (record.bookId !== args.bookId) {
-      throw new Error("That reference belongs to a different kind of record.");
+      throw new ConvexError("That reference belongs to a different kind of record.");
     }
 
     const values = args.values

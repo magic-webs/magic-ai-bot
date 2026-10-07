@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
@@ -18,7 +18,7 @@ const MAX_BULK = 500;
 
 async function requireAudience(ctx: QueryCtx, audienceId: Id<"audiences">) {
   const audience = await ctx.db.get("audiences", audienceId);
-  if (!audience) throw new Error("Audience not found");
+  if (!audience) throw new ConvexError("Audience not found");
   await requireWorkspace(ctx, audience.workspaceId);
   return audience;
 }
@@ -164,7 +164,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const name = args.name.trim().slice(0, 80);
-    if (!name) throw new Error("Give the audience a name.");
+    if (!name) throw new ConvexError("Give the audience a name.");
     const now = Date.now();
     const audienceId = await ctx.db.insert("audiences", {
       workspaceId: args.workspaceId,
@@ -191,7 +191,7 @@ export const rename = mutation({
   handler: async (ctx, args) => {
     const audience = await requireAudience(ctx, args.audienceId);
     const name = args.name.trim().slice(0, 80);
-    if (!name) throw new Error("Give the audience a name.");
+    if (!name) throw new ConvexError("Give the audience a name.");
     await ctx.db.patch("audiences", audience._id, {
       name,
       description: args.description?.trim().slice(0, 200) || undefined,
@@ -260,7 +260,7 @@ export const addPeople = mutation({
   args: { audienceId: v.id("audiences"), contactIds: v.array(v.id("contacts")) },
   handler: async (ctx, args) => {
     const audience = await requireAudience(ctx, args.audienceId);
-    if (args.contactIds.length > MAX_BULK) throw new Error(`Pick at most ${MAX_BULK} people.`);
+    if (args.contactIds.length > MAX_BULK) throw new ConvexError(`Pick at most ${MAX_BULK} people.`);
     const added = await addMembers(ctx, audience._id, audience.workspaceId, args.contactIds);
     return { added };
   },
@@ -270,7 +270,7 @@ export const removePeople = mutation({
   args: { audienceId: v.id("audiences"), contactIds: v.array(v.id("contacts")) },
   handler: async (ctx, args) => {
     const audience = await requireAudience(ctx, args.audienceId);
-    if (args.contactIds.length > MAX_BULK) throw new Error(`Pick at most ${MAX_BULK} people.`);
+    if (args.contactIds.length > MAX_BULK) throw new ConvexError(`Pick at most ${MAX_BULK} people.`);
     let removed = 0;
     for (const contactId of args.contactIds) {
       const row = await ctx.db
@@ -301,7 +301,7 @@ export const updatePeople = mutation({
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    if (args.contactIds.length > MAX_BULK) throw new Error(`Pick at most ${MAX_BULK} people.`);
+    if (args.contactIds.length > MAX_BULK) throw new ConvexError(`Pick at most ${MAX_BULK} people.`);
     const add = (args.addTags ?? []).map(normaliseTag).filter(Boolean);
     const drop = new Set((args.removeTags ?? []).map(normaliseTag));
     let updated = 0;

@@ -7,6 +7,7 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import { TranscriptView, type TranscriptAgent } from "@/components/transcript";
 import { ManualReply } from "@/components/manual-reply";
 import { ContactAvatar } from "@/components/contact-avatar";
@@ -439,7 +440,7 @@ export function ConversationDetail({
     } catch (error) {
       toast.add({
         title: "Could not update",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -463,7 +464,7 @@ export function ConversationDetail({
     } catch (error) {
       toast.add({
         title: "Could not resolve",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
       setResolving(false);
@@ -839,7 +840,7 @@ function Pipeline({
     } catch (error) {
       toast.add({
         title: "Could not change the stage",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -1168,7 +1169,7 @@ function ContactNotes({
     } catch (error) {
       toast.add({
         title: "Could not save the note",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
       setSaving(false);

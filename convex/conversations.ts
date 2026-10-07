@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import type { ObjectType } from "convex/values";
 import {
@@ -348,7 +348,7 @@ export const startFromContact = mutation({
     const contact = await requireContact(ctx, args.contactId);
     const agent = await requireAgent(ctx, args.agentId);
     if (agent.workspaceId !== contact.workspaceId) {
-      throw new Error("That agent belongs to another workspace.");
+      throw new ConvexError("That agent belongs to another workspace.");
     }
 
     const existing = await ctx.db

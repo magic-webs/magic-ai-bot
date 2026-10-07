@@ -11,7 +11,7 @@
 // do it. A half-connected integration — consent granted, tools missing
 // because a tab was closed — would look connected to Google and broken here.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalAction,
@@ -24,7 +24,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { randomKey } from "./lib/shared";
+import { randomKey, readableError } from "./lib/shared";
 import {
   BOOKABLE_FROM_HOUR,
   BOOKABLE_TO_HOUR,
@@ -52,6 +52,7 @@ import {
   zonedToInstant,
 } from "./lib/google";
 import { requireWorkspace } from "./lib/auth";
+import { publicSiteUrl } from "./lib/publicUrl";
 
 /** An OAuth handshake nobody finished is rubbish after this long. */
 const STATE_TTL_MS = 15 * 60 * 1000;
@@ -123,16 +124,17 @@ export const startGoogleConnect = action({
     });
 
     const spec = findIntegration(args.integration);
-    if (!spec) throw new Error("Unknown integration");
+    if (!spec) throw new ConvexError("Unknown integration");
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId || !process.env.GOOGLE_CLIENT_SECRET) {
-      throw new Error(
-        "Google is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+      console.error(
+        "integrations.startGoogleConnect: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set"
       );
+      throw new ConvexError("This integration is not available right now.");
     }
 
-    const siteUrl = process.env.CONVEX_SITE_URL ?? "";
+    const siteUrl = publicSiteUrl();
     const state = `${randomKey(16)}${randomKey(16)}`;
 
     await ctx.runMutation(internal.integrations.putState, {
@@ -267,7 +269,7 @@ export const completeConnect = internalMutation({
   },
   handler: async (ctx, args) => {
     const spec = findIntegration(args.integration);
-    if (!spec) throw new Error("Unknown integration");
+    if (!spec) throw new ConvexError("Unknown integration");
 
     const now = Date.now();
     const existing = await ctx.db
@@ -328,7 +330,7 @@ export const completeConnect = internalMutation({
         )
         .unique();
       if (clash) {
-        throw new Error(
+        throw new ConvexError(
           `This workspace already has a tool called "${name}". Rename it on the Custom tools page, then connect ${spec.name} again.`
         );
       }
@@ -796,8 +798,9 @@ export const runToolCall = internalAction({
       });
       return { status: 200, body };
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Something went wrong.";
+      const message = readableError(
+        error instanceof Error ? error.message : "Something went wrong."
+      );
 
       if (error instanceof GoogleError && error.needsReauth) {
         await ctx.runMutation(internal.integrations.markNeedsReauth, {
@@ -932,8 +935,9 @@ export const finishGoogleConnect = internalAction({
         ok: false,
         returnTo: pending.returnTo,
         integration: pending.integration,
-        error:
-          error instanceof Error ? error.message : "Could not finish connecting.",
+        error: readableError(
+          error instanceof Error ? error.message : "Could not finish connecting."
+        ),
       };
     }
   },

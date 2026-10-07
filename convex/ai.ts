@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,9 +15,8 @@ const DRAFT_MODEL = DEFAULT_CHAT_MODEL;
 function requireApiKey(): string {
   const apiKey = process.env.AI_GATEWAY_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "AI_GATEWAY_API_KEY is not set on the Convex deployment. Run: npx convex env set AI_GATEWAY_API_KEY <key>"
-    );
+    console.error("ai: AI_GATEWAY_API_KEY is not set");
+    throw new ConvexError("The assistant is not available right now.");
   }
   return apiKey;
 }
@@ -105,7 +104,7 @@ export const draftAgent = action({
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
     );
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const products: Array<{ name: string }> = await ctx.runQuery(
       internal.products.searchForTool,
@@ -284,7 +283,7 @@ export const draftTool = action({
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
     );
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
@@ -445,7 +444,7 @@ export const draftCatalogue = action({
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
     );
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),

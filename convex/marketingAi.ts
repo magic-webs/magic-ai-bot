@@ -13,7 +13,7 @@
  * change it on the Events tab before its day.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -135,7 +135,7 @@ export const draft = action({
 
     if (!object) {
       console.error("[marketing] draft failed", lastError);
-      throw new Error("The desk could not write a draft just now. Try again.");
+      throw new ConvexError("The desk could not write a draft just now. Try again.");
     }
     return { name: object.name.trim(), body: object.body.trim() };
   },
@@ -307,7 +307,7 @@ export const rewriteTouches = action({
       overwrite: true,
     });
     if (written === 0) {
-      throw new Error("The desk could not write them just now. Try again.");
+      throw new ConvexError("The desk could not write them just now. Try again.");
     }
     return { written };
   },

@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { aiGateway, EMBEDDING_MODEL } from "./lib/gateway";
@@ -85,12 +85,12 @@ export const processSource = internalAction({
 
     const apiKey = process.env.AI_GATEWAY_API_KEY;
     if (!apiKey) {
+      console.error("ingest: AI_GATEWAY_API_KEY is not set");
       await ctx.runMutation(internal.knowledge.markFailed, {
         sourceId: args.sourceId,
-        reason:
-          "AI_GATEWAY_API_KEY is not set on the Convex deployment. Run: npx convex env set AI_GATEWAY_API_KEY <key>",
+        reason: "Indexing is not available right now. Please try again later.",
       });
-      return { success: false, error: "Missing AI_GATEWAY_API_KEY" };
+      return { success: false, error: "Indexing is not available right now." };
     }
 
     await ctx.runMutation(internal.knowledge.markProcessing, {
@@ -109,7 +109,7 @@ export const processSource = internalAction({
           redirect: "follow",
         });
         if (!response.ok) {
-          throw new Error(
+          throw new ConvexError(
             `Fetching ${source.url} returned HTTP ${response.status}`
           );
         }
@@ -122,7 +122,7 @@ export const processSource = internalAction({
         }
       } else {
         const blob = await ctx.storage.get(source.storageId!);
-        if (!blob) throw new Error("Uploaded file is no longer in storage");
+        if (!blob) throw new ConvexError("Uploaded file is no longer in storage");
         const buffer = Buffer.from(await blob.arrayBuffer());
         const mime = source.mimeType ?? "";
 
@@ -141,7 +141,7 @@ export const processSource = internalAction({
 
       text = text.replace(/\r\n/g, "\n").trim();
       if (!text) {
-        throw new Error(
+        throw new ConvexError(
           "No readable text could be extracted. Scanned PDFs and images are not supported yet — paste the text instead."
         );
       }
@@ -149,7 +149,7 @@ export const processSource = internalAction({
       // --- 2. Chunk ---------------------------------------------------------
       const chunks = chunkText(text);
       if (chunks.length === 0) {
-        throw new Error("Text was too short to index (minimum ~20 characters).");
+        throw new ConvexError("Text was too short to index (minimum ~20 characters).");
       }
 
       // --- 3. Embed and persist in batches ---------------------------------
@@ -158,6 +158,9 @@ export const processSource = internalAction({
         const { embeddings, usage } = await embedMany({
           model: aiGateway().embedding(EMBEDDING_MODEL),
           values: batch,
+        }).catch((error: unknown) => {
+          console.error("[ingest] embedding failed", args.sourceId, error);
+          throw new ConvexError("Indexing failed. Please try again.");
         });
 
         // Recorded per batch rather than per source: a large document is

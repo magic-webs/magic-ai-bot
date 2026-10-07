@@ -6,7 +6,7 @@
 // functions at the bottom of this file; what Razorpay reports back is applied
 // in convex/razorpayEvents.ts.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
@@ -31,7 +31,7 @@ import {
   standingOf,
   billingTermsFor,
 } from "./lib/account";
-import { toMicros } from "./lib/billing";
+import { MICROS, formatMoney, toMicros } from "./lib/billing";
 import { logoSrcFor } from "./lib/branding";
 import { razorpayConfig } from "./lib/razorpay";
 import {
@@ -40,6 +40,7 @@ import {
   isLiveStatus,
   isValidGstin,
   nextStartAt,
+  PLATFORM_LOCALE,
   quote,
   toPaise,
   type Quote,
@@ -128,7 +129,7 @@ export const overview = query({
   handler: async (ctx, args) => {
     const principal = await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const standing = await standingOf(ctx, workspace, args.now);
     const { settings, account, plan, subscription } = standing;
@@ -144,6 +145,7 @@ export const overview = query({
 
     const pricing = {
       discountPercent: account?.discountPercent,
+      discountFixedMicros: account?.discountFixedMicros,
       extraAgentPriceMicros: account?.extraAgentPriceMicros,
     };
     const extraAgents = account?.extraAgents ?? 0;
@@ -168,6 +170,7 @@ export const overview = query({
         mode: account?.mode ?? ("trial" as const),
         extraAgents,
         discountPercent: account?.discountPercent ?? 0,
+        discountFixedMicros: account?.discountFixedMicros ?? null,
         extraAgentPriceMicros: account?.extraAgentPriceMicros ?? null,
         trialEndsAt:
           standing.access.state === "trial" ? standing.access.until : null,
@@ -239,15 +242,15 @@ export const updateBillingProfile = mutation({
     await requireOwner(ctx, args.workspaceId);
     const gstin = args.gstin.trim().toUpperCase();
     if (gstin && !isValidGstin(gstin)) {
-      throw new Error("That GSTIN is not 15 characters in the right pattern.");
+      throw new ConvexError("That GSTIN is not 15 characters in the right pattern.");
     }
     const email = args.billingEmail.trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error("Enter a billing email address.");
+      throw new ConvexError("Enter a billing email address.");
     }
     const phone = args.billingPhone.replace(/[\s-]/g, "");
     if (phone && !/^\+?[0-9]{8,15}$/.test(phone)) {
-      throw new Error(
+      throw new ConvexError(
         "Enter a phone number with its country code, e.g. +919876543210."
       );
     }
@@ -312,6 +315,7 @@ export const adminAccounts = query({
           planName: plan?.name ?? null,
           extraAgents: account?.extraAgents ?? 0,
           discountPercent: account?.discountPercent ?? 0,
+          discountFixedMicros: account?.discountFixedMicros ?? null,
           extraAgentPriceMicros: account?.extraAgentPriceMicros ?? null,
           trialEndsAt:
             standing.access.state === "trial"
@@ -365,6 +369,7 @@ export const adminUpdateAccount = mutation({
     trialEndsAt: v.optional(v.number()),
     manualPaidThrough: v.optional(v.union(v.number(), v.null())),
     discountPercent: v.optional(v.number()),
+    discountAmount: v.optional(v.union(v.number(), v.null())),
     extraAgentPrice: v.optional(v.union(v.number(), v.null())),
     adminNote: v.optional(v.string()),
     currency: v.optional(v.string()),
@@ -372,7 +377,7 @@ export const adminUpdateAccount = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const settings = await billingSettings(ctx);
-    if (!settings) throw new Error("Switch billing on first.");
+    if (!settings) throw new ConvexError("Switch billing on first.");
     const account = await ensureAccount(ctx, args.workspaceId);
     const live = await liveSubscription(ctx, account);
     // Retrying and halted count too: either can still take a payment, and
@@ -387,18 +392,18 @@ export const adminUpdateAccount = mutation({
     if (currency !== before) {
       const offered = allCurrencyTerms(settings).map((terms) => terms.currency);
       if (!offered.includes(currency)) {
-        throw new Error(
+        throw new ConvexError(
           `${currency} has no terms yet. Add it on Plans & pricing first.`
         );
       }
       if (charging) {
-        throw new Error(
+        throw new ConvexError(
           "Razorpay is still charging this account. Cancel its subscription before changing its currency."
         );
       }
       const wallet = await walletFor(ctx, args.workspaceId);
       if (wallet && wallet.balanceMicros !== 0) {
-        throw new Error(
+        throw new ConvexError(
           "The wallet still holds a balance in the old currency. Bring it to zero first."
         );
       }
@@ -408,6 +413,7 @@ export const adminUpdateAccount = mutation({
           updatedAt: Date.now(),
         });
       patch.currency = currency;
+      patch.discountFixedMicros = undefined;
       // The same plan in the new currency, when there is one.
       const current = account.planId
         ? await ctx.db.get("billingPlans", account.planId)
@@ -422,9 +428,9 @@ export const adminUpdateAccount = mutation({
     }
     if (args.planId !== undefined) {
       const plan = await ctx.db.get("billingPlans", args.planId);
-      if (!plan) throw new Error("Plan not found");
+      if (!plan) throw new ConvexError("Plan not found");
       if (planCurrency(plan) !== currency) {
-        throw new Error(
+        throw new ConvexError(
           `That plan is priced in ${planCurrency(plan)}, and this account is billed in ${currency}.`
         );
       }
@@ -436,14 +442,14 @@ export const adminUpdateAccount = mutation({
         args.extraAgents < 0 ||
         args.extraAgents > MAX_EXTRA_AGENTS
       ) {
-        throw new Error(
+        throw new ConvexError(
           `Extra agents must be a whole number from 0 to ${MAX_EXTRA_AGENTS}.`
         );
       }
       patch.extraAgents = args.extraAgents;
     }
     if (args.mode !== undefined && charging) {
-      throw new Error(
+      throw new ConvexError(
         args.mode === "manual"
           ? "Razorpay is still charging this account. Cancel its subscription before billing it by arrangement."
           : "Razorpay is still charging this account, so it is not on a trial. Cancel its subscription first."
@@ -464,16 +470,36 @@ export const adminUpdateAccount = mutation({
         args.discountPercent < 0 ||
         args.discountPercent > 100
       ) {
-        throw new Error("A discount is a percentage from 0 to 100.");
+        throw new ConvexError("A discount is a percentage from 0 to 100.");
       }
       patch.discountPercent = args.discountPercent || undefined;
+      if (patch.discountPercent !== undefined) {
+        patch.discountFixedMicros = undefined;
+      }
+    }
+    if (args.discountAmount !== undefined) {
+      if (args.discountPercent && args.discountAmount) {
+        throw new ConvexError("A discount is a percentage or an amount, not both.");
+      }
+      if (
+        args.discountAmount !== null &&
+        (!Number.isFinite(args.discountAmount) || args.discountAmount < 0)
+      ) {
+        throw new ConvexError("A discount amount must be zero or more.");
+      }
+      patch.discountFixedMicros = args.discountAmount
+        ? toMicros(args.discountAmount)
+        : undefined;
+      if (patch.discountFixedMicros !== undefined) {
+        patch.discountPercent = undefined;
+      }
     }
     if (args.extraAgentPrice !== undefined) {
       if (
         args.extraAgentPrice !== null &&
         (!Number.isFinite(args.extraAgentPrice) || args.extraAgentPrice < 0)
       ) {
-        throw new Error("An extra agent's price must be zero or more.");
+        throw new ConvexError("An extra agent's price must be zero or more.");
       }
       patch.extraAgentPriceMicros =
         args.extraAgentPrice === null
@@ -511,12 +537,12 @@ export const checkoutContext = internalQuery({
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     const standing = await standingOf(ctx, workspace, args.now);
     const { settings, account, subscription } = standing;
-    if (!settings) throw new Error("Billing is not switched on yet.");
+    if (!settings) throw new ConvexError("Billing is not switched on yet.");
     if (account?.mode === "manual") {
-      throw new Error(
+      throw new ConvexError(
         "Your plan is billed by arrangement with us. Get in touch to change it."
       );
     }
@@ -528,10 +554,10 @@ export const checkoutContext = internalQuery({
       !plan ||
       (plan.status !== "active" && plan._id !== standing.plan?._id)
     ) {
-      throw new Error("That plan is not available.");
+      throw new ConvexError("That plan is not available.");
     }
     if (planCurrency(plan) !== settings.currency) {
-      throw new Error(
+      throw new ConvexError(
         `That plan is priced in ${planCurrency(plan)}, and your account is billed in ${settings.currency}.`
       );
     }
@@ -540,7 +566,7 @@ export const checkoutContext = internalQuery({
       args.extraAgents < 0 ||
       args.extraAgents > MAX_EXTRA_AGENTS
     ) {
-      throw new Error(
+      throw new ConvexError(
         `Extra agents must be a whole number from 0 to ${MAX_EXTRA_AGENTS}.`
       );
     }
@@ -553,7 +579,7 @@ export const checkoutContext = internalQuery({
       live.planId === plan._id &&
       live.extraAgents === args.extraAgents
     ) {
-      throw new Error("That is the plan you are already on.");
+      throw new ConvexError("That is the plan you are already on.");
     }
 
     const priced = quote({
@@ -563,7 +589,9 @@ export const checkoutContext = internalQuery({
       account,
     });
     if (toPaise(priced.totalMicros) < 100) {
-      throw new Error("A subscription must come to at least ₹1 a month.");
+      throw new ConvexError(
+        `A subscription must come to at least ${formatMoney(MICROS, settings.currency, PLATFORM_LOCALE)} a month.`
+      );
     }
 
     const startAt = nextStartAt({

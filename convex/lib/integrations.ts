@@ -296,9 +296,9 @@ export function integrationForToolName(
 /**
  * Where a tool sends its call.
  *
- * The endpoint is on the Convex deployment rather than the Next app: the
- * refresh token never leaves Convex, and the engine's HTTP executor reaches it
- * without the web app having to be deployed at all. The call token in the
+ * The endpoint is on the Convex deployment rather than the Next app, so the
+ * refresh token never leaves Convex; with PUBLIC_SITE_URL set the URL is on the
+ * public site, which proxies the path through unchanged. The call token in the
  * query string is the whole credential, which also means the stored tool looks
  * exactly like the hand-written HTTP tools the executor already runs — no
  * engine changes, and no per-call credential for it to know about.

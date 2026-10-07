@@ -11,6 +11,7 @@
  */
 
 import { createGateway } from "ai";
+import { ConvexError } from "convex/values";
 
 // Re-exported, not redeclared: the value has to be reachable from queries and
 // mutations too, which may not import the SDK, so it lives in shared.ts.
@@ -42,9 +43,8 @@ export const SPEECH_MODEL = "fish-audio/s2.1-pro-free";
 export function aiGateway() {
   const apiKey = process.env.AI_GATEWAY_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "AI_GATEWAY_API_KEY is not set on the Convex deployment. Every model call happens inside a Convex action, which cannot read .env.local — run: npx convex env set AI_GATEWAY_API_KEY <key>"
-    );
+    console.error("gateway: AI_GATEWAY_API_KEY is not set");
+    throw new ConvexError("The assistant is not available right now.");
   }
   return createGateway({ apiKey });
 }

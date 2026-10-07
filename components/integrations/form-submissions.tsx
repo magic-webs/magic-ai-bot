@@ -58,6 +58,7 @@ import {
   DotsThreeIcon,
   EyeIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * Magic Forms submissions, on the Magic Forms panel of the integrations page.
@@ -83,7 +84,7 @@ const PAGE = 25;
 const fail = (title: string, error: unknown) =>
   toast.add({
     title,
-    description: error instanceof Error ? error.message : String(error),
+    description: friendlyError(error),
     type: "error",
   });
 
@@ -120,7 +121,7 @@ export function FormSubmissions({ base }: { base: string }) {
       .catch((error: unknown) =>
         setSyncState({
           status: "failed",
-          error: error instanceof Error ? error.message : String(error),
+          error: friendlyError(error),
         })
       );
   }, [sync, workspace._id]);

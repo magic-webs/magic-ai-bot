@@ -9,13 +9,13 @@
 //     -> http.ts hands the body to acceptInbound, which schedules the same
 //   dispatch reads the rules listening for that event (dispatchContext),
 //   fills each rule's template from the payload, sends it on WhatsApp or
-//   through ZeptoMail, and recordResults logs every send — charging the
+//   by email, and recordResults logs every send — charging the
 //   WhatsApp ones and writing them into the customer's thread.
 //
 // The sending lives in notificationsSend.ts, next door, because it is all
 // fetch and nothing here needs to be.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -34,17 +34,18 @@ import { randomKey } from "./lib/shared";
 import { noteMessage } from "./lib/inbox";
 import {
   NOTIFICATION_EVENTS,
-  ZEPTO_REGIONS,
   eventInfo,
-  isZeptoRegion,
   leafPaths,
   normaliseEmail,
   parseTemplate,
   placeholderPaths,
+  platformFrom,
+  senderName,
   trimSample,
   type NotificationEvent,
 } from "./lib/notifications";
 import { noteSent } from "./lib/delivery";
+import { publicSiteUrl } from "./lib/publicUrl";
 
 const eventValidator = v.union(
   v.literal("record_filed"),
@@ -106,7 +107,7 @@ async function requireRule(
   ruleId: Id<"notificationRules">
 ): Promise<Doc<"notificationRules">> {
   const rule = await ctx.db.get("notificationRules", ruleId);
-  if (!rule) throw new Error("Alert not found");
+  if (!rule) throw new ConvexError("Alert not found");
   await requireWorkspace(ctx, rule.workspaceId);
   return rule;
 }
@@ -116,15 +117,14 @@ async function requireEmailTemplate(
   templateId: Id<"emailTemplates">
 ): Promise<Doc<"emailTemplates">> {
   const template = await ctx.db.get("emailTemplates", templateId);
-  if (!template) throw new Error("Email template not found");
+  if (!template) throw new ConvexError("Email template not found");
   await requireWorkspace(ctx, template.workspaceId);
   return template;
 }
 
 function inboundUrl(key: string | undefined): string | null {
   if (!key) return null;
-  const site = process.env.CONVEX_SITE_URL ?? "";
-  return `${site.replace(/\/$/, "")}/notify/${key}`;
+  return `${publicSiteUrl()}/notify/${key}`;
 }
 
 function templateKey(name: string, language: string): string {
@@ -173,6 +173,7 @@ export const overview = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
+    const workspace = await ctx.db.get("workspaces", args.workspaceId);
     const settings = await settingsFor(ctx, args.workspaceId);
     const sender = await senderFor(ctx, args.workspaceId, settings);
 
@@ -189,19 +190,14 @@ export const overview = query({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .take(100);
 
-    const token = settings?.zeptoToken?.trim();
+    const platform = platformFrom();
 
     return {
       settings: {
         whatsappChannelId: settings?.whatsappChannelId ?? null,
         defaultCountryCode: settings?.defaultCountryCode ?? null,
-        zeptoRegion: settings?.zeptoRegion ?? null,
-        fromEmail: settings?.fromEmail ?? null,
         fromName: settings?.fromName ?? null,
         replyTo: settings?.replyTo ?? null,
-        // Never the token itself: this document goes to the phone.
-        tokenSet: Boolean(token),
-        tokenHint: token ? `••••${token.slice(-4)}` : null,
         templatesSyncedAt: settings?.templatesSyncedAt ?? null,
         templatesSyncError: settings?.templatesSyncError ?? null,
       },
@@ -221,7 +217,12 @@ export const overview = query({
           phone: channel.whatsapp?.displayPhoneNumber ?? null,
           status: channel.status,
         })),
-      emailReady: Boolean(token && settings?.fromEmail),
+      emailReady: Boolean(process.env.ZEPTOMAIL_TOKEN?.trim()),
+      emailSender: {
+        name: senderName(workspace?.name, settings?.fromName, platform.fromName),
+        address: platform.fromEmail,
+        platformName: platform.fromName,
+      },
       // Not "New order": orders are the Orders record book's records now, so
       // an order alert is a "Record filed" alert on that book. The event is
       // still defined, for reading rules made before the move.
@@ -247,7 +248,6 @@ export const overview = query({
           phone: member.phone ?? null,
           email: member.email ?? null,
         })),
-      regions: ZEPTO_REGIONS,
     };
   },
 });
@@ -398,10 +398,6 @@ export const saveSettings = mutation({
     workspaceId: v.id("workspaces"),
     whatsappChannelId: v.optional(v.union(v.id("channels"), v.null())),
     defaultCountryCode: v.optional(v.string()),
-    zeptoRegion: v.optional(v.string()),
-    /** Omit to keep the saved token, "" to clear it. */
-    zeptoToken: v.optional(v.string()),
-    fromEmail: v.optional(v.string()),
     fromName: v.optional(v.string()),
     replyTo: v.optional(v.string()),
   },
@@ -412,19 +408,12 @@ export const saveSettings = mutation({
     if (args.whatsappChannelId) {
       const channel = await ctx.db.get("channels", args.whatsappChannelId);
       if (!channel || channel.workspaceId !== args.workspaceId || channel.type !== "whatsapp") {
-        throw new Error("That WhatsApp number is not on this workspace.");
+        throw new ConvexError("That WhatsApp number is not on this workspace.");
       }
-    }
-    if (args.zeptoRegion !== undefined && args.zeptoRegion && !isZeptoRegion(args.zeptoRegion)) {
-      throw new Error("Pick one of ZeptoMail's regions.");
-    }
-    const fromEmail = args.fromEmail?.trim();
-    if (fromEmail && !normaliseEmail(fromEmail)) {
-      throw new Error("The sender address is not an email address.");
     }
     const replyTo = args.replyTo?.trim();
     if (replyTo && !normaliseEmail(replyTo)) {
-      throw new Error("The reply-to address is not an email address.");
+      throw new ConvexError("The reply-to address is not an email address.");
     }
 
     // Undefined leaves a field as it was; an empty string clears it.
@@ -440,9 +429,6 @@ export const saveSettings = mutation({
         args.defaultCountryCode === undefined
           ? existing?.defaultCountryCode
           : args.defaultCountryCode.replace(/\D/g, "") || undefined,
-      zeptoRegion: pick(args.zeptoRegion, existing?.zeptoRegion),
-      zeptoToken: pick(args.zeptoToken, existing?.zeptoToken),
-      fromEmail: pick(args.fromEmail, existing?.fromEmail),
       fromName: pick(args.fromName, existing?.fromName),
       replyTo: pick(args.replyTo, existing?.replyTo),
       updatedAt: Date.now(),
@@ -486,15 +472,15 @@ export const saveEmailTemplate = mutation({
     const name = args.name.trim();
     const subject = args.subject.trim();
     const body = args.body.trim();
-    if (!name) throw new Error("Give the template a name.");
-    if (!subject) throw new Error("An email needs a subject.");
-    if (!body) throw new Error("An email needs a message.");
-    if (body.length > 100_000) throw new Error("That message is too long to send.");
+    if (!name) throw new ConvexError("Give the template a name.");
+    if (!subject) throw new ConvexError("An email needs a subject.");
+    if (!body) throw new ConvexError("An email needs a message.");
+    if (body.length > 100_000) throw new ConvexError("That message is too long to send.");
 
     const now = Date.now();
     if (args.templateId) {
       const existing = await requireEmailTemplate(ctx, args.templateId);
-      if (existing.workspaceId !== args.workspaceId) throw new Error("Email template not found");
+      if (existing.workspaceId !== args.workspaceId) throw new ConvexError("Email template not found");
       await ctx.db.patch("emailTemplates", args.templateId, {
         name,
         subject,
@@ -529,7 +515,7 @@ export const removeEmailTemplate = mutation({
     // Refused rather than cascaded: an alert that silently stops sending is
     // worse than being asked to repoint it first.
     if (using.length > 0) {
-      throw new Error(
+      throw new ConvexError(
         `Used by ${using.length === 1 ? `"${using[0].name}"` : `${using.length} alerts`}. Point ${using.length === 1 ? "it" : "them"} at another template first.`
       );
     }
@@ -558,11 +544,11 @@ export const saveRule = mutation({
     await requireWorkspace(ctx, args.workspaceId);
     const existing = args.ruleId ? await requireRule(ctx, args.ruleId) : null;
     if (existing && existing.workspaceId !== args.workspaceId) {
-      throw new Error("Alert not found");
+      throw new ConvexError("Alert not found");
     }
 
     const name = args.name.trim();
-    if (!name) throw new Error("Give the alert a name.");
+    if (!name) throw new ConvexError("Give the alert a name.");
 
     const isRecord = eventInfo(args.event as NotificationEvent).source === "record";
     let bookId: Id<"recordBooks"> | undefined;
@@ -570,13 +556,13 @@ export const saveRule = mutation({
     if (isRecord && args.bookId) {
       const book = await ctx.db.get("recordBooks", args.bookId);
       if (!book || book.workspaceId !== args.workspaceId) {
-        throw new Error("That record book is not on this workspace.");
+        throw new ConvexError("That record book is not on this workspace.");
       }
       bookId = book._id;
       const wanted = args.stage?.trim();
       if (wanted) {
         if (!book.stages.includes(wanted)) {
-          throw new Error(`${book.pluralName} has no stage called "${wanted}".`);
+          throw new ConvexError(`${book.pluralName} has no stage called "${wanted}".`);
         }
         stage = wanted;
       }
@@ -589,18 +575,18 @@ export const saveRule = mutation({
       whatsappTemplateName = args.whatsappTemplateName?.trim();
       whatsappLanguage = args.whatsappLanguage?.trim();
       if (!whatsappTemplateName || !whatsappLanguage) {
-        throw new Error("Pick the WhatsApp template this alert sends.");
+        throw new ConvexError("Pick the WhatsApp template this alert sends.");
       }
     } else {
-      if (!args.emailTemplateId) throw new Error("Pick the email this alert sends.");
+      if (!args.emailTemplateId) throw new ConvexError("Pick the email this alert sends.");
       const template = await requireEmailTemplate(ctx, args.emailTemplateId);
-      if (template.workspaceId !== args.workspaceId) throw new Error("Email template not found");
+      if (template.workspaceId !== args.workspaceId) throw new ConvexError("Email template not found");
       emailTemplateId = template._id;
     }
 
     const recipients = cleanList(args.recipients, MAX_RECIPIENTS);
     if (recipients.length === 0) {
-      throw new Error("Add at least one person to send it to.");
+      throw new ConvexError("Add at least one person to send it to.");
     }
     const params = args.params
       .map((pair) => ({ key: pair.key.trim(), value: pair.value.trim() }))
@@ -674,7 +660,7 @@ export const rotateInboundKey = mutation({
   args: { ruleId: v.id("notificationRules") },
   handler: async (ctx, args) => {
     const rule = await requireRule(ctx, args.ruleId);
-    if (rule.event !== "inbound") throw new Error("Only incoming webhooks have a URL.");
+    if (rule.event !== "inbound") throw new ConvexError("Only incoming webhooks have a URL.");
     const inboundKey = randomKey(28);
     await ctx.db.patch("notificationRules", rule._id, { inboundKey, updatedAt: Date.now() });
     return { inboundUrl: inboundUrl(inboundKey) };
@@ -689,7 +675,7 @@ export const captureInboundSample = mutation({
   args: { ruleId: v.id("notificationRules"), capture: v.boolean() },
   handler: async (ctx, args) => {
     const rule = await requireRule(ctx, args.ruleId);
-    if (rule.event !== "inbound") throw new Error("Only incoming webhooks take a sample.");
+    if (rule.event !== "inbound") throw new ConvexError("Only incoming webhooks take a sample.");
     await ctx.db.patch("notificationRules", rule._id, {
       inboundCapture: args.capture ? true : undefined,
     });
@@ -709,9 +695,6 @@ type SendContext = {
   };
   settings: {
     defaultCountryCode?: string;
-    zeptoRegion?: string;
-    zeptoToken?: string;
-    fromEmail?: string;
     fromName?: string;
     replyTo?: string;
   };
@@ -803,9 +786,6 @@ async function sendContextFor(
     },
     settings: {
       defaultCountryCode: settings?.defaultCountryCode,
-      zeptoRegion: settings?.zeptoRegion,
-      zeptoToken: settings?.zeptoToken,
-      fromEmail: settings?.fromEmail,
       fromName: settings?.fromName,
       replyTo: settings?.replyTo,
     },
@@ -922,7 +902,7 @@ export const testContext = internalQuery({
   args: { ruleId: v.id("notificationRules") },
   handler: async (ctx, args) => {
     // Guarded even though only `notificationsSend.testRule` calls it: it
-    // reads the channel's access token and the ZeptoMail token.
+    // reads the channel's access token.
     const rule = await requireRule(ctx, args.ruleId);
     const workspace = await ctx.db.get("workspaces", rule.workspaceId);
     if (!workspace) return null;
@@ -1099,6 +1079,33 @@ export const noteSyncError = internalMutation({
     await touchSettings(ctx, args.workspaceId, {
       templatesSyncError: args.error.slice(0, 500),
     });
+  },
+});
+
+export const clearWorkspaceZeptoTokens = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args): Promise<{ cleared: number; done: boolean }> => {
+    const page = await ctx.db
+      .query("notificationSettings")
+      .paginate({ cursor: args.cursor ?? null, numItems: 200 });
+    let cleared = 0;
+    for (const row of page.page) {
+      if (row.zeptoToken === undefined && row.zeptoRegion === undefined && row.fromEmail === undefined) {
+        continue;
+      }
+      await ctx.db.patch("notificationSettings", row._id, {
+        zeptoToken: undefined,
+        zeptoRegion: undefined,
+        fromEmail: undefined,
+      });
+      cleared += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.notifications.clearWorkspaceZeptoTokens, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { cleared, done: page.isDone };
   },
 });
 

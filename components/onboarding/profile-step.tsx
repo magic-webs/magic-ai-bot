@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { stepHref } from "@/lib/onboarding";
+import { friendlyError } from "@/lib/errors";
 import {
   CurrencyPicker,
   LocalePicker,
@@ -145,7 +146,7 @@ export function ProfileStep() {
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

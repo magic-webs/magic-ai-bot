@@ -2,7 +2,7 @@
 // that file runs in the Node runtime (for RSA signing) and Node-runtime files
 // may only contain actions.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -351,7 +351,7 @@ async function checkedWorkspaceIds(
   const unique = [...new Set(workspaceIds)];
   for (const id of unique) {
     if (!(await ctx.db.get("workspaces", id))) {
-      throw new Error("One of the selected workspaces no longer exists.");
+      throw new ConvexError("One of the selected workspaces no longer exists.");
     }
   }
   return unique;
@@ -367,9 +367,9 @@ export const updateAdminAccess = mutation({
   handler: async (ctx, args) => {
     const principal = await requireAdmin(ctx);
     const admin = await ctx.db.get("admins", args.adminId);
-    if (!admin) throw new Error("Team member not found.");
+    if (!admin) throw new ConvexError("Team member not found.");
     if (admin._id === principal.adminId && args.role !== "admin") {
-      throw new Error("You cannot remove your own administrator role.");
+      throw new ConvexError("You cannot remove your own administrator role.");
     }
     await ctx.db.patch(admin._id, {
       name: args.name?.trim() || undefined,
@@ -385,7 +385,7 @@ export const removeAdmin = mutation({
   handler: async (ctx, args) => {
     const principal = await requireAdmin(ctx);
     if (args.adminId === principal.adminId) {
-      throw new Error("You cannot remove yourself.");
+      throw new ConvexError("You cannot remove yourself.");
     }
     const admin = await ctx.db.get("admins", args.adminId);
     if (!admin) return null;
@@ -412,7 +412,7 @@ export const setAdminPassword = internalMutation({
   args: { adminId: v.id("admins"), passwordHash: v.string() },
   handler: async (ctx, args) => {
     const admin = await ctx.db.get("admins", args.adminId);
-    if (!admin) throw new Error("Team member not found.");
+    if (!admin) throw new ConvexError("Team member not found.");
     await ctx.db.patch(admin._id, { passwordHash: args.passwordHash });
     await dropFactor(ctx, `admin|${admin._id}`);
     const sessions = await ctx.db
@@ -462,7 +462,7 @@ export const assertAgent = internalQuery({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
     const agent = await ctx.db.get("agents", args.agentId);
-    if (!agent) throw new Error("Agent not found");
+    if (!agent) throw new ConvexError("Agent not found");
     await requireWorkspace(ctx, agent.workspaceId);
     return null;
   },
@@ -594,7 +594,7 @@ async function ownConnector(
   tokenId: Id<"adminMcpTokens">
 ) {
   const row = await ctx.db.get("adminMcpTokens", tokenId);
-  if (!row || row.adminId !== adminId) throw new Error("Connector not found.");
+  if (!row || row.adminId !== adminId) throw new ConvexError("Connector not found.");
   return row;
 }
 
@@ -636,14 +636,14 @@ export const addAdminMcpToken = internalMutation({
   },
   handler: async (ctx, args): Promise<Id<"adminMcpTokens">> => {
     const name = args.name.trim().replace(/\s+/g, " ").slice(0, 60);
-    if (!name) throw new Error("Give the connector a name, e.g. Claude.ai.");
+    if (!name) throw new ConvexError("Give the connector a name, e.g. Claude.ai.");
 
     const existing = await ctx.db
       .query("adminMcpTokens")
       .withIndex("by_admin", (q) => q.eq("adminId", args.adminId))
       .take(MAX_ADMIN_CONNECTORS + 5);
     if (existing.length >= MAX_ADMIN_CONNECTORS) {
-      throw new Error(
+      throw new ConvexError(
         `You already have ${MAX_ADMIN_CONNECTORS} connectors. Revoke one you no longer use first.`
       );
     }
@@ -653,7 +653,7 @@ export const addAdminMcpToken = internalMutation({
         name.toLowerCase()
     );
     if (taken) {
-      throw new Error(
+      throw new ConvexError(
         `You already have a connector called "${name}". Rotate that one, or pick another name.`
       );
     }
@@ -753,7 +753,7 @@ export const insertAdmin = internalMutation({
     if (args.requireFirst) {
       const existing = await ctx.db.query("admins").take(1);
       if (existing.length > 0) {
-        throw new Error("An administrator already exists.");
+        throw new ConvexError("An administrator already exists.");
       }
     }
 
@@ -765,8 +765,12 @@ export const insertAdmin = internalMutation({
       (await ctx.db
         .query("users")
         .withIndex("by_email", (q) => q.eq("email", args.email))
-        .unique());
-    if (clash) throw new Error("That email address is already registered.");
+        .unique()) ??
+      (await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_email", (q) => q.eq("email", args.email))
+        .first());
+    if (clash) throw new ConvexError("That email address is already registered.");
 
     const role = args.requireFirst ? "admin" : (args.role ?? "admin");
     return await ctx.db.insert("admins", {
@@ -885,7 +889,7 @@ export const setCredentialStatus = internalMutation({
       .query("workspaceCredentials")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    if (!credential) throw new Error("This workspace has no password yet.");
+    if (!credential) throw new ConvexError("This workspace has no password yet.");
 
     await ctx.db.patch(credential._id, {
       status: args.status,
@@ -946,7 +950,7 @@ export const createSession = internalMutation({
       ? await ctx.db.get("authChallenges", args.challengeId)
       : null;
     if (args.challengeId && (!challenge || challenge.expiresAt < now)) {
-      throw new Error("This sign-in has expired. Sign in again.");
+      throw new ConvexError("This sign-in has expired. Sign in again.");
     }
 
     if (args.mode !== "shared") {
@@ -1089,7 +1093,7 @@ export const callerPrincipal = internalQuery({
         .query("memberCredentials")
         .withIndex("by_member", (q) => q.eq("memberId", principal.memberId))
         .unique();
-      account = login?.username ?? account;
+      account = login?.email ?? login?.username ?? account;
     }
     return { key: principalKey(principal), account };
   },
@@ -1201,7 +1205,7 @@ export const putPendingFactor = internalMutation({
   handler: async (ctx, args) => {
     const existing = await factorFor(ctx, args.principal);
     if (existing?.status === "active") {
-      throw new Error("Two-factor authentication is already on for this login.");
+      throw new ConvexError("Two-factor authentication is already on for this login.");
     }
     if (existing) await ctx.db.delete("twoFactor", existing._id);
     await ctx.db.insert("twoFactor", {
@@ -1284,7 +1288,7 @@ export const replaceOwnCredential = internalMutation({
       .query("workspaceCredentials")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    if (!credential) throw new Error("This workspace has no password yet.");
+    if (!credential) throw new ConvexError("This workspace has no password yet.");
 
     await ctx.db.patch(credential._id, {
       passwordHash: args.passwordHash,
@@ -1316,6 +1320,7 @@ export const memberLogins = query({
       logins.map(async (login) => ({
         memberId: login.memberId,
         username: login.username,
+        email: login.email ?? null,
         status: login.status,
         issuedAt: login.issuedAt,
         lastLoginAt: login.lastLoginAt ?? null,
@@ -1335,10 +1340,10 @@ export const memberForLogin = internalQuery({
   args: { memberId: v.id("teamMembers") },
   handler: async (ctx, args) => {
     const member = await ctx.db.get("teamMembers", args.memberId);
-    if (!member) throw new Error("Human agent not found");
+    if (!member) throw new ConvexError("Human agent not found");
     await requireOwner(ctx, member.workspaceId);
     const workspace = await ctx.db.get("workspaces", member.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     return { member, workspace };
   },
 });
@@ -1351,6 +1356,48 @@ export const memberCredentialByUsername = internalQuery({
       .withIndex("by_username", (q) => q.eq("username", args.username))
       .unique(),
 });
+
+export const memberCredentialByEmail = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("memberCredentials")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first(),
+});
+
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** A team member's email as a login takes it, or undefined when it is not one. */
+export function loginEmailOf(raw: string | undefined): string | undefined {
+  const email = raw?.trim().toLowerCase();
+  return email && EMAIL_PATTERN.test(email) ? email : undefined;
+}
+
+export const LOGIN_EMAIL_TAKEN = "That email address is already used by another login.";
+
+/** One email, one login — across administrators, users and human agents. */
+export async function loginEmailTaken(
+  ctx: QueryCtx | MutationCtx,
+  email: string,
+  except?: Id<"memberCredentials">
+): Promise<boolean> {
+  const admin = await ctx.db
+    .query("admins")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+  if (admin) return true;
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+  if (user) return true;
+  const logins = await ctx.db
+    .query("memberCredentials")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .take(2);
+  return logins.some((login) => login._id !== except);
+}
 
 export const memberCredentialForMember = internalQuery({
   args: { memberId: v.id("teamMembers") },
@@ -1404,7 +1451,7 @@ export const principalProfile = internalQuery({
       }
     | { ok: false; error: string }
   > => {
-    const generic = { ok: false as const, error: "Incorrect username or password." };
+    const generic = { ok: false as const, error: "Incorrect email or password." };
     const archived = { ok: false as const, error: "This workspace has been archived." };
 
     if (args.role === "admin") {
@@ -1492,7 +1539,8 @@ async function dropMemberSessions(
 /**
  * Issue a login, or reset one. The username is kept across resets — it is
  * what the person has saved — and only picked the first time, from the
- * workspace ID and their first name, numbered if that is taken.
+ * workspace ID and their first name, numbered if that is taken. The email is
+ * the member's own, taken afresh each time, and signs in as well.
  */
 export const upsertMemberCredential = internalMutation({
   args: {
@@ -1501,10 +1549,10 @@ export const upsertMemberCredential = internalMutation({
   },
   handler: async (ctx, args) => {
     const member = await ctx.db.get("teamMembers", args.memberId);
-    if (!member) throw new Error("Human agent not found");
+    if (!member) throw new ConvexError("Human agent not found");
     await requireOwner(ctx, member.workspaceId);
     const workspace = await ctx.db.get("workspaces", member.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const now = Date.now();
     const existing = await ctx.db
@@ -1512,12 +1560,18 @@ export const upsertMemberCredential = internalMutation({
       .withIndex("by_member", (q) => q.eq("memberId", args.memberId))
       .unique();
 
+    const email = loginEmailOf(member.email);
+    if (email && (await loginEmailTaken(ctx, email, existing?._id))) {
+      throw new ConvexError(LOGIN_EMAIL_TAKEN);
+    }
+
     if (existing) {
       // Bringing a revoked login back takes a seat again; a reset keeps its own.
       if (existing.status !== "active") {
         await assertSeat(ctx, member.workspaceId, "human");
       }
       await ctx.db.patch(existing._id, {
+        email,
         passwordHash: args.passwordHash,
         status: "active",
         updatedAt: now,
@@ -1526,7 +1580,7 @@ export const upsertMemberCredential = internalMutation({
       // somebody who lost their authenticator gets back in.
       await dropMemberSessions(ctx, args.memberId);
       await dropFactor(ctx, `member|${args.memberId}`);
-      return { username: existing.username };
+      return { username: existing.username, email: email ?? null };
     }
 
     // A new login is a new human-agent seat; a reset is the same one.
@@ -1548,12 +1602,13 @@ export const upsertMemberCredential = internalMutation({
       workspaceId: member.workspaceId,
       memberId: args.memberId,
       username,
+      email,
       passwordHash: args.passwordHash,
       status: "active",
       issuedAt: now,
       updatedAt: now,
     });
-    return { username };
+    return { username, email: email ?? null };
   },
 });
 

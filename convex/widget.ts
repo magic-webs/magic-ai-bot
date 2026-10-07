@@ -15,7 +15,7 @@
 // Replies are filtered on the way out: tool traces, internal handoff notes and
 // engine errors never reach the page.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -225,10 +225,10 @@ export const register = mutation({
   handler: async (ctx, args) => {
     const channel = await channelByKey(ctx, args.channelKey);
     if (!channel || channel.status !== "active") {
-      throw new Error("This chat widget is no longer available.");
+      throw new ConvexError("This chat widget is no longer available.");
     }
     const sessionId = normalizeSessionId(args.sessionId);
-    if (!sessionId) throw new Error("Invalid chat session.");
+    if (!sessionId) throw new ConvexError("Invalid chat session.");
 
     const name = args.name?.trim().slice(0, MAX_FIELD_CHARS) || undefined;
     const phone = args.phone?.trim().slice(0, MAX_FIELD_CHARS) || undefined;

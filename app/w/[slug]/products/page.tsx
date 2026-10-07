@@ -39,6 +39,7 @@ import {
   type ParseResult,
 } from "@/lib/product-csv";
 import { downloadCsv } from "@/lib/csv";
+import { friendlyError } from "@/lib/errors";
 import {
   Dialog,
   DialogBody,
@@ -207,7 +208,7 @@ function ProductDialog({
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -394,7 +395,7 @@ function ImportDialog() {
       setParsed(null);
       toast.add({
         title: "Could not read that file",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -421,7 +422,7 @@ function ImportDialog() {
     } catch (error) {
       toast.add({
         title: "Import failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -445,7 +446,7 @@ function ImportDialog() {
     } catch (error) {
       toast.add({
         title: "Drafting failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

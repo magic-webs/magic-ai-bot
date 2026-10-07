@@ -78,6 +78,7 @@ import {
   RowsIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /** Clipboard write plus the toast, in one place — six things copy on this page. */
 async function copyText(value: string, label: string) {
@@ -378,7 +379,7 @@ function ChannelDialog({
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -599,7 +600,7 @@ function WebChannelDialog({
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -833,7 +834,7 @@ type ChannelLinks = {
 function channelLinks(
   channel: ChannelRow,
   appOrigin: string,
-  convexSite: string
+  webhookBase: string
 ): ChannelLinks {
   // Only the digits are dialable. This stripped /D/g before, which matches a
   // literal capital D — so "+91 75999 09021" came through unchanged, wa.me got
@@ -845,7 +846,7 @@ function channelLinks(
   return {
     isWeb: channel.type === "web",
     live: channel.status === "active",
-    webhookUrl: `${convexSite}/whatsapp/${channel.channelKey}`,
+    webhookUrl: `${webhookBase}/whatsapp/${channel.channelKey}`,
     widgetUrl: `${appOrigin}/widget/${channel.channelKey}`,
     // A script, not a bare iframe: the launcher button has to live in the host
     // page, because an iframe cannot resize itself there.
@@ -1414,10 +1415,12 @@ export default function ChannelsPage() {
 
   // The webhook is served by the Convex deployment, not the Next app, so the
   // URL is public without a tunnel and the access token stays inside Convex.
-  const convexSite =
-    process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??
-    process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site") ??
-    "";
+  const webhookBase = (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??
+      process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site") ??
+      "")
+  ).replace(/\/$/, "");
 
   const hasAgents = (agents ?? []).length > 0;
 
@@ -1619,7 +1622,7 @@ export default function ChannelsPage() {
                 <ChannelTile
                   key={channel._id}
                   channel={channel}
-                  links={channelLinks(channel, appOrigin, convexSite)}
+                  links={channelLinks(channel, appOrigin, webhookBase)}
                 />
               ))}
             </div>
@@ -1628,7 +1631,7 @@ export default function ChannelsPage() {
               <ChannelCard
                 key={channel._id}
                 channel={channel}
-                links={channelLinks(channel, appOrigin, convexSite)}
+                links={channelLinks(channel, appOrigin, webhookBase)}
               />
             ))
           )}

@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AGENT_TEMPLATES, type AgentTemplate } from "@/convex/lib/agentTemplates";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import { useWorkspace } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,7 +87,7 @@ export function AgentTemplatePicker({
     } catch (error) {
       toast.add({
         title: "Could not create the agent",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

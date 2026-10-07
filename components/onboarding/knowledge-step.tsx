@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { stepHref } from "@/lib/onboarding";
+import { friendlyError } from "@/lib/errors";
 import {
   ArrowRightIcon,
   GlobeIcon,
@@ -115,7 +116,7 @@ export function KnowledgeStep() {
     } catch (error) {
       toast.add({
         title: "Could not add the source",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -130,7 +131,7 @@ export function KnowledgeStep() {
     } catch (error) {
       toast.add({
         title: "Could not remove the source",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }

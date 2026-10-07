@@ -35,6 +35,7 @@ import {
   itemsText,
   stageForStatus,
 } from "./lib/ordersBook";
+import { loginEmailOf, loginEmailTaken } from "./authDb";
 
 const WORKSPACE_BATCH = 20;
 const ORDER_BATCH = 100;
@@ -516,5 +517,48 @@ export const backfillUsageDaily = internalMutation({
       });
     }
     return { events: page.page.length, done: page.isDone };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Human agents' login emails
+//
+//   bunx convex run migrations:memberLoginEmails
+//
+// Gives each human agent's login the email on their roster entry, so it signs
+// in with that as well as the username. An email that is not valid, or already
+// belongs to another login, is left off.
+// ---------------------------------------------------------------------------
+
+const LOGIN_BATCH = 100;
+
+export const memberLoginEmails = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("memberCredentials")
+      .paginate({ numItems: LOGIN_BATCH, cursor: args.cursor ?? null });
+
+    let filled = 0;
+    const clashes: string[] = [];
+    for (const login of page.page) {
+      if (login.email) continue;
+      const member = await ctx.db.get("teamMembers", login.memberId);
+      const email = loginEmailOf(member?.email);
+      if (!email) continue;
+      if (await loginEmailTaken(ctx, email, login._id)) {
+        clashes.push(login.username);
+        continue;
+      }
+      await ctx.db.patch(login._id, { email });
+      filled++;
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.memberLoginEmails, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { filled, clashes, done: page.isDone };
   },
 });

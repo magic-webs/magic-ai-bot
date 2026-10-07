@@ -10,7 +10,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { DownloadSimpleIcon } from "@phosphor-icons/react";
 
 /** How many contacts one export call reads. */
@@ -58,7 +58,7 @@ export function ExportContactsButton() {
     } catch (error) {
       toast.add({
         title: "Could not export the contacts",
-        description: errorMessage(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

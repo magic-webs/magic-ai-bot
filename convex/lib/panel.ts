@@ -22,11 +22,16 @@ export type PanelConfig = {
   accessToken: string;
 };
 
+const INFRA = /1\s*automations?|convex|zepto|zoho|https?:\/\//i;
+
 export function errorText(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") {
     return "The provider did not respond in time.";
   }
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (!INFRA.test(message)) return message;
+  console.error("[panel] request failed", message);
+  return "The provider could not be reached.";
 }
 
 export async function request(
@@ -61,7 +66,15 @@ export function providerError(status: number, body: unknown, text: string): stri
     (error.error_user_msg as string | undefined) ??
     (error.message as string | undefined) ??
     (root.message as string | undefined);
-  return `HTTP ${status}: ${(typeof message === "string" && message) || text.slice(0, 300) || "no response body"}`;
+  const said =
+    (typeof message === "string" && message) ||
+    (text.trimStart().startsWith("<") ? "" : text.slice(0, 300));
+  if (said && INFRA.test(said)) {
+    console.error("[panel] provider error", status, said);
+    const who = /zepto|zoho/i.test(said) ? "the email provider" : "the provider";
+    return `${who} rejected the request (HTTP ${status})`;
+  }
+  return `HTTP ${status}: ${said || "no response body"}`;
 }
 
 export function channelHeaders(channel: { accessToken: string }): Record<string, string> {

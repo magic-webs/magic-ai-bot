@@ -13,9 +13,7 @@ import type { SessionEndReason } from "@/lib/session";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 if (!convexUrl) {
-  throw new Error(
-    "NEXT_PUBLIC_CONVEX_URL is not set. Run `npx convex dev` to create a deployment."
-  );
+  throw new Error("The app is not configured yet. Please try again later.");
 }
 
 const convex = new ConvexReactClient(convexUrl);

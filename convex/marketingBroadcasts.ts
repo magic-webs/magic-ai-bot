@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -20,9 +20,9 @@ const MAX_RATE = 1000;
 
 async function requireBroadcast(ctx: QueryCtx, eventId: Id<"marketingEvents">) {
   const event = await ctx.db.get("marketingEvents", eventId);
-  if (!event) throw new Error("Campaign not found");
+  if (!event) throw new ConvexError("Campaign not found");
   await requireWorkspace(ctx, event.workspaceId);
-  if (event.campaignId) throw new Error("This is an event reminder. Open it from Events.");
+  if (event.campaignId) throw new ConvexError("This is an event reminder. Open it from Events.");
   return event;
 }
 
@@ -33,7 +33,7 @@ async function checkAudience(
 ) {
   for (const id of [...selection.audienceIds, ...selection.excludeAudienceIds]) {
     const audience = await ctx.db.get("audiences", id);
-    if (!audience || audience.workspaceId !== workspaceId) throw new Error("A list was not found.");
+    if (!audience || audience.workspaceId !== workspaceId) throw new ConvexError("A list was not found.");
   }
 }
 
@@ -127,9 +127,9 @@ export const save = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     const title = args.title.trim().slice(0, 80);
-    if (!title) throw new Error("Give the campaign a name.");
+    if (!title) throw new ConvexError("Give the campaign a name.");
     const template = await templateInWorkspace(ctx, args.workspaceId, args.templateId);
     await checkAudience(ctx, args.workspaceId, args.audience);
 
@@ -139,13 +139,13 @@ export const save = mutation({
     let sendAt: number;
     if (args.sendNow) {
       const blocked = templateBlocker(template);
-      if (blocked) throw new Error(blocked);
+      if (blocked) throw new ConvexError(blocked);
       sendAt = now;
       date = isLocalDate(date) ? date : new Date(now).toISOString().slice(0, 10);
     } else {
-      if (!isLocalDate(date)) throw new Error("Pick a day.");
+      if (!isLocalDate(date)) throw new ConvexError("Pick a day.");
       sendAt = zonedToInstant(date, sendHour, workspace.timezone);
-      if (sendAt <= now) throw new Error("That time has already passed. Pick a later one, or send now.");
+      if (sendAt <= now) throw new ConvexError("That time has already passed. Pick a later one, or send now.");
     }
 
     const fields = {
@@ -170,8 +170,8 @@ export const save = mutation({
     let eventId: Id<"marketingEvents">;
     if (args.eventId) {
       const event = await requireBroadcast(ctx, args.eventId);
-      if (event.workspaceId !== args.workspaceId) throw new Error("Campaign not found");
-      if (event.startedAt) throw new Error("This campaign has started, so it can no longer be changed.");
+      if (event.workspaceId !== args.workspaceId) throw new ConvexError("Campaign not found");
+      if (event.startedAt) throw new ConvexError("This campaign has started, so it can no longer be changed.");
       await ctx.db.patch("marketingEvents", event._id, fields);
       eventId = event._id;
     } else {
@@ -197,7 +197,7 @@ export const pause = mutation({
   handler: async (ctx, args) => {
     const event = await requireBroadcast(ctx, args.eventId);
     if (event.status !== "sending" && event.status !== "scheduled") {
-      throw new Error("Only a campaign that is scheduled or sending can be paused.");
+      throw new ConvexError("Only a campaign that is scheduled or sending can be paused.");
     }
     await ctx.db.patch("marketingEvents", event._id, { status: "paused", updatedAt: Date.now() });
     return { success: true };
@@ -208,7 +208,7 @@ export const resume = mutation({
   args: { eventId: v.id("marketingEvents") },
   handler: async (ctx, args) => {
     const event = await requireBroadcast(ctx, args.eventId);
-    if (event.status !== "paused") throw new Error("This campaign is not paused.");
+    if (event.status !== "paused") throw new ConvexError("This campaign is not paused.");
     const now = Date.now();
     if (!event.startedAt) {
       await ctx.db.patch("marketingEvents", event._id, {
@@ -232,7 +232,7 @@ export const cancel = mutation({
   handler: async (ctx, args) => {
     const event = await requireBroadcast(ctx, args.eventId);
     if (event.status === "sent" || event.status === "failed" || event.status === "cancelled") {
-      throw new Error("This campaign has already finished.");
+      throw new ConvexError("This campaign has already finished.");
     }
     if (!event.startedAt) {
       await ctx.db.delete("marketingEvents", event._id);
@@ -252,7 +252,7 @@ export const report = query({
   args: { eventId: v.id("marketingEvents"), now: v.number() },
   handler: async (ctx, args) => {
     const event = await ctx.db.get("marketingEvents", args.eventId);
-    if (!event) throw new Error("Campaign not found");
+    if (!event) throw new ConvexError("Campaign not found");
     await requireWorkspace(ctx, event.workspaceId);
     const key = eventKey(event._id);
     const sends = await ctx.db
@@ -352,7 +352,7 @@ export const recipients = query({
   },
   handler: async (ctx, args) => {
     const event = await ctx.db.get("marketingEvents", args.eventId);
-    if (!event) throw new Error("Campaign not found");
+    if (!event) throw new ConvexError("Campaign not found");
     await requireWorkspace(ctx, event.workspaceId);
     const page = await ctx.db
       .query("marketingSends")
@@ -387,10 +387,10 @@ export const retarget = mutation({
   args: { eventId: v.id("marketingEvents"), outcome, name: v.string() },
   handler: async (ctx, args) => {
     const event = await ctx.db.get("marketingEvents", args.eventId);
-    if (!event) throw new Error("Campaign not found");
+    if (!event) throw new ConvexError("Campaign not found");
     await requireWorkspace(ctx, event.workspaceId);
     const name = args.name.trim().slice(0, 80);
-    if (!name) throw new Error("Give the list a name.");
+    if (!name) throw new ConvexError("Give the list a name.");
     const now = Date.now();
     const audienceId = await ctx.db.insert("audiences", {
       workspaceId: event.workspaceId,

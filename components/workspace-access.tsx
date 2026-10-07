@@ -42,6 +42,7 @@ import {
   WarningIcon,
   ArrowsClockwiseIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 function relative(timestamp: number | null): string {
   if (!timestamp) return "never";
@@ -201,7 +202,7 @@ export function WorkspaceAccessCard({
     } catch (error) {
       toast.add({
         title: "Could not issue a password",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -224,7 +225,7 @@ export function WorkspaceAccessCard({
     } catch (error) {
       toast.add({
         title: "Could not change access",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -248,7 +249,7 @@ export function WorkspaceAccessCard({
     } catch (error) {
       toast.add({
         title: "Could not change the password",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

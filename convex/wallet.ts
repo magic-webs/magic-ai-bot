@@ -4,7 +4,7 @@
 // The debit itself is in convex/lib/wallet.ts, called by every charge; the
 // Razorpay calls behind a top-up or a recharge are in convex/razorpay.ts.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
@@ -150,16 +150,16 @@ export const updatePreferences = mutation({
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId);
     const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
-    if (!settings) throw new Error("Billing is not switched on yet.");
+    if (!settings) throw new ConvexError("Billing is not switched on yet.");
     if (!Number.isFinite(args.threshold) || args.threshold < 0) {
-      throw new Error("The low-balance line must be zero or more.");
+      throw new ConvexError("The low-balance line must be zero or more.");
     }
     const amountMicros = toMicros(args.rechargeAmount);
     if (
       !(amountMicros >= settings.minTopUpMicros) ||
       amountMicros > MAX_TOPUP_MICROS
     ) {
-      throw new Error(
+      throw new ConvexError(
         "Pick a recharge amount between the minimum top-up and ₹5,00,000."
       );
     }
@@ -171,12 +171,12 @@ export const updatePreferences = mutation({
       ceiling !== undefined &&
       withGst(amountMicros, settings.gstPercent).totalMicros > ceiling
     ) {
-      throw new Error(
+      throw new ConvexError(
         "That is more than the saved mandate allows in one debit. Remove it and authorise auto-recharge again for the higher amount."
       );
     }
     if (args.autoRechargeEnabled && !account.mandateTokenId) {
-      throw new Error("Authorise a payment method for auto-recharge first.");
+      throw new ConvexError("Authorise a payment method for auto-recharge first.");
     }
 
     await ctx.db.patch("billingAccounts", account._id, {
@@ -234,18 +234,18 @@ export const adminAdjust = mutation({
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     if (!(await billingSettings(ctx)))
-      throw new Error("Switch billing on first.");
+      throw new ConvexError("Switch billing on first.");
     const amountMicros = toMicros(args.amount);
     if (!Number.isFinite(args.amount) || amountMicros === 0) {
-      throw new Error("Enter an amount to add or take off.");
+      throw new ConvexError("Enter an amount to add or take off.");
     }
     if (Math.abs(amountMicros) > MAX_TOPUP_MICROS) {
-      throw new Error("That adjustment looks too large.");
+      throw new ConvexError("That adjustment looks too large.");
     }
     const note = args.note.trim();
-    if (!note) throw new Error("Say why, so the account can see it.");
+    if (!note) throw new ConvexError("Say why, so the account can see it.");
     if (!(await ctx.db.get("workspaces", args.workspaceId))) {
-      throw new Error("Workspace not found");
+      throw new ConvexError("Workspace not found");
     }
     return await creditWallet(ctx, {
       workspaceId: args.workspaceId,
@@ -283,31 +283,31 @@ export const createTopUp = internalMutation({
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId);
     const settings = (await billingTermsFor(ctx, args.workspaceId))?.settings;
-    if (!settings) throw new Error("Billing is not switched on yet.");
+    if (!settings) throw new ConvexError("Billing is not switched on yet.");
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     const account = await ensureAccount(ctx, args.workspaceId);
     const now = Date.now();
 
     if (args.mandate) {
       if (args.mandate.method === "upi" && settings.currency !== "INR") {
-        throw new Error(
+        throw new ConvexError(
           "UPI Autopay is for rupee accounts. Set up auto-recharge with a card."
         );
       }
       const recharge = args.mandate.rechargeAmountMicros;
       if (!(recharge >= settings.minTopUpMicros)) {
-        throw new Error("The recharge amount is below the minimum top-up.");
+        throw new ConvexError("The recharge amount is below the minimum top-up.");
       }
       const rechargeTotal = withGst(recharge, settings.gstPercent).totalMicros;
       if (rechargeTotal > MANDATE_CAP_MICROS) {
-        throw new Error(
+        throw new ConvexError(
           "An automatic debit can be at most ₹15,000 with GST. Pick a smaller recharge amount."
         );
       }
       const contact = billingContact(account, workspace);
       if (!contact.email || !contact.phone) {
-        throw new Error(
+        throw new ConvexError(
           "Add a billing email and phone number first — Razorpay needs both."
         );
       }
@@ -349,10 +349,10 @@ export const createTopUp = internalMutation({
     }
 
     if (!(args.amountMicros >= settings.minTopUpMicros)) {
-      throw new Error("That is below the minimum top-up.");
+      throw new ConvexError("That is below the minimum top-up.");
     }
     if (args.amountMicros > MAX_TOPUP_MICROS) {
-      throw new Error("A single top-up can be at most ₹5,00,000.");
+      throw new ConvexError("A single top-up can be at most ₹5,00,000.");
     }
     const amounts = withGst(args.amountMicros, settings.gstPercent);
     const paymentId = await ctx.db.insert("billingPayments", {

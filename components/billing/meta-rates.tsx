@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { TrashIcon } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 type ParsedRow = {
   market: string;
@@ -225,7 +226,7 @@ export function ImportMetaRatesDialog({
     } catch (error) {
       toast.add({
         title: "Could not read that file",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -249,7 +250,7 @@ export function ImportMetaRatesDialog({
     } catch (error) {
       toast.add({
         title: "Could not import the rates",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -419,7 +420,7 @@ export function MetaRatesDialog({
     } catch (error) {
       toast.add({
         title: "Could not remove the rates",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

@@ -18,8 +18,22 @@ export function ok(payload) {
   return { content: [{ type: "text", text }] };
 }
 
+function cleanMessage(error) {
+  const raw = error instanceof Error ? error.message : String(error);
+  const thrown = raw.match(/Uncaught \w*Error:\s*([^\n]+)/)?.[1];
+  const text = (thrown ?? raw)
+    .replace(/\[CONVEX [^\]]*\]\s*/g, "")
+    .replace(/\[Request ID:[^\]]*\]\s*/g, "")
+    .replace(/Server Error|Called by client/g, "")
+    .split("\n")[0]
+    .trim();
+  return !text || /convex/i.test(text)
+    ? "Something went wrong. Please try again."
+    : text;
+}
+
 export function fail(error) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = cleanMessage(error);
   return {
     isError: true,
     content: [{ type: "text", text: message }],

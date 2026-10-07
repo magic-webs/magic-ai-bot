@@ -7,7 +7,7 @@
 // to be really random — a mutation's randomness is seeded, and this key is the
 // whole credential on a public route.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalAction,
@@ -20,6 +20,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { randomKey } from "./lib/shared";
 import { requireWorkspace } from "./lib/auth";
+import { publicSiteUrl } from "./lib/publicUrl";
 import {
   APP_TOOL_NAMES,
   findApp,
@@ -130,18 +131,21 @@ export const connect = action({
     });
 
     const spec = findApp(args.app);
-    if (!spec) throw new Error("Unknown app");
+    if (!spec) throw new ConvexError("Unknown app");
 
     const apiKey = args.apiKey.trim();
     if (!apiKey.startsWith(spec.keyPrefix)) {
-      throw new Error(
+      throw new ConvexError(
         `That is not a ${spec.name} API key — they start with ${spec.keyPrefix}.`
       );
     }
 
     const baseUrl = process.env[spec.envVar]?.trim() || spec.defaultBaseUrl;
-    const siteUrl = process.env.CONVEX_SITE_URL;
-    if (!siteUrl) throw new Error("CONVEX_SITE_URL is not available.");
+    const siteUrl = publicSiteUrl();
+    if (!siteUrl) {
+      console.error("apps.connect: neither PUBLIC_SITE_URL nor CONVEX_SITE_URL is set");
+      throw new ConvexError("This integration is not available right now.");
+    }
 
     const credentials = { baseUrl, apiKey };
 
@@ -149,34 +153,34 @@ export const connect = action({
     // The one failure worth its own words: the app is reachable but has no
     // integration API, which means it is running a build from before it.
     if (me.status === 404) {
-      throw new Error(
+      throw new ConvexError(
         `${baseUrl} does not have the Magic Agent API yet. Deploy the latest ${spec.name}, then connect again.`
       );
     }
-    if (!me.ok) throw new Error(me.error);
+    if (!me.ok) throw new ConvexError(me.error ?? "The app could not be reached.");
     const account = readAccount(args.app, me.body);
     if (!account) {
-      throw new Error(`${spec.name} answered, but not with an account.`);
+      throw new ConvexError(`${spec.name} answered, but not with an account.`);
     }
 
     const catalogue = await fetchItems(args.app, credentials);
-    if (!catalogue.ok) throw new Error(catalogue.error);
+    if (!catalogue.ok) throw new ConvexError(catalogue.error);
 
     // Registered before anything is saved: a connection that cannot hear
     // back from the app would send links whose results vanish.
     const inboundKey = randomKey(32);
     const hook = await callApp(credentials, "POST", "/api/v1/webhooks", {
-      url: `${siteUrl.replace(/\/+$/, "")}/apps/${inboundKey}`,
+      url: `${siteUrl}/apps/${inboundKey}`,
       events: spec.events,
       ...(args.app === "magic_forms" ? { name: "Magic Agent" } : {}),
     });
     if (!hook.ok) {
-      throw new Error(`Could not subscribe to ${spec.name}: ${hook.error}`);
+      throw new ConvexError(`Could not subscribe to ${spec.name}: ${hook.error}`);
     }
     const webhook = (hook.body as { webhook?: { id?: unknown; secret?: unknown } })
       ?.webhook;
     if (typeof webhook?.secret !== "string" || !webhook.secret) {
-      throw new Error(`${spec.name} registered the webhook but sent no secret.`);
+      throw new ConvexError(`${spec.name} registered the webhook but sent no secret.`);
     }
 
     const previous = await ctx.runMutation(internal.apps.saveConnection, {
@@ -219,14 +223,14 @@ export const refresh = action({
       workspaceId: args.workspaceId,
       app: args.app,
     });
-    if (!connection) throw new Error("Not connected.");
+    if (!connection) throw new ConvexError("Not connected.");
 
     const catalogue = await fetchItems(args.app, connection);
     await ctx.runMutation(internal.apps.saveItems, {
       connectionId: connection._id,
       ...(catalogue.ok ? { items: catalogue.items } : { error: catalogue.error }),
     });
-    if (!catalogue.ok) throw new Error(catalogue.error);
+    if (!catalogue.ok) throw new ConvexError(catalogue.error);
     return { count: catalogue.items.length };
   },
 });
@@ -241,7 +245,7 @@ export const setReplyOnResult = mutation({
         q.eq("workspaceId", args.workspaceId).eq("app", args.app)
       )
       .unique();
-    if (!connection) throw new Error("Not connected.");
+    if (!connection) throw new ConvexError("Not connected.");
     await ctx.db.patch(connection._id, {
       replyOnResult: args.value,
       updatedAt: Date.now(),
@@ -480,7 +484,7 @@ export const recordLink = internalMutation({
   },
   handler: async (ctx, args) => {
     const connection = await ctx.db.get("appConnections", args.connectionId);
-    if (!connection) throw new Error("This app is no longer connected.");
+    if (!connection) throw new ConvexError("This app is no longer connected.");
     await ctx.db.insert("appLinks", {
       workspaceId: connection.workspaceId,
       connectionId: connection._id,

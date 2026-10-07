@@ -15,6 +15,7 @@ import {
   type Outbound,
 } from "./lib/whatsappSend";
 import { categoryOf, type BillingSource } from "./lib/billing";
+import { providerError } from "./lib/panel";
 import { transcribe as transcribeAudio } from "ai";
 import { aiGateway, TRANSCRIPTION_MODEL } from "./lib/gateway";
 
@@ -52,7 +53,13 @@ async function send(
     return { ok: true, wamid: providerMessageId(body) };
   }
   const text = await response.text().catch(() => "");
-  return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+  return { ok: false, error: providerError(response.status, body, text) };
 }
 
 /**
@@ -373,7 +380,7 @@ export const handleInbound = internalAction({
           console.error("[whatsapp] voice handling failed", reason);
           await ctx.runMutation(internal.channels.touchInbound, {
             channelId: channel._id,
-            error: reason,
+            error: "A voice note could not be transcribed.",
           });
           const apology: Outbound = {
             kind: "text",

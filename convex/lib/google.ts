@@ -29,9 +29,8 @@ export function googleClient(): { id: string; secret: string } {
   const id = process.env.GOOGLE_CLIENT_ID;
   const secret = process.env.GOOGLE_CLIENT_SECRET;
   if (!id || !secret) {
-    throw new GoogleError(
-      "Google is not configured on this deployment. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
-    );
+    console.error("google: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set");
+    throw new GoogleError("This integration is not available right now.");
   }
   return { id, secret };
 }

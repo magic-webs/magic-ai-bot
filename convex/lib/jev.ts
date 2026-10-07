@@ -1,3 +1,5 @@
+import { ConvexError } from "convex/values";
+
 export const JEV_MODEL = "typesafe-ai/jev";
 const ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 
@@ -23,9 +25,8 @@ export async function evaluate(
 ): Promise<JevResult> {
   const apiKey = process.env.AI_GATEWAY_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "AI_GATEWAY_API_KEY is not set on the Convex deployment. Run: npx convex env set AI_GATEWAY_API_KEY <key>"
-    );
+    console.error("jev: AI_GATEWAY_API_KEY is not set");
+    throw new ConvexError("The assistant is not available right now.");
   }
   const response = await fetch(ENDPOINT, {
     method: "POST",

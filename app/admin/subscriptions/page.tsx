@@ -63,6 +63,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Table,
   TableBody,
@@ -73,6 +74,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import {
   ArrowSquareOutIcon,
   ArrowsClockwiseIcon,
@@ -119,10 +121,6 @@ const isCharging = (row: AccountRow) =>
 const isStanding = (row: AccountRow) =>
   row.subscription !== null && STANDING.has(row.subscription.status);
 
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** A typed number, or NaN for an empty box — `Number("")` is 0, not blank. */
 const num = (text: string) => (text.trim() === "" ? NaN : Number(text));
 
@@ -162,7 +160,7 @@ function useRun() {
     } catch (error) {
       toast.add({
         title: failTitle,
-        description: message(error),
+        description: friendlyError(error),
         type: "error",
       });
       return false;
@@ -525,25 +523,40 @@ function PlanSection({
   );
 }
 
+type DiscountKind = "percent" | "fixed";
+
 function PricingSection({ account }: { account: AccountRow }) {
   const update = useMutation(api.subscriptions.adminUpdateAccount);
   const [busy, run] = useRun();
-  const [discount, setDiscount] = useState(
-    account.discountPercent ? String(account.discountPercent) : ""
+  const savedDiscount = (kind: DiscountKind) =>
+    kind === "fixed"
+      ? account.discountFixedMicros
+        ? rupeesOf(account.discountFixedMicros)
+        : ""
+      : account.discountPercent
+        ? String(account.discountPercent)
+        : "";
+  const [kind, setKind] = useState<DiscountKind>(
+    account.discountFixedMicros ? "fixed" : "percent"
   );
+  const [discount, setDiscount] = useState(() => savedDiscount(kind));
   const [seatPrice, setSeatPrice] = useState(
     account.extraAgentPriceMicros === null
       ? ""
       : rupeesOf(account.extraAgentPriceMicros)
   );
 
-  const percent = discount.trim() === "" ? 0 : num(discount);
+  const amount = discount.trim() === "" ? 0 : num(discount);
   const price = seatPrice.trim() === "" ? null : num(seatPrice);
-  const badDiscount = !(percent >= 0 && percent <= 100);
+  const badDiscount = !(amount >= 0 && (kind === "fixed" || amount <= 100));
   const badPrice = price !== null && !(price >= 0);
   const priceMicros = price === null || badPrice ? null : toMicros(price);
+  const percent = kind === "percent" ? amount : 0;
+  const fixed = kind === "fixed" && amount > 0 ? amount : null;
   const dirty =
     percent !== account.discountPercent ||
+    (fixed === null || badDiscount ? null : toMicros(fixed)) !==
+      account.discountFixedMicros ||
     priceMicros !== account.extraAgentPriceMicros;
 
   const save = () =>
@@ -551,6 +564,7 @@ function PricingSection({ account }: { account: AccountRow }) {
       await update({
         workspaceId: account.workspaceId,
         discountPercent: percent,
+        discountAmount: fixed,
         // Null clears it, back to the platform's price.
         extraAgentPrice: price,
       });
@@ -571,23 +585,53 @@ function PricingSection({ account }: { account: AccountRow }) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field id="manage-discount" label="Discount off the plan">
-          <div className="relative">
-            <Input
-              id="manage-discount"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              max={100}
-              step="any"
-              value={discount}
-              placeholder="0"
-              aria-invalid={badDiscount || undefined}
-              className="pr-8 tabular-nums"
-              onChange={(event) => setDiscount(event.target.value)}
-            />
-            <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground">
-              %
-            </span>
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              {kind === "fixed" ? (
+                <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
+                  {currencySymbol(account.currency)}
+                </span>
+              ) : null}
+              <Input
+                id="manage-discount"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={kind === "percent" ? 100 : undefined}
+                step="any"
+                value={discount}
+                placeholder="0"
+                aria-invalid={badDiscount || undefined}
+                className={cn(
+                  "tabular-nums",
+                  kind === "fixed" ? "pl-6" : "pr-8"
+                )}
+                onChange={(event) => setDiscount(event.target.value)}
+              />
+              {kind === "percent" ? (
+                <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground">
+                  %
+                </span>
+              ) : null}
+            </div>
+            <ToggleGroup
+              value={[kind]}
+              onValueChange={(value) => {
+                const next = value[0] as DiscountKind | undefined;
+                if (!next) return;
+                setKind(next);
+                setDiscount(savedDiscount(next));
+              }}
+              variant="outline"
+              aria-label="Discount type"
+            >
+              <ToggleGroupItem value="percent" aria-label="Percent">
+                %
+              </ToggleGroupItem>
+              <ToggleGroupItem value="fixed" aria-label="Fixed amount">
+                {currencySymbol(account.currency)}
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
         </Field>
         <Field
@@ -1427,9 +1471,11 @@ export default function AdminSubscriptionsPage() {
                                 <span className="truncate text-xs text-muted-foreground">
                                   {row.planName ?? "No plan"} ·{" "}
                                   {MODE_LABEL[row.mode]}
-                                  {row.discountPercent > 0
-                                    ? ` · ${row.discountPercent}% off`
-                                    : ""}
+                                  {row.discountFixedMicros
+                                    ? ` · ${moneyIn(row.currency)(row.discountFixedMicros)} off`
+                                    : row.discountPercent > 0
+                                      ? ` · ${row.discountPercent}% off`
+                                      : ""}
                                 </span>
                               </span>
                             </Link>

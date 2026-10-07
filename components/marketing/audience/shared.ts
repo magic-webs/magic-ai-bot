@@ -1,5 +1,5 @@
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 
 export type Category = { key: string; label: string; description: string };
 
@@ -30,7 +30,7 @@ export function categoryTone(categories: Category[], key: string | null | undefi
 }
 
 export function fail(title: string, error: unknown) {
-  toast.add({ title, description: errorMessage(error), type: "error" });
+  toast.add({ title, description: friendlyError(error), type: "error" });
 }
 
 export function plural(count: number, one: string, many = `${one}s`) {

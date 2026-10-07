@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
@@ -323,7 +323,7 @@ export const workspaceSummary = query({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const { days, windowStart, previousStart } = windowFor(args.days, args.now);
     const prices = await pricesFor(ctx, args.workspaceId);
@@ -610,10 +610,10 @@ export const metaRates = query({
 
 function amountMicros(label: string, amount: number): number {
   if (!Number.isFinite(amount) || amount < 0) {
-    throw new Error(`${label} must be zero or more.`);
+    throw new ConvexError(`${label} must be zero or more.`);
   }
   if (amount > MAX_RATE) {
-    throw new Error(`${label} looks too high to be per message.`);
+    throw new ConvexError(`${label} looks too high to be per message.`);
   }
   return toMicros(amount);
 }
@@ -642,14 +642,14 @@ export const importMetaRates = mutation({
     await requireAdmin(ctx);
     const currency = args.currency.trim().toUpperCase();
     if (!isValidCurrency(currency)) {
-      throw new Error("Pick a three-letter currency code, e.g. INR or USD.");
+      throw new ConvexError("Pick a three-letter currency code, e.g. INR or USD.");
     }
     if (args.rows.length === 0)
-      throw new Error("There are no rates to import.");
+      throw new ConvexError("There are no rates to import.");
     const now = Date.now();
     for (const row of args.rows) {
       if (!KNOWN_MARKETS.has(row.market)) {
-        throw new Error(`${row.market} is not a market Meta prices.`);
+        throw new ConvexError(`${row.market} is not a market Meta prices.`);
       }
       const label = marketLabel(row.market);
       const utilityMicros = amountMicros(`${label} utility`, row.utility);
@@ -743,12 +743,12 @@ export const setMarkups = mutation({
     await requireAdmin(ctx);
     if (args.workspaceId) {
       const workspace = await ctx.db.get("workspaces", args.workspaceId);
-      if (!workspace) throw new Error("Workspace not found");
+      if (!workspace) throw new ConvexError("Workspace not found");
     }
     const markupOf = (category: MessageCategory) => {
       const { fixed, percent } = args[category];
       if (!Number.isFinite(percent) || percent < 0 || percent > MAX_PERCENT) {
-        throw new Error(
+        throw new ConvexError(
           `The ${category} percentage must be between 0 and ${MAX_PERCENT}.`
         );
       }
@@ -769,7 +769,7 @@ export const setMarkups = mutation({
             byCurrency: args.byCurrency.map((entry) => {
               const code = entry.currency.trim().toUpperCase();
               if (!isValidCurrency(code))
-                throw new Error(`${entry.currency} is not a currency code.`);
+                throw new ConvexError(`${entry.currency} is not a currency code.`);
               return {
                 currency: code,
                 service: amountMicros(
@@ -840,7 +840,7 @@ export const migrateRateCards = internalMutation({
           : "IN";
         const rates = await metaRatesFor(ctx, market, currency);
         if (!rates) {
-          throw new Error(
+          throw new ConvexError(
             `Import Meta's rates for ${marketLabel(market)} first.`
           );
         }

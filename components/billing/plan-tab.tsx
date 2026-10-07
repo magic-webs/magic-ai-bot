@@ -32,7 +32,7 @@ import {
   subscriptionLabel,
   useMoney,
 } from "@/components/billing/plan-bits";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -122,7 +122,7 @@ function report(title: string, error: unknown) {
     });
     return;
   }
-  toast.add({ title, description: errorMessage(error), type: "error" });
+  toast.add({ title, description: friendlyError(error), type: "error" });
 }
 
 /**
@@ -954,7 +954,11 @@ function PlanPicker({ data }: { data: Enabled }) {
               />
               {summary.discountMicros > 0 ? (
                 <SummaryRow
-                  label={`Your discount (${summary.discountPercent}%)`}
+                  label={
+                    summary.discountKind === "percent"
+                      ? `Your discount (${summary.discountPercent}%)`
+                      : "Your discount"
+                  }
                   value={`−${money(summary.discountMicros)}`}
                   className="text-emerald-700 dark:text-emerald-400"
                 />

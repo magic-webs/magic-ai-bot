@@ -7,7 +7,7 @@
  * database work, so it stays in the default runtime where queries are cheap.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -133,9 +133,9 @@ export const createStage = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const name = args.name.trim();
-    if (!name) throw new Error("A stage needs a name.");
+    if (!name) throw new ConvexError("A stage needs a name.");
     if (!args.description.trim()) {
-      throw new Error(
+      throw new ConvexError(
         "A stage needs a description — it is what the follow-up desk matches a conversation against."
       );
     }
@@ -145,7 +145,7 @@ export const createStage = mutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
     if (stages.some((stage) => stage.name.toLowerCase() === name.toLowerCase())) {
-      throw new Error(`There is already a stage called "${name}".`);
+      throw new ConvexError(`There is already a stage called "${name}".`);
     }
 
     const last = Math.max(0, ...stages.map((stage) => stage.position));
@@ -172,7 +172,7 @@ export const updateStage = mutation({
   },
   handler: async (ctx, args) => {
     const stage = await ctx.db.get("leadStages", args.stageId);
-    if (!stage) throw new Error("Stage not found");
+    if (!stage) throw new ConvexError("Stage not found");
     await requireWorkspace(ctx, stage.workspaceId);
 
     const { stageId, ...rest } = args;

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -105,10 +105,10 @@ export const create = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     if (args.kind === "http" && !args.http) {
-      throw new Error("HTTP tools need a request configuration");
+      throw new ConvexError("HTTP tools need a request configuration");
     }
     if (args.kind === "db_query" && !args.dbQuery) {
-      throw new Error("Database tools need a table configuration");
+      throw new ConvexError("Database tools need a table configuration");
     }
 
     const now = Date.now();
@@ -167,7 +167,7 @@ export const update = mutation({
     await requireTool(ctx, args.toolId);
     const { toolId, clearAgentScope, ...rest } = args;
     const existing = await ctx.db.get("tools", toolId);
-    if (!existing) throw new Error("Tool not found");
+    if (!existing) throw new ConvexError("Tool not found");
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {

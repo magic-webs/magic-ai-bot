@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 import { workspaceArg } from "../args.mjs";
-import { APP_URL, CONVEX_URL } from "../config.mjs";
+import { APP_URL, SITE_URL } from "../config.mjs";
 import { api, call } from "../convex.mjs";
 import { findAgent, findChannel } from "../lookup.mjs";
 import { handler, ok } from "../results.mjs";
@@ -26,8 +26,6 @@ export function register(server) {
       const channels = await call.query(api.channels.listByWorkspace, {
         workspaceId: found._id,
       });
-      const convexSite = CONVEX_URL.replace(".convex.cloud", ".convex.site");
-
       return ok(
         channels.map((channel) => ({
           id: channel._id,
@@ -45,7 +43,7 @@ export function register(server) {
                 directLink: `${APP_URL}/widget/${channel.channelKey}`,
               }
             : {
-                callbackUrl: `${convexSite}/whatsapp/${channel.channelKey}`,
+                callbackUrl: `${SITE_URL}/whatsapp/${channel.channelKey}`,
                 displayPhoneNumber: channel.whatsapp?.displayPhoneNumber ?? null,
                 phoneNumberId: channel.whatsapp?.phoneNumberId ?? null,
                 // What notification templates sync from.

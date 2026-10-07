@@ -4,7 +4,7 @@
 // calling whatsapp.sendOutbound instead would cross into the Node runtime once
 // per contact. The payload itself comes from the same builder the engine uses.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -21,6 +21,8 @@ import {
 } from "./lib/marketing";
 import type { AudienceSelection } from "./lib/audience";
 import { slug, trackFirstLink } from "./lib/links";
+import { errorText, providerError } from "./lib/panel";
+import { publicSiteUrl } from "./lib/publicUrl";
 
 /** Every variable but the customer's own name, which is filled per contact. */
 type SharedValues = Omit<Record<TemplateVariable, string>, "name">;
@@ -62,9 +64,15 @@ async function sendTemplate(
       return { ok: true, wamid: providerMessageId(body) };
     }
     const text = await response.text().catch(() => "");
-    return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 300)}` };
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = null;
+    }
+    return { ok: false, error: providerError(response.status, body, text) };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: errorText(error) };
   }
 }
 
@@ -116,7 +124,7 @@ async function sendPage(
     linkCode?: string;
     linkTarget?: string;
   }> = [];
-  const base = process.env.TRACKING_BASE_URL ?? process.env.CONVEX_SITE_URL;
+  const base = process.env.TRACKING_BASE_URL ?? publicSiteUrl();
   for (const contact of page.contacts) {
     const rendered = renderTemplate(args.context.template.body, {
       ...args.values,
@@ -374,7 +382,7 @@ export const sendTest = action({
   },
   handler: async (ctx, args): Promise<{ to: string; text: string }> => {
     if (!args.eventId && !args.templateId) {
-      throw new Error("Say what to test: a calendar entry or a template.");
+      throw new ConvexError("Say what to test: a calendar entry or a template.");
     }
     let context = await ctx.runQuery(internal.marketing.testContext, args);
 
@@ -393,7 +401,7 @@ export const sendTest = action({
     }
 
     if (!context.to) {
-      throw new Error(
+      throw new ConvexError(
         "That is not a WhatsApp number. Write it with its country code, or the way you would dial it."
       );
     }
@@ -413,7 +421,7 @@ export const sendTest = action({
     const reason =
       blocker(context) ?? (template ? unfilled(template.body, values) : null);
     if (reason || !template || !context.channel) {
-      throw new Error(reason ?? "Nothing to send.");
+      throw new ConvexError(reason ?? "Nothing to send.");
     }
 
     const { text, parameters } = renderTemplate(template.body, {
@@ -421,7 +429,7 @@ export const sendTest = action({
       name: greetingName(context.contactName ?? undefined),
     });
     const sent = await sendTemplate(context.channel, context.to, template, parameters, text);
-    if (!sent.ok) throw new Error(`WhatsApp did not accept it — ${sent.error}`);
+    if (!sent.ok) throw new ConvexError(`WhatsApp did not accept it — ${sent.error}`);
 
     await ctx.runMutation(internal.marketing.recordTest, {
       workspaceId: context.workspaceId,

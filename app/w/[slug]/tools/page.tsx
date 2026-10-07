@@ -57,6 +57,7 @@ import {
   PlugsConnectedIcon,
 } from "@phosphor-icons/react";
 import { findIntegration } from "@/convex/lib/integrations";
+import { friendlyError } from "@/lib/errors";
 
 type ToolParameter = {
   name: string;
@@ -235,7 +236,7 @@ function DraftToolDialog() {
     } catch (error) {
       toast.add({
         title: "Drafting failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -375,6 +376,7 @@ type ToolForm = {
 };
 
 function toolToForm(tool?: Doc<"tools">): ToolForm {
+  const managed = Boolean(findIntegration(tool?.integration ?? ""));
   return {
     displayName: tool?.displayName ?? "",
     name: tool?.name ?? "",
@@ -383,9 +385,9 @@ function toolToForm(tool?: Doc<"tools">): ToolForm {
     kind: tool?.kind ?? "http",
     parameters: tool?.parameters ?? [],
     method: (tool?.http?.method ?? "GET") as HttpMethod,
-    urlTemplate: tool?.http?.urlTemplate ?? "",
-    headers: tool?.http?.headers ?? [],
-    bodyTemplate: tool?.http?.bodyTemplate ?? "",
+    urlTemplate: managed ? "" : (tool?.http?.urlTemplate ?? ""),
+    headers: managed ? [] : (tool?.http?.headers ?? []),
+    bodyTemplate: managed ? "" : (tool?.http?.bodyTemplate ?? ""),
     table: tool?.dbQuery?.table ?? "products",
     searchParam: tool?.dbQuery?.searchParam ?? "",
     limit: tool?.dbQuery?.limit ?? 8,
@@ -411,6 +413,7 @@ function ToolDialog({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<ToolForm>(() => toolToForm(tool));
+  const managedBy = findIntegration(tool?.integration ?? "");
 
   const set = <K extends keyof ToolForm>(key: K, value: ToolForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -428,14 +431,14 @@ function ToolDialog({
       });
       return;
     }
-    if (form.kind === "http" && !form.urlTemplate.trim()) {
+    if (form.kind === "http" && !managedBy && !form.urlTemplate.trim()) {
       toast.add({ title: "An HTTP tool needs a URL", type: "error" });
       return;
     }
 
     const parameters = form.parameters.filter((p) => p.name.trim());
     const http =
-      form.kind === "http"
+      form.kind === "http" && !managedBy
         ? {
             method: form.method,
             urlTemplate: form.urlTemplate.trim(),
@@ -493,7 +496,7 @@ function ToolDialog({
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -623,7 +626,11 @@ function ToolDialog({
 
           <Separator />
 
-          {form.kind === "http" ? (
+          {form.kind === "http" && managedBy ? (
+            <p className="text-xs text-muted-foreground">
+              The endpoint is managed by the {managedBy.name} integration.
+            </p>
+          ) : form.kind === "http" ? (
             <div className="flex flex-col gap-3">
               <div className="flex gap-2">
                 <SelectField
@@ -846,9 +853,16 @@ export default function ToolsPage() {
                     </Badge>
                   ))}
                   {tool.kind === "http" && tool.http ? (
-                    <span className="ml-1 truncate font-mono text-xs text-muted-foreground">
-                      {tool.http.method} {tool.http.urlTemplate}
-                    </span>
+                    findIntegration(tool.integration ?? "") ? (
+                      <span className="ml-1 truncate text-xs text-muted-foreground">
+                        Managed by{" "}
+                        {findIntegration(tool.integration ?? "")?.name}
+                      </span>
+                    ) : (
+                      <span className="ml-1 truncate font-mono text-xs text-muted-foreground">
+                        {tool.http.method} {tool.http.urlTemplate}
+                      </span>
+                    )
                   ) : null}
                   {tool.kind === "db_query" && tool.dbQuery ? (
                     <span className="ml-1 font-mono text-xs text-muted-foreground">

@@ -65,6 +65,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * The two ways to read the same list.
@@ -131,7 +132,7 @@ function CreateWorkspaceDialog() {
     } catch (error) {
       toast.add({
         title: "Could not create the workspace",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

@@ -77,6 +77,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 type Book = Doc<"recordBooks">;
 
@@ -220,8 +221,7 @@ function RecordDetail({ book, row }: { book: Book; row: RecordRow }) {
                       });
                     } catch (error) {
                       toast.add({
-                        title:
-                          error instanceof Error ? error.message : "Failed.",
+                        title: friendlyError(error, "Failed."),
                         type: "error",
                       });
                     }
@@ -278,7 +278,7 @@ function AddRecordDialog({ book }: { book: Book }) {
       toast.add({ title: `${book.name} added.`, type: "success" });
     } catch (error) {
       toast.add({
-        title: error instanceof Error ? error.message : "Could not add it.",
+        title: friendlyError(error, "Could not add it."),
         type: "error",
       });
     } finally {
@@ -476,7 +476,7 @@ function WebhookDialog({
       });
     } catch (error) {
       toast.add({
-        title: error instanceof Error ? error.message : "Could not save.",
+        title: friendlyError(error, "Could not save."),
         type: "error",
       });
     } finally {
@@ -707,10 +707,7 @@ function WebhooksTab({ book }: { book: Book }) {
                             });
                         } catch (error) {
                           toast.add({
-                            title:
-                              error instanceof Error
-                                ? error.message
-                                : "Failed.",
+                            title: friendlyError(error, "Failed."),
                             type: "error",
                           });
                         } finally {
@@ -906,7 +903,7 @@ export default function RecordBookPage({
       toast.add({ title: "Saved.", type: "success" });
     } catch (error) {
       toast.add({
-        title: error instanceof Error ? error.message : "Could not save.",
+        title: friendlyError(error, "Could not save."),
         type: "error",
       });
     }
@@ -1302,10 +1299,7 @@ export default function RecordBookPage({
                           router.push(`${base}/records`);
                         } catch (error) {
                           toast.add({
-                            title:
-                              error instanceof Error
-                                ? error.message
-                                : "Failed.",
+                            title: friendlyError(error, "Failed."),
                             type: "error",
                           });
                         }

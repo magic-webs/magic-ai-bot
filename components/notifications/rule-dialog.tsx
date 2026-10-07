@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowsClockwiseIcon,
@@ -314,7 +314,7 @@ export function RuleDialog({
           : { ok: false, text: result.error ?? "The test did not send." }
       );
     } catch (error) {
-      setTestResult({ ok: false, text: errorMessage(error) });
+      setTestResult({ ok: false, text: friendlyError(error) });
     } finally {
       setBusy(null);
     }
@@ -688,7 +688,7 @@ export function RuleDialog({
               <Alert variant="destructive">
                 <WarningCircleIcon />
                 <AlertDescription>
-                  Email is not set up. Add the ZeptoMail token and sender under Senders.
+                  Email sending is not available right now. Contact support.
                 </AlertDescription>
               </Alert>
             ) : emailTemplates.length === 0 ? (

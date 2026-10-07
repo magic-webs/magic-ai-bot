@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -16,10 +16,10 @@ async function checkedWorkspaces(
   workspaceIds: Id<"workspaces">[]
 ): Promise<Id<"workspaces">[]> {
   const unique = [...new Set(workspaceIds)];
-  if (unique.length === 0) throw new Error("Pick at least one workspace.");
+  if (unique.length === 0) throw new ConvexError("Pick at least one workspace.");
   for (const id of unique) {
     if (!(await ctx.db.get("workspaces", id))) {
-      throw new Error("One of the selected workspaces no longer exists.");
+      throw new ConvexError("One of the selected workspaces no longer exists.");
     }
   }
   return unique;
@@ -90,7 +90,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const user = await ctx.db.get("users", args.userId);
-    if (!user) throw new Error("User not found.");
+    if (!user) throw new ConvexError("User not found.");
     await ctx.db.patch(user._id, {
       name: args.name?.trim() || undefined,
       workspaceIds: await checkedWorkspaces(ctx, args.workspaceIds),
@@ -137,8 +137,12 @@ export const insert = internalMutation({
       (await ctx.db
         .query("admins")
         .withIndex("by_email", (q) => q.eq("email", args.email))
-        .unique());
-    if (clash) throw new Error("That email address is already registered.");
+        .unique()) ??
+      (await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_email", (q) => q.eq("email", args.email))
+        .first());
+    if (clash) throw new ConvexError("That email address is already registered.");
     return await ctx.db.insert("users", {
       email: args.email,
       name: args.name,
@@ -154,7 +158,7 @@ export const setPassword = internalMutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
     const user = await ctx.db.get("users", args.userId);
-    if (!user) throw new Error("User not found.");
+    if (!user) throw new ConvexError("User not found.");
     await ctx.db.patch(user._id, { passwordHash: args.passwordHash });
     await endSessionsAndFactor(ctx, user._id);
     return null;

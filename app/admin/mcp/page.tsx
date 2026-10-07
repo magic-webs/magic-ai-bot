@@ -38,6 +38,7 @@ import {
   TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * What an assistant holding one of *these* connectors can do.
@@ -159,7 +160,7 @@ async function copy(text: string, what: string) {
 function fail(title: string, error: unknown) {
   toast.add({
     title,
-    description: error instanceof Error ? error.message : String(error),
+    description: friendlyError(error),
     type: "error",
   });
 }
@@ -461,8 +462,8 @@ export default function AdminMcpPage() {
         <CardHeader>
           <CardTitle>What the assistant can do</CardTitle>
           <CardDescription>
-            Your permissions, checked by the same Convex guards the dashboard
-            runs — on every call.
+            Your permissions, checked by the same server-side guards the
+            dashboard runs — on every call.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

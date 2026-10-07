@@ -13,7 +13,7 @@
 // there the sender is the login: `sendManualReply` ignores whatever id the
 // composer passed.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   mutation,
   query,
@@ -21,14 +21,26 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireSignedIn, requireWorkspace } from "./lib/auth";
-import { removeMemberLogin } from "./authDb";
+import { requireOwner, requireSignedIn, requireWorkspace } from "./lib/auth";
+import {
+  LOGIN_EMAIL_TAKEN,
+  loginEmailOf,
+  loginEmailTaken,
+  removeMemberLogin,
+} from "./authDb";
 
 const memberStatus = v.union(
   v.literal("active"),
   v.literal("away"),
   v.literal("inactive")
 );
+
+function checkedEmail(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const email = loginEmailOf(raw);
+  if (!email) throw new ConvexError("Enter a valid email address.");
+  return email;
+}
 
 /**
  * The photo to draw, whichever way it was supplied.
@@ -116,14 +128,14 @@ export const create = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const name = args.name.trim();
-    if (!name) throw new Error("A human agent needs a name");
+    if (!name) throw new ConvexError("A human agent needs a name");
 
     const now = Date.now();
     return await ctx.db.insert("teamMembers", {
       workspaceId: args.workspaceId,
       name,
       role: args.role.trim() || "Team",
-      email: args.email?.trim() || undefined,
+      email: checkedEmail(args.email),
       phone: args.phone?.trim() || undefined,
       photoStorageId: args.photoStorageId,
       photoUrl: args.photoUrl?.trim() || undefined,
@@ -151,7 +163,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const { memberId, ...rest } = args;
     const member = await ctx.db.get("teamMembers", memberId);
-    if (!member) throw new Error("Human agent not found");
+    if (!member) throw new ConvexError("Human agent not found");
     await requireWorkspace(ctx, member.workspaceId);
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
@@ -159,6 +171,22 @@ export const update = mutation({
       if (value === undefined) continue;
       // Empty strings clear an optional field rather than storing "".
       patch[key] = typeof value === "string" ? value.trim() || undefined : value;
+    }
+
+    if (args.email !== undefined) {
+      const email = checkedEmail(args.email);
+      patch.email = email;
+      const login = await ctx.db
+        .query("memberCredentials")
+        .withIndex("by_member", (q) => q.eq("memberId", memberId))
+        .unique();
+      if (login && login.email !== email) {
+        await requireOwner(ctx, member.workspaceId);
+        if (email && (await loginEmailTaken(ctx, email, login._id))) {
+          throw new ConvexError(LOGIN_EMAIL_TAKEN);
+        }
+        await ctx.db.patch(login._id, { email, updatedAt: Date.now() });
+      }
     }
 
     // A new upload replaces the old file rather than orphaning it in storage.

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { query, mutation } from "./_generated/server";
 import { requireContact, requireWorkspace } from "./lib/auth";
@@ -38,9 +38,9 @@ export const addMany = mutation({
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    if (args.contacts.length === 0) throw new Error("Add at least one number.");
+    if (args.contacts.length === 0) throw new ConvexError("Add at least one number.");
     if (args.contacts.length > MAX_ADD) {
-      throw new Error(`Add at most ${MAX_ADD} people at a time.`);
+      throw new ConvexError(`Add at most ${MAX_ADD} people at a time.`);
     }
 
     const now = Date.now();
@@ -287,7 +287,7 @@ export const update = mutation({
     if (birthday !== undefined) {
       const normalised = normaliseBirthday(birthday);
       if (birthday.trim() && !normalised) {
-        throw new Error("That birthday is not a real day of the year.");
+        throw new ConvexError("That birthday is not a real day of the year.");
       }
       patch.birthday = normalised ?? undefined;
     }

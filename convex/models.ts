@@ -8,7 +8,7 @@
  * stay as the floor; see convex/lib/modelCatalogue.ts for how the two layer.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireSignedIn } from "./lib/auth";
 import {
@@ -39,13 +39,13 @@ const kindValidator = v.union(v.literal("chat"), v.literal("embedding"));
  */
 function normaliseModelId(raw: string): string {
   const modelId = raw.trim();
-  if (!modelId) throw new Error("A model id is required.");
+  if (!modelId) throw new ConvexError("A model id is required.");
   if (/\s/.test(modelId)) {
-    throw new Error("A model id cannot contain spaces.");
+    throw new ConvexError("A model id cannot contain spaces.");
   }
   const parts = modelId.split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(
+    throw new ConvexError(
       `"${modelId}" is not a gateway model id. Use the creator/model form, e.g. xiaomi/mimo-v2.6-flash — a bare id is sent to OpenAI.`
     );
   }
@@ -55,7 +55,7 @@ function normaliseModelId(raw: string): string {
 /** USD per 1M tokens. Negative or non-finite would cost history nonsense. */
 function price(value: number, field: string): number {
   if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`${field} must be a number of USD per 1M tokens, 0 or more.`);
+    throw new ConvexError(`${field} must be a number of USD per 1M tokens, 0 or more.`);
   }
   return value;
 }
@@ -177,7 +177,7 @@ export const setEnabled = mutation({
     // the constant cannot be edited from here, so the row becomes the answer.
     const catalogue = await mergedCatalogue(ctx);
     const entry = catalogue.find((row) => row.modelId === modelId);
-    if (!entry) throw new Error(`Unknown model: ${modelId}`);
+    if (!entry) throw new ConvexError(`Unknown model: ${modelId}`);
 
     const now = Date.now();
     await ctx.db.insert("aiModels", {

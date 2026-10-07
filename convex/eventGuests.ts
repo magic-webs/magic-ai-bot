@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalAction,
@@ -21,7 +21,7 @@ const RSVP_CONFIDENCE = 0.7;
 
 async function requireEvent(ctx: QueryCtx, campaignId: Id<"marketingCampaigns">) {
   const campaign = await ctx.db.get("marketingCampaigns", campaignId);
-  if (!campaign) throw new Error("Event not found");
+  if (!campaign) throw new ConvexError("Event not found");
   await requireWorkspace(ctx, campaign.workspaceId);
   return campaign;
 }
@@ -150,7 +150,7 @@ export const setAttended = mutation({
   },
   handler: async (ctx, args) => {
     const campaign = await requireEvent(ctx, args.campaignId);
-    if (args.contactIds.length > BULK) throw new Error(`Pick at most ${BULK} people.`);
+    if (args.contactIds.length > BULK) throw new ConvexError(`Pick at most ${BULK} people.`);
     const now = Date.now();
     for (const contactId of args.contactIds) {
       await upsertGuest(ctx, campaign, contactId, {
@@ -172,7 +172,7 @@ export const checkIn = mutation({
   handler: async (ctx, args) => {
     const campaign = await requireEvent(ctx, args.campaignId);
     const digits = normalisePhone(args.phone, args.countryCode ?? "91");
-    if (!digits) throw new Error("That is not a phone number.");
+    if (!digits) throw new ConvexError("That is not a phone number.");
     const now = Date.now();
     let contact = await ctx.db
       .query("contacts")

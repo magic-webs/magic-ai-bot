@@ -13,7 +13,7 @@
 // "include past submissions", so switching a form on never quietly floods a
 // book with history nobody asked for.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   action,
@@ -362,16 +362,16 @@ export const saveToBook = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const connection = await formsConnection(ctx, args.workspaceId);
-    if (!connection) throw new Error("Magic Forms is not connected.");
+    if (!connection) throw new ConvexError("Magic Forms is not connected.");
     const item = connection.items.find((form) => form.key === args.formKey);
-    if (!item) throw new Error("That form is not published in Magic Forms.");
+    if (!item) throw new ConvexError("That form is not published in Magic Forms.");
 
     const accountId = connection.account.id;
     const already = (await booksByForm(ctx, args.workspaceId, accountId)).get(
       item.key
     );
     if (already) {
-      throw new Error(`${item.title} is already saved to ${already.pluralName}.`);
+      throw new ConvexError(`${item.title} is already saved to ${already.pluralName}.`);
     }
 
     const name = args.name.trim() || item.title;
@@ -414,15 +414,15 @@ export const fileOne = mutation({
   args: { submissionId: v.id("formSubmissions") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get("formSubmissions", args.submissionId);
-    if (!row) throw new Error("Submission not found");
+    if (!row) throw new ConvexError("Submission not found");
     await requireWorkspace(ctx, row.workspaceId);
 
     const book = (await booksByForm(ctx, row.workspaceId, row.accountId)).get(
       row.formKey
     );
-    if (!book) throw new Error(`${row.formTitle} is not saved to a record book.`);
+    if (!book) throw new ConvexError(`${row.formTitle} is not saved to a record book.`);
     if (book.status === "archived") {
-      throw new Error(`${book.pluralName} is archived. Reopen it first.`);
+      throw new ConvexError(`${book.pluralName} is archived. Reopen it first.`);
     }
     const existing = row.recordId ? await ctx.db.get("records", row.recordId) : null;
     if (existing?.bookId === book._id) {
@@ -492,7 +492,7 @@ export const sync = action({
       workspaceId: args.workspaceId,
       app: "magic_forms",
     });
-    if (!connection) throw new Error("Magic Forms is not connected.");
+    if (!connection) throw new ConvexError("Magic Forms is not connected.");
 
     const query = new URLSearchParams({ limit: String(SYNC_LIMIT) });
     if (args.formKey) query.set("form", args.formKey);
@@ -501,7 +501,7 @@ export const sync = action({
       "GET",
       `/api/v1/submissions?${query.toString()}`
     );
-    if (!response.ok) throw new Error(response.error ?? "Unknown error.");
+    if (!response.ok) throw new ConvexError(response.error ?? "Unknown error.");
 
     const submissions = readSubmissions(response.body, connection.items);
     const added: number = await ctx.runMutation(

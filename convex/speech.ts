@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateSpeech } from "ai";
@@ -60,7 +60,7 @@ export const greet = action({
     const found = await ctx.runQuery(internal.agents.getInternal, {
       agentId: args.agentId,
     });
-    if (!found) throw new Error("Agent not found");
+    if (!found) throw new ConvexError("Agent not found");
     const { agent, workspace } = found;
 
     // Only an administrator, or this workspace's own users, may spend model
@@ -100,6 +100,9 @@ export const greet = action({
       // roughly tenfold for speech.
       outputFormat: "mp3",
       language: (workspace.locale || "en").slice(0, 2),
+    }).catch((error: unknown) => {
+      console.error("[speech] greeting failed", error);
+      throw new ConvexError("The voice greeting is not available right now.");
     });
 
     const mediaType = result.audio.mediaType || "audio/mpeg";
@@ -108,7 +111,7 @@ export const greet = action({
     );
 
     const url = await ctx.storage.getUrl(stored);
-    if (!url) throw new Error("Stored the greeting but could not resolve a URL");
+    if (!url) throw new ConvexError("The voice greeting is not available right now.");
 
     return { url, text, mediaType };
   },

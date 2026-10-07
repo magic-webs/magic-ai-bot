@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { TestSendButton } from "@/components/marketing/test-send";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import {
   CalendarBlankIcon,
@@ -117,7 +117,7 @@ export const monthLabel = (year: number, month: number) =>
 
 /** "MM-DD" as "12 Mar". */
 export function fail(title: string, error: unknown) {
-  toast.add({ title, description: errorMessage(error), type: "error" });
+  toast.add({ title, description: friendlyError(error), type: "error" });
 }
 
 // ---------------------------------------------------------------- calendar

@@ -59,6 +59,7 @@ import {
 } from "@phosphor-icons/react";
 import { setAppearance, useAppearance } from "@/components/appearance";
 import { APPEARANCES } from "@/lib/appearance";
+import { friendlyError } from "@/lib/errors";
 
 const APPEARANCE_ICONS = { light: SunIcon, dark: MoonIcon, system: DesktopIcon };
 
@@ -165,7 +166,7 @@ export default function WorkspaceSettingsPage() {
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -501,7 +502,7 @@ function DeleteWorkspace() {
     } catch (caught) {
       toast.add({
         title: "Could not delete the workspace",
-        description: caught instanceof Error ? caught.message : String(caught),
+        description: friendlyError(caught),
         type: "error",
       });
       setDeleting(false);

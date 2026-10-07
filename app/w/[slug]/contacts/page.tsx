@@ -54,6 +54,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
+import { friendlyError } from "@/lib/errors";
 
 /** A contacts row: the document plus the conversation it belongs to. */
 type ContactRow = {
@@ -191,7 +192,7 @@ function ContactDialog({
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

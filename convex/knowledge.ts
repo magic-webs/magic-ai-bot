@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -83,13 +83,13 @@ export const addSource = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     if (args.kind === "url" && !args.url?.trim()) {
-      throw new Error("A URL is required for url sources");
+      throw new ConvexError("A URL is required for url sources");
     }
     if ((args.kind === "text" || args.kind === "faq") && !args.rawText?.trim()) {
-      throw new Error("Text content is required");
+      throw new ConvexError("Text content is required");
     }
     if (args.kind === "file" && !args.storageId) {
-      throw new Error("Upload the file before creating a file source");
+      throw new ConvexError("Upload the file before creating a file source");
     }
 
     const now = Date.now();
@@ -130,7 +130,7 @@ export const reprocess = mutation({
   handler: async (ctx, args) => {
     await requireKnowledgeSource(ctx, args.sourceId);
     const existing = await ctx.db.get("knowledgeSources", args.sourceId);
-    if (!existing) throw new Error("Source not found");
+    if (!existing) throw new ConvexError("Source not found");
 
     const chunks = await ctx.db
       .query("knowledgeChunks")
@@ -170,14 +170,14 @@ export const updateSource = mutation({
   handler: async (ctx, args) => {
     await requireKnowledgeSource(ctx, args.sourceId);
     const source = await ctx.db.get("knowledgeSources", args.sourceId);
-    if (!source) throw new Error("Source not found");
+    if (!source) throw new ConvexError("Source not found");
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     let mustReindex = false;
 
     if (args.title !== undefined) {
       const title = args.title.trim();
-      if (!title) throw new Error("A title is required");
+      if (!title) throw new ConvexError("A title is required");
       patch.title = title;
     }
 
@@ -187,12 +187,12 @@ export const updateSource = mutation({
 
     if (args.rawText !== undefined) {
       if (source.kind !== "text" && source.kind !== "faq") {
-        throw new Error(
+        throw new ConvexError(
           `The text of a ${source.kind} source comes from the ${source.kind} itself. Edit the ${source.kind}, then reprocess.`
         );
       }
       const rawText = args.rawText.trim();
-      if (!rawText) throw new Error("Text content is required");
+      if (!rawText) throw new ConvexError("Text content is required");
       if (rawText !== source.rawText) {
         patch.rawText = rawText;
         patch.charCount = rawText.length;
@@ -202,10 +202,10 @@ export const updateSource = mutation({
 
     if (args.url !== undefined) {
       if (source.kind !== "url") {
-        throw new Error("Only a url source has a URL to change");
+        throw new ConvexError("Only a url source has a URL to change");
       }
       const url = args.url.trim();
-      if (!url) throw new Error("A URL is required");
+      if (!url) throw new ConvexError("A URL is required");
       if (url !== source.url) {
         patch.url = url;
         mustReindex = true;
@@ -263,7 +263,7 @@ export const setScope = mutation({
   handler: async (ctx, args) => {
     await requireKnowledgeSource(ctx, args.sourceId);
     const source = await ctx.db.get("knowledgeSources", args.sourceId);
-    if (!source) throw new Error("Source not found");
+    if (!source) throw new ConvexError("Source not found");
 
     await ctx.db.patch(args.sourceId, {
       agentId: args.agentId,
@@ -317,7 +317,7 @@ export const saveChunks = internalMutation({
   },
   handler: async (ctx, args) => {
     const source = await ctx.db.get("knowledgeSources", args.sourceId);
-    if (!source) throw new Error("Source not found");
+    if (!source) throw new ConvexError("Source not found");
 
     const scopeKey = scopeKeyFor(source.workspaceId, source.agentId);
     for (const chunk of args.chunks) {

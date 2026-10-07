@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { DownloadSimpleIcon, UserPlusIcon } from "@phosphor-icons/react";
 
 type Mode = "one" | "list" | "csv";
@@ -124,7 +124,7 @@ export function AddContactsDialog({
       setCsv(null);
       toast.add({
         title: "Could not read that file",
-        description: errorMessage(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -180,7 +180,7 @@ export function AddContactsDialog({
     } catch (error) {
       toast.add({
         title: "Could not add them",
-        description: errorMessage(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

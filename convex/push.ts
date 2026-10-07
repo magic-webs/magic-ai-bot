@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalAction,
   internalMutation,
@@ -194,7 +194,7 @@ export const register = mutation({
     await requireWorkspace(ctx, args.workspaceId);
 
     const token = args.token.trim();
-    if (!token) throw new Error("Empty push token");
+    if (!token) throw new ConvexError("Empty push token");
 
     const now = Date.now();
     /* Keyed on the token, not on the workspace: the same install signing into

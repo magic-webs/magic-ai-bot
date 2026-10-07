@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { FloppyDiskIcon } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 export default function CompanyProfilePage() {
   const workspace = useWorkspace();
@@ -93,7 +94,7 @@ export default function CompanyProfilePage() {
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

@@ -27,6 +27,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 export type LeadStage = {
   _id: Id<"leadStages">;
@@ -117,8 +118,7 @@ function StageList({
                   } catch (error) {
                     toast.add({
                       title: "Could not delete the stage",
-                      description:
-                        error instanceof Error ? error.message : String(error),
+                      description: friendlyError(error),
                       type: "error",
                     });
                   }
@@ -184,7 +184,7 @@ function StageForm({
     } catch (error) {
       toast.add({
         title: "Could not save the stage",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

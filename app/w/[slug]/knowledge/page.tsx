@@ -60,6 +60,7 @@ import {
   UploadIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 const KIND_ICONS = {
   text: FileTextIcon,
@@ -125,7 +126,7 @@ function AddSourceDialog() {
     } catch (error) {
       toast.add({
         title: "Could not add the source",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -154,7 +155,7 @@ function AddSourceDialog() {
     } catch (error) {
       toast.add({
         title: "Could not add the URL",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -201,7 +202,7 @@ function AddSourceDialog() {
     } catch (error) {
       toast.add({
         title: "Upload failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -216,8 +217,8 @@ function AddSourceDialog() {
         <DialogHeader>
           <DialogTitle>Add a knowledge source</DialogTitle>
           <DialogDescription>
-            Content is chunked, embedded with OpenAI and stored in Convex&apos;s
-            vector index. Agents retrieve from it on every message.
+            Content is split into passages and indexed so agents can retrieve
+            from it on every message.
           </DialogDescription>
         </DialogHeader>
 
@@ -407,7 +408,7 @@ function SourceDialog({
     } catch (error) {
       toast.add({
         title: "Could not save",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

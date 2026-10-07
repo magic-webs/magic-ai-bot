@@ -42,6 +42,7 @@ import {
   type VariantGroup,
   type VariantOption,
 } from "@/lib/catalogue-samples";
+import { friendlyError } from "@/lib/errors";
 import {
   CheckCircleIcon,
   PaletteIcon,
@@ -679,7 +680,7 @@ export function ProductForm({
     } catch (error) {
       toast.add({
         title: "Could not save",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

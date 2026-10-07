@@ -68,6 +68,7 @@ import {
   splitDialCode,
   stripDialCode,
 } from "@/lib/dial-codes";
+import { friendlyError } from "@/lib/errors";
 
 // One browser == one contact, so a returning visitor keeps their conversation.
 // localStorage is an external store rather than React state, so it is read
@@ -557,7 +558,7 @@ function RegisterForm({
     } catch (error) {
       toast.add({
         title: "Could not start the chat",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -940,7 +941,7 @@ function WidgetChat({
           toast.add({ title: "Not sent", description: result.error, type: "error" });
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = friendlyError(error);
         patch(key, { status: "failed", error: message });
         toast.add({ title: "Could not send", description: message, type: "error" });
       } finally {

@@ -16,7 +16,7 @@
 // reminders (convex/marketingCampaigns.ts) are calendar entries too, and go
 // out the same way.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -117,7 +117,7 @@ export async function templateInWorkspace(
 ): Promise<Doc<"marketingTemplates">> {
   const template = await ctx.db.get("marketingTemplates", templateId);
   if (!template || template.workspaceId !== workspaceId) {
-    throw new Error("Template not found");
+    throw new ConvexError("Template not found");
   }
   return template;
 }
@@ -127,7 +127,7 @@ async function requireEvent(
   eventId: Id<"marketingEvents">
 ): Promise<Doc<"marketingEvents">> {
   const event = await ctx.db.get("marketingEvents", eventId);
-  if (!event) throw new Error("Calendar entry not found");
+  if (!event) throw new ConvexError("Calendar entry not found");
   await requireWorkspace(ctx, event.workspaceId);
   return event;
 }
@@ -221,11 +221,11 @@ export const calendar = query({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     if (!isLocalDate(args.from) || !isLocalDate(args.to) || args.from > args.to) {
-      throw new Error("Pass a date range as YYYY-MM-DD.");
+      throw new ConvexError("Pass a date range as YYYY-MM-DD.");
     }
     const span = (Date.parse(args.to) - Date.parse(args.from)) / 86_400_000;
     if (span > MAX_CALENDAR_DAYS) {
-      throw new Error(`Ask for at most ${MAX_CALENDAR_DAYS} days at a time.`);
+      throw new ConvexError(`Ask for at most ${MAX_CALENDAR_DAYS} days at a time.`);
     }
 
     const events = await ctx.db
@@ -315,7 +315,7 @@ export const upcomingFestivals = query({
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    if (!isLocalDate(args.today)) throw new Error("Pass today as YYYY-MM-DD.");
+    if (!isLocalDate(args.today)) throw new ConvexError("Pass today as YYYY-MM-DD.");
 
     const days = Math.min(365, Math.max(1, args.days ?? 120));
     const until = new Date(Date.parse(args.today) + days * 86_400_000)
@@ -397,11 +397,11 @@ export const saveTemplate = mutation({
     await requireWorkspace(ctx, args.workspaceId);
     const name = args.name.trim();
     const body = args.body.trim();
-    if (!name) throw new Error("Give the template a name.");
-    if (!body) throw new Error("Write the message first.");
+    if (!name) throw new ConvexError("Give the template a name.");
+    if (!body) throw new ConvexError("Write the message first.");
     if (body.length > 1024) {
       // Meta's limit on a template body.
-      throw new Error("Keep the message under 1,024 characters.");
+      throw new ConvexError("Keep the message under 1,024 characters.");
     }
 
     // Meta names are lowercase, digits and underscores; normalised here so a
@@ -489,7 +489,7 @@ export const removeTemplate = mutation({
     for (const event of events) {
       if (event.templateId !== args.templateId) continue;
       if (event.status === "sending") {
-        throw new Error("A calendar entry is sending with this template right now.");
+        throw new ConvexError("A calendar entry is sending with this template right now.");
       }
       if (event.status === "scheduled" || event.status === "draft") {
         await ctx.db.patch("marketingEvents", event._id, {
@@ -544,11 +544,11 @@ export const saveEvent = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const title = args.title.trim();
-    if (!title) throw new Error("Give the entry a title.");
-    if (!isLocalDate(args.date)) throw new Error("Pick a date.");
+    if (!title) throw new ConvexError("Give the entry a title.");
+    if (!isLocalDate(args.date)) throw new ConvexError("Pick a date.");
     if (args.templateId) {
       await templateInWorkspace(ctx, args.workspaceId, args.templateId);
     }
@@ -557,7 +557,7 @@ export const saveEvent = mutation({
     const sendAt = zonedToInstant(args.date, sendHour, workspace.timezone);
     const now = Date.now();
     if (args.templateId && sendAt <= now) {
-      throw new Error("That time has already passed. Pick a later one, or use Send now.");
+      throw new ConvexError("That time has already passed. Pick a later one, or use Send now.");
     }
 
     const fields = {
@@ -574,15 +574,15 @@ export const saveEvent = mutation({
     if (args.eventId) {
       const event = await requireEvent(ctx, args.eventId);
       if (event.workspaceId !== args.workspaceId) {
-        throw new Error("Calendar entry not found");
+        throw new ConvexError("Calendar entry not found");
       }
       if (event.status === "sending" || event.status === "sent") {
-        throw new Error("This one has already gone out, so it can no longer be changed.");
+        throw new ConvexError("This one has already gone out, so it can no longer be changed.");
       }
       // Its day, hour and template are the event's, and the next save of the
       // event would put them back — so they are changed there, not here.
       if (event.campaignId) {
-        throw new Error("This is one of an event's reminders. Change it from the event.");
+        throw new ConvexError("This is one of an event's reminders. Change it from the event.");
       }
       await ctx.db.patch("marketingEvents", args.eventId, {
         ...fields,
@@ -607,7 +607,7 @@ export const removeEvent = mutation({
   handler: async (ctx, args) => {
     const event = await requireEvent(ctx, args.eventId);
     if (event.status === "sending") {
-      throw new Error("This is sending right now. Wait for it to finish.");
+      throw new ConvexError("This is sending right now. Wait for it to finish.");
     }
     await ctx.db.delete("marketingEvents", event._id);
     return { success: true };
@@ -619,9 +619,9 @@ export const sendEventNow = mutation({
   args: { eventId: v.id("marketingEvents") },
   handler: async (ctx, args) => {
     const event = await requireEvent(ctx, args.eventId);
-    if (!event.templateId) throw new Error("Pick a template first.");
+    if (!event.templateId) throw new ConvexError("Pick a template first.");
     if (event.status === "sending" || event.status === "sent") {
-      throw new Error("This one has already gone out.");
+      throw new ConvexError("This one has already gone out.");
     }
     await startEvent(ctx, event, 0);
     return { success: true };
@@ -641,7 +641,7 @@ export const saveSettings = mutation({
       await templateInWorkspace(ctx, args.workspaceId, args.birthdayTemplateId);
     }
     if (args.birthdayEnabled && !args.birthdayTemplateId) {
-      throw new Error("Pick the template birthday wishes are sent with.");
+      throw new ConvexError("Pick the template birthday wishes are sent with.");
     }
 
     const fields = {
@@ -681,10 +681,10 @@ export const saveAudienceSettings = mutation({
       }))
       .filter((category) => category.key && category.label && !isBuiltIn(category.key));
     if (categories.length > MAX_CATEGORIES) {
-      throw new Error(`Use at most ${MAX_CATEGORIES} categories.`);
+      throw new ConvexError(`Use at most ${MAX_CATEGORIES} categories.`);
     }
     if (new Set(categories.map((c) => c.key)).size !== categories.length) {
-      throw new Error("Two categories have the same name.");
+      throw new ConvexError("Two categories have the same name.");
     }
     const fields = {
       weeklyCap: Math.max(0, Math.min(14, Math.round(args.weeklyCap))),
@@ -1210,7 +1210,7 @@ export const draftContext = internalMutation({
     const { agentId } = await ensureMarketingDesk(ctx, args.workspaceId);
     const agent = await ctx.db.get("agents", agentId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!agent || !workspace) throw new Error("Workspace not found");
+    if (!agent || !workspace) throw new ConvexError("Workspace not found");
     return {
       agent: {
         _id: agent._id,
@@ -1248,16 +1248,16 @@ export const testContext = internalQuery({
   },
   handler: async (ctx, args) => {
     const event = args.eventId ? await ctx.db.get("marketingEvents", args.eventId) : null;
-    if (args.eventId && !event) throw new Error("Calendar entry not found");
+    if (args.eventId && !event) throw new ConvexError("Calendar entry not found");
     const templateId = event ? event.templateId : args.templateId;
-    if (!templateId) throw new Error("Pick a template first.");
+    if (!templateId) throw new ConvexError("Pick a template first.");
     const template = await ctx.db.get("marketingTemplates", templateId);
     const workspaceId = event?.workspaceId ?? template?.workspaceId;
-    if (!workspaceId) throw new Error("Template not found");
+    if (!workspaceId) throw new ConvexError("Template not found");
     await requireWorkspace(ctx, workspaceId);
 
     const context = await sendContext(ctx, workspaceId, templateId);
-    if (!context) throw new Error("Workspace not found");
+    if (!context) throw new ConvexError("Workspace not found");
     const campaign = event?.campaignId
       ? await ctx.db.get("marketingCampaigns", event.campaignId)
       : null;
@@ -1364,7 +1364,7 @@ export const applyContext = internalQuery({
   args: { templateId: v.id("marketingTemplates") },
   handler: async (ctx, args) => {
     const template = await ctx.db.get("marketingTemplates", args.templateId);
-    if (!template) throw new Error("Template not found");
+    if (!template) throw new ConvexError("Template not found");
     await requireWorkspace(ctx, template.workspaceId);
     const workspace = await ctx.db.get("workspaces", template.workspaceId);
     return {

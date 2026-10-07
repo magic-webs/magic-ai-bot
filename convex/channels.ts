@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -126,10 +126,10 @@ export const create = mutation({
     await requireWorkspace(ctx, args.workspaceId);
     if (args.type === "whatsapp") {
       if (!args.whatsapp?.phoneNumberId?.trim()) {
-        throw new Error("A WhatsApp phone number ID is required");
+        throw new ConvexError("A WhatsApp phone number ID is required");
       }
       if (!args.whatsapp.accessToken?.trim()) {
-        throw new Error("A WhatsApp access token is required");
+        throw new ConvexError("A WhatsApp access token is required");
       }
     }
 
@@ -177,7 +177,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     await requireChannel(ctx, args.channelId);
     const existing = await ctx.db.get("channels", args.channelId);
-    if (!existing) throw new Error("Channel not found");
+    if (!existing) throw new ConvexError("Channel not found");
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.name !== undefined) patch.name = args.name.trim();
@@ -194,7 +194,7 @@ export const update = mutation({
         : incomingToken;
 
       if (!accessToken) {
-        throw new Error("A WhatsApp access token is required");
+        throw new ConvexError("A WhatsApp access token is required");
       }
 
       patch.whatsapp = {

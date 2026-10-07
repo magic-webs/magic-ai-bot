@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -265,7 +265,7 @@ export const update = mutation({
     await requireProduct(ctx, args.productId);
     const { productId, clearPrice, ...rest } = args;
     const existing = await ctx.db.get("products", productId);
-    if (!existing) throw new Error("Product not found");
+    if (!existing) throw new ConvexError("Product not found");
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {

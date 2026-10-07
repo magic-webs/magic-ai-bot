@@ -217,6 +217,7 @@ export type PricingSettings = {
 
 export type AccountPricing = {
   discountPercent?: number;
+  discountFixedMicros?: number;
   extraAgentPriceMicros?: number;
 };
 
@@ -227,6 +228,7 @@ export type Quote = {
   planMicros: number;
   /** What this account's own discount took off the plan. */
   discountMicros: number;
+  discountKind: "percent" | "fixed" | null;
   discountPercent: number;
   extraAgents: number;
   /** One extra agent, at this account's price. */
@@ -252,14 +254,19 @@ export function quote(args: {
   settings: PricingSettings;
   account?: AccountPricing | null;
 }): Quote {
-  const discountPercent = clampPercent(args.account?.discountPercent ?? 0);
+  const fixedMicros = Math.max(0, args.account?.discountFixedMicros ?? 0);
+  const discountPercent =
+    fixedMicros > 0 ? 0 : clampPercent(args.account?.discountPercent ?? 0);
   const planListMicros = Math.max(
     args.plan.listPriceMicros,
     args.plan.priceMicros
   );
-  const discountMicros = roundToPaise(
-    (args.plan.priceMicros * discountPercent) / 100
-  );
+  const discountMicros =
+    fixedMicros > 0
+      ? Math.min(roundToPaise(fixedMicros), roundToPaise(args.plan.priceMicros))
+      : roundToPaise((args.plan.priceMicros * discountPercent) / 100);
+  const discountKind =
+    fixedMicros > 0 ? "fixed" : discountPercent > 0 ? "percent" : null;
   const planMicros = roundToPaise(args.plan.priceMicros) - discountMicros;
 
   const extraAgents = Math.max(0, Math.floor(args.extraAgents));
@@ -281,6 +288,7 @@ export function quote(args: {
     planListMicros,
     planMicros,
     discountMicros,
+    discountKind,
     discountPercent,
     extraAgents,
     seatMicros,

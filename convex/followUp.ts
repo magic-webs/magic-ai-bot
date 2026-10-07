@@ -245,7 +245,7 @@ export const review = internalAction({
       await ctx.runMutation(internal.leads.recordReview, {
         conversationId: args.conversationId,
         workspaceId: args.workspaceId,
-        note: `Review failed: ${message}`,
+        note: "Review failed: the assistant could not read this conversation.",
         reviewedAt: now,
       });
       return { reviewed: false, reason: "model_failed" };

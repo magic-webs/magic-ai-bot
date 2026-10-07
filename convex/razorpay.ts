@@ -7,7 +7,7 @@
 // mutation. State transitions that Razorpay reports later, by webhook, are
 // applied by the same mutations (convex/razorpayEvents.ts).
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { toMicros } from "./lib/billing";
@@ -182,14 +182,14 @@ export const confirmSubscription = action({
       workspaceId: args.workspaceId,
       razorpaySubscriptionId: args.razorpaySubscriptionId,
     });
-    if (!known) throw new Error("That subscription does not belong to this workspace.");
+    if (!known) throw new ConvexError("That subscription does not belong to this workspace.");
     const valid = await checkoutSignatureValid(
       config,
       `${args.razorpayPaymentId}|${known.razorpaySubscriptionId}`,
       args.razorpaySignature
     );
     if (!valid) {
-      throw new Error(
+      throw new ConvexError(
         "Razorpay's confirmation did not verify. If you were charged, the plan shows here as soon as Razorpay reports it."
       );
     }
@@ -221,7 +221,7 @@ export const cancelSubscription = action({
     const live = await ctx.runQuery(internal.subscriptions.cancelContext, {
       workspaceId: args.workspaceId,
     });
-    if (!live) throw new Error("There is no subscription to cancel.");
+    if (!live) throw new ConvexError("There is no subscription to cancel.");
     const path = `/subscriptions/${live.razorpaySubscriptionId}/cancel`;
 
     let atCycleEnd = !args.immediately && live.charged && live.status === "active";
@@ -437,14 +437,14 @@ export const confirmPayment = action({
       workspaceId: args.workspaceId,
       razorpayOrderId: args.razorpayOrderId,
     });
-    if (!known) throw new Error("That payment does not belong to this workspace.");
+    if (!known) throw new ConvexError("That payment does not belong to this workspace.");
     const valid = await checkoutSignatureValid(
       config,
       `${known.razorpayOrderId}|${args.razorpayPaymentId}`,
       args.razorpaySignature
     );
     if (!valid) {
-      throw new Error(
+      throw new ConvexError(
         "Razorpay's confirmation did not verify. If you were charged, it shows here as soon as Razorpay reports it."
       );
     }
@@ -455,7 +455,7 @@ export const confirmPayment = action({
       `/payments/${args.razorpayPaymentId}`
     );
     if (payment.order_id !== known.razorpayOrderId) {
-      throw new Error("That payment is for a different order.");
+      throw new ConvexError("That payment is for a different order.");
     }
     if (payment.status === "authorized") {
       payment = await razorpay<RazorpayPayment>(

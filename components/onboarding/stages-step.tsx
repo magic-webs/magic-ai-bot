@@ -28,6 +28,7 @@ import {
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * Step 6 — the enquiry stages.
@@ -119,7 +120,7 @@ function StageRow({
     } catch (error) {
       toast.add({
         title: "Could not save the stage",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -142,7 +143,7 @@ function StageRow({
     } catch (error) {
       toast.add({
         title: "Could not remove the stage",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -260,7 +261,7 @@ export function StagesStep() {
     } catch (error) {
       toast.add({
         title: "Could not set up the pipeline",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -286,7 +287,7 @@ export function StagesStep() {
     } catch (error) {
       toast.add({
         title: "Could not add the stage",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

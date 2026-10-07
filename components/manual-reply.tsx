@@ -30,6 +30,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import { WindowClock } from "@/components/window-clock";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * The pause the last reply used, remembered per browser — a convenience for
@@ -313,7 +314,7 @@ export function ManualReply({
     } catch (caught) {
       toast.add({
         title: "Not sent",
-        description: caught instanceof Error ? caught.message : String(caught),
+        description: friendlyError(caught),
         type: "error",
       });
     } finally {

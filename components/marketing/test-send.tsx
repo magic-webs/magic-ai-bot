@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { FlaskIcon } from "@phosphor-icons/react";
 
 /** Where the last number tested with is kept, per browser. */
@@ -73,7 +73,7 @@ export function TestSendButton({
     } catch (error) {
       toast.add({
         title: "The test did not send",
-        description: errorMessage(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

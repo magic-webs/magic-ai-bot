@@ -57,7 +57,7 @@ import {
 } from "@/components/ui/table";
 import { CardGridSkeleton, TableSkeleton } from "@/components/skeletons";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import {
   ArrowsClockwiseIcon,
@@ -81,7 +81,7 @@ import {
  * stage, an order, an escalation, or another system posting to the alert's own
  * URL — and sends one template to the people it names, filled from the event.
  * The WhatsApp templates are the ones in the business account, synced from the
- * panel; the emails are written here and go out through Zoho ZeptoMail.
+ * panel; the emails are written here and go out from the platform's address.
  * Activity is every send, including the ones that could not go and why.
  */
 
@@ -115,16 +115,8 @@ const DIAL_CODES: Record<string, string> = {
   SAR: "966",
 };
 
-function localDefaults(workspace: { currency: string; timezone: string }) {
-  const india = workspace.currency === "INR" || workspace.timezone === "Asia/Kolkata";
-  const region = india
-    ? "in"
-    : workspace.timezone.startsWith("Europe/")
-      ? "eu"
-      : workspace.timezone.startsWith("Australia/")
-        ? "com.au"
-        : "com";
-  return { countryCode: DIAL_CODES[workspace.currency] ?? "", region };
+function localDefaults(workspace: { currency: string }) {
+  return { countryCode: DIAL_CODES[workspace.currency] ?? "" };
 }
 
 // ----------------------------------------------------------------- senders
@@ -148,10 +140,7 @@ function SendersDialog({
   const [countryCode, setCountryCode] = useState(
     settings.defaultCountryCode ?? guess.countryCode
   );
-  const [region, setRegion] = useState(settings.zeptoRegion ?? guess.region);
-  const [token, setToken] = useState("");
-  const [fromEmail, setFromEmail] = useState(settings.fromEmail ?? "");
-  const [fromName, setFromName] = useState(settings.fromName ?? workspace.name);
+  const [fromName, setFromName] = useState(settings.fromName ?? "");
   const [replyTo, setReplyTo] = useState(settings.replyTo ?? "");
   const [testTo, setTestTo] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -164,10 +153,6 @@ function SendersDialog({
         workspaceId: workspace._id,
         whatsappChannelId: channelId ? (channelId as Id<"channels">) : null,
         defaultCountryCode: countryCode,
-        zeptoRegion: region,
-        // Only when typed: an empty box means "keep the saved one".
-        ...(token.trim() ? { zeptoToken: token.trim() } : {}),
-        fromEmail,
         fromName,
         replyTo,
       });
@@ -191,7 +176,7 @@ function SendersDialog({
           : { ok: false, text: result.error ?? "It did not send." }
       );
     } catch (error) {
-      setTestResult({ ok: false, text: errorMessage(error) });
+      setTestResult({ ok: false, text: friendlyError(error) });
     } finally {
       setBusy(null);
     }
@@ -260,114 +245,70 @@ function SendersDialog({
 
           <section className="flex flex-col gap-3">
             <h3 className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              <EnvelopeSimpleIcon className="size-3.5" /> Email — Zoho ZeptoMail
+              <EnvelopeSimpleIcon className="size-3.5" /> Email
             </h3>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label>Region</Label>
-                <SelectField
-                  aria-label="ZeptoMail region"
-                  value={region}
-                  onValueChange={setRegion}
-                  options={overview.regions.map((item) => ({
-                    value: item.value,
-                    label: item.label,
-                  }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  The Zoho domain your ZeptoMail account signed up on.
-                </p>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="zepto-token">Send Mail token</Label>
-                <Input
-                  id="zepto-token"
-                  type="password"
-                  autoComplete="off"
-                  value={token}
-                  className="font-mono"
-                  placeholder={
-                    settings.tokenSet
-                      ? `Saved (${settings.tokenHint ?? "••••"}) — type to replace`
-                      : "Zoho-enczapikey …"
-                  }
-                  onChange={(change) => setToken(change.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Mail Agents → your agent → SMTP/API → Send Mail token.
-                </p>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="from-email">From address</Label>
-                <Input
-                  id="from-email"
-                  type="email"
-                  value={fromEmail}
-                  placeholder="alerts@yourcompany.com"
-                  onChange={(change) => setFromEmail(change.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  On a domain verified in ZeptoMail, or every send bounces.
-                </p>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="from-name">From name</Label>
+                <Label htmlFor="from-name">Sender name</Label>
                 <Input
                   id="from-name"
                   value={fromName}
-                  placeholder="Your company"
+                  placeholder={workspace.name}
                   onChange={(change) => setFromName(change.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Emails arrive from “{fromName.trim() || workspace.name} via{" "}
+                  {overview.emailSender.platformName}” &lt;{overview.emailSender.address}&gt;.
+                </p>
               </div>
-              <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="reply-to">Reply-to</Label>
                 <Input
                   id="reply-to"
                   type="email"
                   value={replyTo}
-                  placeholder="support@yourcompany.com — empty sends replies to the From address"
+                  placeholder="support@yourcompany.com"
                   onChange={(change) => setReplyTo(change.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Where replies to these emails go.
+                </p>
               </div>
             </div>
           </section>
 
-          {overview.emailReady ? (
-            <>
-              <Separator />
-              <section className="flex flex-col gap-2">
-                <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Send a test email
-                </h3>
-                <p className="text-xs text-muted-foreground">Uses the saved settings, so save first.</p>
-                <div className="flex gap-2">
-                  <Input
-                    type="email"
-                    value={testTo}
-                    placeholder="you@yourcompany.com"
-                    onChange={(change) => setTestTo(change.target.value)}
-                  />
-                  <Button
-                    variant="outline"
-                    disabled={busy !== null || !testTo.trim()}
-                    onClick={() => void test()}
-                  >
-                    {busy === "test" ? <Spinner /> : <PaperPlaneTiltIcon />} Send
-                  </Button>
-                </div>
-                {testResult ? (
-                  <p
-                    className={cn(
-                      "text-sm break-words",
-                      testResult.ok ? "text-primary" : "text-destructive"
-                    )}
-                  >
-                    {testResult.text}
-                  </p>
-                ) : null}
-              </section>
-            </>
-          ) : null}
+          <Separator />
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Send a test email
+            </h3>
+            <p className="text-xs text-muted-foreground">Uses the saved settings, so save first.</p>
+            <div className="flex gap-2">
+              <Input
+                type="email"
+                value={testTo}
+                placeholder="you@yourcompany.com"
+                onChange={(change) => setTestTo(change.target.value)}
+              />
+              <Button
+                variant="outline"
+                disabled={busy !== null || !testTo.trim()}
+                onClick={() => void test()}
+              >
+                {busy === "test" ? <Spinner /> : <PaperPlaneTiltIcon />} Send
+              </Button>
+            </div>
+            {testResult ? (
+              <p
+                className={cn(
+                  "text-sm break-words",
+                  testResult.ok ? "text-primary" : "text-destructive"
+                )}
+              >
+                {testResult.text}
+              </p>
+            ) : null}
+          </section>
         </DialogBody>
 
         <DialogFooter>
@@ -416,7 +357,7 @@ function TemplateDialog({
           : { ok: false, text: outcome.error ?? "It did not send." }
       );
     } catch (error) {
-      setResult({ ok: false, text: errorMessage(error) });
+      setResult({ ok: false, text: friendlyError(error) });
     } finally {
       setBusy(false);
     }
@@ -629,7 +570,7 @@ function EmailDialog({
           : { ok: false, text: outcome.error ?? "It did not send." }
       );
     } catch (error) {
-      setResult({ ok: false, text: errorMessage(error) });
+      setResult({ ok: false, text: friendlyError(error) });
     } finally {
       setBusy(null);
     }
@@ -749,7 +690,7 @@ function EmailDialog({
                 </h3>
                 {!emailReady ? (
                   <p className="text-sm text-muted-foreground">
-                    Set up ZeptoMail under Senders to send.
+                    Email sending is not available right now. Contact support.
                   </p>
                 ) : (
                   <>
@@ -1079,11 +1020,13 @@ export default function NotificationsPage() {
             },
             {
               icon: <EnvelopeSimpleIcon className="size-5" />,
-              title: "Email · ZeptoMail",
+              title: "Email",
               ready: overview.emailReady,
               detail: overview.emailReady
-                ? `Sends as ${overview.settings.fromName ? `${overview.settings.fromName} <${overview.settings.fromEmail}>` : overview.settings.fromEmail}`
-                : "Not set up — add the Send Mail token and a sender address.",
+                ? `Sends as ${overview.emailSender.name}${
+                    overview.settings.replyTo ? ` · replies to ${overview.settings.replyTo}` : ""
+                  }`
+                : "Email sending is not available right now. Contact support.",
             },
           ].map((sender) => (
             <button
@@ -1320,13 +1263,9 @@ export default function NotificationsPage() {
           {overview && !overview.emailReady ? (
             <Alert>
               <EnvelopeSimpleIcon />
-              <AlertTitle>Email is not set up yet</AlertTitle>
+              <AlertTitle>Email sending is not available right now</AlertTitle>
               <AlertDescription>
-                Emails can be written now, and send once ZeptoMail is connected under{" "}
-                <button type="button" className="underline" onClick={() => setSendersOpen(true)}>
-                  Senders
-                </button>
-                .
+                Emails can be written now and will send once it is back. Contact support.
               </AlertDescription>
             </Alert>
           ) : null}

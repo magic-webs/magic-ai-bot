@@ -1,6 +1,27 @@
 import type { NextConfig } from "next";
 
+const convexSite = (
+  process.env.NEXT_PUBLIC_CONVEX_SITE_URL ||
+  process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site") ||
+  ""
+).replace(/\/$/, "");
+
+const proxiedPrefixes = [
+  "/whatsapp",
+  "/notify",
+  "/apps",
+  "/l",
+  "/integrations/google",
+];
+
 const nextConfig: NextConfig = {
+  async rewrites() {
+    if (!convexSite) return [];
+    return proxiedPrefixes.map((prefix) => ({
+      source: `${prefix}/:path*`,
+      destination: `${convexSite}${prefix}/:path*`,
+    }));
+  },
   experimental: {
     // Both are single barrels re-exporting thousands of icons — 6031 in
     // core-free-icons alone — and the workspace sidebar pulls from one of them

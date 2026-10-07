@@ -44,6 +44,7 @@ import {
   TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * What an assistant can do here, grouped as the server groups its tools.
@@ -214,7 +215,7 @@ export function McpConnectorCard({
     } catch (error) {
       toast.add({
         title: "Could not create the connector",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

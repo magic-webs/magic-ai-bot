@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalAction,
@@ -30,6 +30,7 @@ import {
   MAX_HANDOFFS_PER_TURN,
   MAX_WIDGET_MESSAGE_CHARS,
   randomKey,
+  readableError,
   truncate,
 } from "./lib/shared";
 import {
@@ -135,7 +136,9 @@ function traced<TInput>(
       record(trace, name, input, output, true);
       return output;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const raw = error instanceof Error ? error.message : String(error);
+      const message = readableError(raw);
+      if (message !== raw) console.error(`[engine] tool ${name} failed`, raw);
       const failure = { ok: false, error: message };
       record(trace, name, input, failure, false);
       return failure;
@@ -535,7 +538,7 @@ function makeDeliver(ctx: ActionCtx, turn: TurnContext) {
     let wamid: string | undefined;
     if (channelType === "whatsapp") {
       if (!channelId || !externalId) {
-        throw new Error("This conversation has no WhatsApp channel to send on.");
+        throw new ConvexError("This conversation has no WhatsApp channel to send on.");
       }
       const result: { ok: boolean; error?: string; wamid?: string } =
         await ctx.runAction(internal.whatsapp.sendOutbound, {
@@ -546,7 +549,7 @@ function makeDeliver(ctx: ActionCtx, turn: TurnContext) {
           conversationId,
         });
       if (!result.ok) {
-        throw new Error(
+        throw new ConvexError(
           result.error ?? "WhatsApp would not accept that message."
         );
       }
@@ -829,7 +832,7 @@ async function executeHttpTool(
   input: Record<string, unknown>
 ): Promise<unknown> {
   const config = toolDoc.http;
-  if (!config) throw new Error("This tool has no HTTP configuration");
+  if (!config) throw new ConvexError("This tool has no HTTP configuration");
 
   const url = new URL(renderTemplate(config.urlTemplate, input, true));
 
@@ -894,7 +897,7 @@ async function executeHttpTool(
     };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("The request timed out.");
+      throw new ConvexError("The request timed out.");
     }
     throw error;
   } finally {
@@ -928,7 +931,7 @@ function buildCustomTools(
         }
 
         const config = toolDoc.dbQuery;
-        if (!config) throw new Error("This tool has no query configuration");
+        if (!config) throw new ConvexError("This tool has no query configuration");
         const searchValue = config.searchParam
           ? input[config.searchParam]
           : undefined;
@@ -1085,12 +1088,12 @@ function buildRecordTools(
         // error and the model treats it as "go and ask", not as a result it
         // can report to the customer as success.
         if (checked.missing.length > 0) {
-          throw new Error(
+          throw new ConvexError(
             `Not filed — still missing: ${checked.missing.join(", ")}. Ask the customer for those, then call this again with everything.`
           );
         }
         if (checked.problems.length > 0) {
-          throw new Error(`Not filed. ${checked.problems.join(" ")}`);
+          throw new ConvexError(`Not filed. ${checked.problems.join(" ")}`);
         }
 
         const filed = await ctx.runMutation(internal.records.fileFromTool, {
@@ -1213,7 +1216,7 @@ function buildRecordTools(
           const input = (rawInput ?? {}) as Record<string, unknown>;
           const reference = String(input.reference ?? "").trim();
           if (!reference) {
-            throw new Error(
+            throw new ConvexError(
               "Which one? Pass the reference of the record to change."
             );
           }
@@ -1226,14 +1229,14 @@ function buildRecordTools(
           });
           const existing = found[0];
           if (!existing) {
-            throw new Error(
+            throw new ConvexError(
               `No ${one} has the reference ${reference}. Check it with the customer rather than filing a new one.`
             );
           }
 
           const stage = input.stage ? String(input.stage) : undefined;
           if (stage && !book.stages.includes(stage)) {
-            throw new Error(
+            throw new ConvexError(
               `"${stage}" is not one of the stages. They are: ${book.stages.join(", ")}.`
             );
           }
@@ -1244,7 +1247,7 @@ function buildRecordTools(
           const { person, notes, details } = splitPerson(rest);
           const checked = checkValues(fields, details);
           if (checked.problems.length > 0) {
-            throw new Error(`Not changed. ${checked.problems.join(" ")}`);
+            throw new ConvexError(`Not changed. ${checked.problems.join(" ")}`);
           }
           // `missing` is ignored on purpose: an update carries the one detail
           // that changed, and demanding the rest back would make the model
@@ -1327,7 +1330,7 @@ function buildAppTools(
     const find = (key: unknown): AppItem => {
       const item = connection.items.find((row) => row.key === String(key ?? ""));
       if (!item) {
-        throw new Error(
+        throw new ConvexError(
           `There is no ${connection.app === "magic_forms" ? "form" : "offer"} called "${String(key)}". Use one of: ${connection.items.map((row) => row.key).join(", ")}.`
         );
       }
@@ -1439,14 +1442,14 @@ function buildAppTools(
               await ctx.scheduler.runAfter(0, internal.apps.refreshItems, {
                 connectionId: connection._id,
               });
-              throw new Error(
+              throw new ConvexError(
                 `"${item.title}" is no longer available. Do not offer it again.`
               );
             }
-            throw new Error(`The form link could not be made: ${link.error}`);
+            throw new ConvexError(`The form link could not be made: ${link.error}`);
           }
           const url = text((link.body as { url?: unknown } | null)?.url);
-          if (!url) throw new Error("Magic Forms returned no link.");
+          if (!url) throw new ConvexError("Magic Forms returned no link.");
 
           await fileLink(item, ref, url);
           const sent = await deliver({
@@ -1526,11 +1529,11 @@ function buildAppTools(
               await ctx.scheduler.runAfter(0, internal.apps.refreshItems, {
                 connectionId: connection._id,
               });
-              throw new Error(
+              throw new ConvexError(
                 `"${item.title}" is not running any more. Do not offer it again.`
               );
             }
-            throw new Error(`The offer link could not be made: ${invite.error}`);
+            throw new ConvexError(`The offer link could not be made: ${invite.error}`);
           }
 
           const body = (invite.body ?? {}) as {
@@ -1550,7 +1553,7 @@ function buildAppTools(
             };
           }
           const url = text(body.url);
-          if (!url) throw new Error("Magic Reward returned no link.");
+          if (!url) throw new ConvexError("Magic Reward returned no link.");
 
           await fileLink(item, ref, url);
           const sent = await deliver({
@@ -1675,13 +1678,13 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
 
     const apiKey = process.env.AI_GATEWAY_API_KEY;
     if (!apiKey) {
+      console.error("engine: AI_GATEWAY_API_KEY is not set");
       return {
         ok: false,
         text: null,
         conversationId: null,
         toolCalls: [],
-        error:
-          "AI_GATEWAY_API_KEY is not set on the Convex deployment. Every model call runs inside a Convex action, which cannot read .env.local — run: npx convex env set AI_GATEWAY_API_KEY <key>",
+        error: "The assistant is not available right now.",
       };
     }
 
@@ -1922,8 +1925,11 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           }
         }
       } catch (error) {
-        generationError = error instanceof Error ? error.message : String(error);
-        console.error("[engine] generation failed", generationError);
+        console.error(
+          "[engine] generation failed",
+          error instanceof Error ? error.message : String(error)
+        );
+        generationError = "The assistant could not reply. Please try again.";
       }
 
       const requested = turn.pendingTransfer;

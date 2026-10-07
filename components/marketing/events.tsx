@@ -73,7 +73,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import {
   CalendarCheckIcon,
@@ -106,7 +106,7 @@ const isPending = (touch: Touch) =>
   touch.status === "draft" || touch.status === "scheduled";
 
 function fail(title: string, error: unknown) {
-  toast.add({ title, description: errorMessage(error), type: "error" });
+  toast.add({ title, description: friendlyError(error), type: "error" });
 }
 
 /** Templates for events first, then the rest, so the right one is on top. */

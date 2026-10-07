@@ -35,6 +35,7 @@ export const authTables = {
     workspaceId: v.id("workspaces"),
     memberId: v.id("teamMembers"),
     username: v.string(),
+    email: v.optional(v.string()),
     passwordHash: v.string(),
     status: v.union(v.literal("active"), v.literal("revoked")),
     issuedAt: v.number(),
@@ -43,6 +44,7 @@ export const authTables = {
   })
     .index("by_member", ["memberId"])
     .index("by_username", ["username"])
+    .index("by_email", ["email"])
     .index("by_workspace", ["workspaceId"]),
 
   authSessions: defineTable({

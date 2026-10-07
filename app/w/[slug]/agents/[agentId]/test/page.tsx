@@ -33,6 +33,7 @@ import {
   WarningIcon,
   SlidersIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 // One browser session == one contact, so the playground behaves like a real
 // returning customer across reloads. localStorage is an external store rather
@@ -125,8 +126,7 @@ export default function AgentTestPage({
       });
       if (!result.ok && result.error) setLastError(result.error);
     } catch (error) {
-      const description =
-        error instanceof Error ? error.message : String(error);
+      const description = friendlyError(error);
       setLastError(description);
       toast.add({ title: "The agent did not reply", description, type: "error" });
     } finally {

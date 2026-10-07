@@ -74,6 +74,7 @@ import {
   PlugsConnectedIcon,
   FolderOpenIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 const INTEGRATION_ICONS: Record<
   string,
@@ -295,7 +296,7 @@ export default function AgentConfigPage({
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

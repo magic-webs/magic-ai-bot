@@ -6,7 +6,7 @@
  * and sends one template to a list of recipients. WhatsApp alerts send an
  * approved template synced from the panel (nothing else reaches someone
  * outside the 24-hour window); email alerts send a template written here,
- * through Zoho ZeptoMail.
+ * from the platform's address under the workspace's name.
  *
  * The one idea worth holding on to: a template's blanks and an alert's
  * recipients are text with `{{path}}` placeholders over the event's payload —
@@ -34,9 +34,6 @@ const EVENTS = [
 ];
 
 const RECORD_EVENTS = new Set(["record_filed", "record_updated", "record_stage_changed"]);
-
-// convex/lib/notifications.ts ZEPTO_REGIONS.
-const ZEPTO_REGIONS = ["com", "in", "eu", "com.au", "jp", "ca", "sa", "com.cn"];
 
 const iso = (instant) => (instant ? new Date(instant).toISOString() : null);
 
@@ -288,7 +285,7 @@ export function register(server) {
     {
       title: "Get notification settings",
       description:
-        "Where alerts go out from — the WhatsApp number and the ZeptoMail sender — whether each is ready, and the catalogue an alert is written against: every event, the {{path}} variables each one offers, the record book fields ({{record.details.<key>}}), and teammates with a phone or email. The ZeptoMail token is never returned.",
+        "Where alerts go out from — the WhatsApp number and the email sender — whether each is ready, and the catalogue an alert is written against: every event, the {{path}} variables each one offers, the record book fields ({{record.details.<key>}}), and teammates with a phone or email.",
       inputSchema: { ...workspaceArg },
       annotations: { readOnlyHint: true },
     },
@@ -310,11 +307,9 @@ export function register(server) {
           : { ready: false, reason: "No live WhatsApp channel." },
         email: {
           ready: overview.emailReady,
-          region: overview.settings.zeptoRegion,
-          fromEmail: overview.settings.fromEmail,
+          sendsAs: `${overview.emailSender.name} <${overview.emailSender.address}>`,
           fromName: overview.settings.fromName,
           replyTo: overview.settings.replyTo,
-          tokenSaved: overview.settings.tokenSet,
         },
         defaultCountryCode: overview.settings.defaultCountryCode,
         events: overview.events.map((item) => ({
@@ -341,7 +336,7 @@ export function register(server) {
     {
       title: "Update notification settings",
       description:
-        "Set where alerts go out from. WhatsApp: which channel sends (its business account is what templates sync from) and the country code put in front of numbers typed without one. Email: the Zoho ZeptoMail region, Send Mail token, From address (on a domain verified in ZeptoMail), From name and Reply-to. Omitted fields are left alone; an empty string clears one.",
+        "Set where alerts go out from. WhatsApp: which channel sends (its business account is what templates sync from) and the country code put in front of numbers typed without one. Email: the sender name (shown as '<name> via Magic Agent'; empty uses the workspace name) and the Reply-to address. Omitted fields are left alone; an empty string clears one.",
       inputSchema: {
         ...workspaceArg,
         whatsappChannel: z
@@ -349,17 +344,8 @@ export function register(server) {
           .optional()
           .describe("Channel name or id to send from. 'default' goes back to the first live one."),
         defaultCountryCode: z.string().optional().describe("Digits only: '91' for India"),
-        zeptoRegion: z
-          .enum(ZEPTO_REGIONS)
-          .optional()
-          .describe("The ZeptoMail data centre: the Zoho domain the account signed up on. 'in' for zoho.in."),
-        zeptoToken: z
-          .string()
-          .optional()
-          .describe("ZeptoMail → Mail Agents → SMTP/API → Send Mail token, with or without 'Zoho-enczapikey'"),
-        fromEmail: z.string().optional(),
-        fromName: z.string().optional(),
-        replyTo: z.string().optional(),
+        fromName: z.string().optional().describe("Sender name shown before 'via Magic Agent'"),
+        replyTo: z.string().optional().describe("Where replies to alert emails go"),
       },
     },
     handler(async ({ workspace, whatsappChannel, ...fields }) => {
@@ -387,7 +373,7 @@ export function register(server) {
     {
       title: "Send a test email",
       description:
-        "One plain email through the saved ZeptoMail settings, to prove the token, region and sender address work. Reports what ZeptoMail answered.",
+        "One plain email with the saved sender name and Reply-to, to prove email alerts arrive. Reports why it did not send, if it did not.",
       inputSchema: {
         ...workspaceArg,
         to: z.string().describe("Email address to send it to"),

@@ -15,7 +15,7 @@
 //
 // fetch only, so the default runtime.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -52,12 +52,12 @@ export const apply = action({
       internal.marketing.applyContext,
       { templateId: args.templateId }
     );
-    if (!panel) throw new Error(NO_PANEL);
+    if (!panel) throw new ConvexError(NO_PANEL);
     if (template.metaStatus === "PENDING") {
-      throw new Error("Meta is still reviewing it. Apply again once it has decided.");
+      throw new ConvexError("Meta is still reviewing it. Apply again once it has decided.");
     }
     const problems = templateProblems(template.body);
-    if (problems.length > 0) throw new Error(problems[0]);
+    if (problems.length > 0) throw new ConvexError(problems[0]);
 
     const text = metaBody(template.body);
     const samples = exampleValues(template.body, business, template.occasion);
@@ -78,7 +78,7 @@ export const apply = action({
       payload = { category, components: [body] };
     } else {
       const wabaId = panel.wabaId ?? (await discoverWaba(panel));
-      if (!wabaId) throw new Error(NO_WABA);
+      if (!wabaId) throw new ConvexError(NO_WABA);
       url = `${panelRoot(panel)}/${wabaId}/message_templates`;
       payload = { name, category, language: template.languageCode, components: [body] };
     }
@@ -91,10 +91,10 @@ export const apply = action({
         body: JSON.stringify(payload),
       });
     } catch (error) {
-      throw new Error(`Could not reach the WhatsApp panel: ${errorText(error)}`);
+      throw new ConvexError(`Could not reach the WhatsApp panel: ${errorText(error)}`);
     }
     if (!response.ok) {
-      throw new Error(
+      throw new ConvexError(
         `Meta did not accept it — ${providerError(response.status, response.body, response.text)}`
       );
     }
@@ -124,15 +124,15 @@ async function reviewWorkspace(
   workspaceId: Id<"workspaces">
 ): Promise<number> {
   const context = await ctx.runQuery(internal.marketing.reviewContext, { workspaceId });
-  if (!context.panel) throw new Error(NO_PANEL);
+  if (!context.panel) throw new ConvexError(NO_PANEL);
   if (context.templates.length === 0) return 0;
 
   const panel: PanelConfig = context.panel;
   const wabaId = context.panel.wabaId ?? (await discoverWaba(panel));
-  if (!wabaId) throw new Error(NO_WABA);
+  if (!wabaId) throw new ConvexError(NO_WABA);
 
   const listed = await listTemplates(panel, wabaId);
-  if (!listed.ok) throw new Error(listed.error);
+  if (!listed.ok) throw new ConvexError(listed.error);
 
   const rows = context.templates.flatMap((template) => {
     const found = listed.templates.find(

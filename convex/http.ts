@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { interpretEvent } from "./lib/apps";
 import { verifyDelivery } from "./lib/appWebhooks";
 import { isLinkBot } from "./lib/links";
+import { publicSiteUrl } from "./lib/publicUrl";
 import {
   paymentFields,
   subscriptionFields,
@@ -345,7 +346,7 @@ http.route({
     const result = await ctx.runAction(internal.integrations.finishGoogleConnect, {
       code,
       state,
-      siteUrl: process.env.CONVEX_SITE_URL ?? "",
+      siteUrl: publicSiteUrl(),
     });
 
     if (!result.returnTo) {

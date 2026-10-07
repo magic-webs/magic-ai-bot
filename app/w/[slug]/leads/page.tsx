@@ -40,6 +40,7 @@ import { ListSkeleton } from "@/components/skeletons";
 import { useHourBucket } from "@/components/use-now";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import {
   ArrowRightIcon,
   CardsThreeIcon,
@@ -326,8 +327,7 @@ function LeadMenu({ lead, base }: { lead: Lead; base: string }) {
               } catch (error) {
                 toast.add({
                   title: "Could not unfile the lead",
-                  description:
-                    error instanceof Error ? error.message : String(error),
+                  description: friendlyError(error),
                   type: "error",
                 });
               }
@@ -451,8 +451,7 @@ function LeadCard({
               } catch (error) {
                 toast.add({
                   title: "Could not move the lead",
-                  description:
-                    error instanceof Error ? error.message : String(error),
+                  description: friendlyError(error),
                   type: "error",
                 });
               }
@@ -526,7 +525,7 @@ function KanbanBoard({
     } catch (error) {
       toast.add({
         title: "Could not move the lead",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -722,10 +721,7 @@ function LeadTable({
                       } catch (error) {
                         toast.add({
                           title: "Could not move the lead",
-                          description:
-                            error instanceof Error
-                              ? error.message
-                              : String(error),
+                          description: friendlyError(error),
                           type: "error",
                         });
                       }

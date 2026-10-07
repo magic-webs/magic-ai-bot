@@ -44,6 +44,7 @@ import {
   FolderOpenIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * A few shapes most businesses turn out to want, so the empty page offers a
@@ -219,7 +220,7 @@ function NewBookDialog({ base }: { base: string }) {
       router.push(`${base}/records/${created.bookId}`);
     } catch (error) {
       toast.add({
-        title: error instanceof Error ? error.message : "Could not create it.",
+        title: friendlyError(error, "Could not create it."),
         type: "error",
       });
     } finally {

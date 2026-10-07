@@ -39,12 +39,7 @@ import {
   ShieldCheckIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
-
-function reason(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  // Convex wraps what the action threw in its own request context.
-  return raw.match(/Uncaught Error:\s*([^\n]+)/)?.[1]?.trim() ?? raw;
-}
+import { friendlyError } from "@/lib/errors";
 
 async function copy(value: string, what: string) {
   try {
@@ -123,7 +118,7 @@ export function TwoFactorCard({ className }: { className?: string }) {
     } catch (error) {
       toast.add({
         title: "Could not start the setup",
-        description: reason(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -232,7 +227,7 @@ function SetupDialog({
       const result = await confirm({ code: value });
       setRecoveryCodes(result.recoveryCodes);
     } catch (caught) {
-      setError(reason(caught));
+      setError(friendlyError(caught));
       setCode("");
     } finally {
       setBusy(false);
@@ -386,7 +381,7 @@ function DisableDialog({ onClose }: { onClose: () => void }) {
       toast.add({ title: "Two-factor authentication turned off", type: "success" });
       onClose();
     } catch (caught) {
-      setError(reason(caught));
+      setError(friendlyError(caught));
       setCode("");
       setBusy(false);
     }

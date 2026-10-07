@@ -63,6 +63,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/errors";
 import {
   CaretLeftIcon,
   CaretRightIcon,
@@ -80,7 +81,7 @@ type Settings = Doc<"billingSettings">;
 function fail(title: string, error: unknown) {
   toast.add({
     title,
-    description: error instanceof Error ? error.message : String(error),
+    description: friendlyError(error),
     type: "error",
   });
 }

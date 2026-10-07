@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { LinkIcon, TrashIcon, UploadSimpleIcon } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /** Larger than any logo needs to be; a 10 MB PNG is a photo, not a mark. */
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -28,7 +29,7 @@ const MAX_BYTES = 2 * 1024 * 1024;
 function fail(title: string, error: unknown) {
   toast.add({
     title,
-    description: error instanceof Error ? error.message : String(error),
+    description: friendlyError(error),
     type: "error",
   });
 }

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -59,15 +59,15 @@ function regional(args: {
   const timezone = args.timezone?.trim();
   const currency = args.currency?.trim().toUpperCase();
   if (locale !== undefined && !isValidLocale(locale)) {
-    throw new Error(`"${locale}" is not a locale — try one like en-GB or sw-TZ.`);
+    throw new ConvexError(`"${locale}" is not a locale — try one like en-GB or sw-TZ.`);
   }
   if (timezone !== undefined && !isValidTimezone(timezone)) {
-    throw new Error(
+    throw new ConvexError(
       `"${timezone}" is not a timezone — try one like Africa/Dar_es_Salaam.`
     );
   }
   if (currency !== undefined && !isValidCurrency(currency)) {
-    throw new Error(`"${currency}" is not a currency code — try one like TZS.`);
+    throw new ConvexError(`"${currency}" is not a currency code — try one like TZS.`);
   }
   return { locale, timezone, currency };
 }
@@ -211,7 +211,7 @@ export const update = mutation({
     await requireWorkspace(ctx, args.workspaceId);
     const { workspaceId, ...rest } = args;
     const existing = await ctx.db.get("workspaces", workspaceId);
-    if (!existing) throw new Error("Workspace not found");
+    if (!existing) throw new ConvexError("Workspace not found");
 
     // Only what changed is checked. The company page sends every field on
     // every save, and a workspace set up with a hand-typed "en_GB" must still
@@ -246,7 +246,7 @@ export const update = mutation({
     if (rest.maxMessagesPerConversation !== undefined) {
       const limit = rest.maxMessagesPerConversation;
       if (!Number.isInteger(limit) || limit < 0) {
-        throw new Error("The message limit must be a whole number, or 0 for no limit");
+        throw new ConvexError("The message limit must be a whole number, or 0 for no limit");
       }
       patch.maxMessagesPerConversation = limit;
     }
@@ -279,14 +279,14 @@ export const setLogo = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const url = args.url?.trim() || undefined;
-    if (!args.storageId && !url) throw new Error("Upload a logo or paste a link.");
+    if (!args.storageId && !url) throw new ConvexError("Upload a logo or paste a link.");
     if (!args.storageId && url && !/^https:\/\//i.test(url)) {
       // The web chat embeds on customers' https sites, where an http image is
       // blocked as mixed content — so a link that would not show is refused.
-      throw new Error("The logo link has to start with https://.");
+      throw new ConvexError("The logo link has to start with https://.");
     }
 
     if (
@@ -310,7 +310,7 @@ export const clearLogo = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     if (workspace.logoStorageId) {
       await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
     }

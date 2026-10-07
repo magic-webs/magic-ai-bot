@@ -1,7 +1,7 @@
 "use node";
 
 import { createHmac } from "node:crypto";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -133,9 +133,8 @@ function b64url(input: string | Uint8Array): string {
 async function signAccessToken(subject: string, ttlSeconds: number) {
   const privateB64 = process.env.JWT_PRIVATE_KEY;
   if (!privateB64) {
-    throw new Error(
-      "JWT_PRIVATE_KEY is not set on the Convex deployment. See the Authentication section of README.md for key setup."
-    );
+    console.error("JWT_PRIVATE_KEY is not set; see the Authentication section of README.md.");
+    throw new ConvexError("Sign-in is unavailable right now. Please try again later.");
   }
 
   const key = await crypto.subtle.importKey(
@@ -307,12 +306,12 @@ async function checkCode(
     principal,
   });
   if (attempt.kind === "locked") {
-    throw new Error(
+    throw new ConvexError(
       `Too many incorrect codes. Try again ${untilText(attempt.until)}.`
     );
   }
   if (attempt.kind === "missing" || attempt.status !== expect) {
-    throw new Error(
+    throw new ConvexError(
       expect === "pending"
         ? "Start the setup again — this one is no longer waiting for a code."
         : "Two-factor authentication is not on for this login."
@@ -344,7 +343,7 @@ async function checkCode(
   }
 
   if (!accepted) {
-    throw new Error("That code is not right. Check your authenticator app and try again.");
+    throw new ConvexError("That code is not right. Check your authenticator app and try again.");
   }
 }
 
@@ -365,15 +364,15 @@ export const setupFirstAdmin = action({
     // Only reachable while the platform has no administrator at all.
     const existing: number = await ctx.runQuery(internal.authDb.countAdmins, {});
     if (existing > 0) {
-      throw new Error("Setup has already been completed.");
+      throw new ConvexError("Setup has already been completed.");
     }
 
     const email = args.email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      throw new Error("Enter a valid email address.");
+      throw new ConvexError("Enter a valid email address.");
     }
     if (args.password.length < 12) {
-      throw new Error("Choose a password of at least 12 characters.");
+      throw new ConvexError("Choose a password of at least 12 characters.");
     }
 
     const adminId: Id<"admins"> = await ctx.runMutation(
@@ -446,7 +445,7 @@ export const createAdmin = action({
   handler: async (ctx, args): Promise<{ adminId: Id<"admins"> }> => {
     await ctx.runQuery(internal.authDb.assertAdmin, {});
     if (args.password.length < 12) {
-      throw new Error("Choose a password of at least 12 characters.");
+      throw new ConvexError("Choose a password of at least 12 characters.");
     }
 
     const adminId: Id<"admins"> = await ctx.runMutation(
@@ -469,7 +468,7 @@ export const resetAdminPassword = action({
   handler: async (ctx, args): Promise<{ success: true }> => {
     await ctx.runQuery(internal.authDb.assertAdmin, {});
     if (args.password.length < 12) {
-      throw new Error("Choose a password of at least 12 characters.");
+      throw new ConvexError("Choose a password of at least 12 characters.");
     }
     await ctx.runMutation(internal.authDb.setAdminPassword, {
       adminId: args.adminId,
@@ -490,10 +489,10 @@ export const createUser = action({
     await ctx.runQuery(internal.authDb.assertAdmin, {});
     const email = args.email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      throw new Error("Enter a valid email address.");
+      throw new ConvexError("Enter a valid email address.");
     }
     if (args.password.length < 12) {
-      throw new Error("Choose a password of at least 12 characters.");
+      throw new ConvexError("Choose a password of at least 12 characters.");
     }
     const userId: Id<"users"> = await ctx.runMutation(internal.users.insert, {
       email,
@@ -510,7 +509,7 @@ export const resetUserPassword = action({
   handler: async (ctx, args): Promise<{ success: true }> => {
     await ctx.runQuery(internal.authDb.assertAdmin, {});
     if (args.password.length < 12) {
-      throw new Error("Choose a password of at least 12 characters.");
+      throw new ConvexError("Choose a password of at least 12 characters.");
     }
     await ctx.runMutation(internal.users.setPassword, {
       userId: args.userId,
@@ -637,7 +636,7 @@ async function issueSession(
   source: Source
 ): Promise<{ sessionToken: string; expiresAt: number }> {
   const opened = await openSession(ctx, principal, { source, mode: "shared" });
-  if (!opened.ok) throw new Error("Could not open a session.");
+  if (!opened.ok) throw new ConvexError("Could not open a session.");
   return { sessionToken: opened.sessionToken, expiresAt: opened.expiresAt };
 }
 
@@ -690,7 +689,7 @@ async function finishSignIn(
   }
 
   if (!source) {
-    throw new Error(
+    throw new ConvexError(
       "This login is already signed in on another device. Sign out there first, or update the app to switch devices."
     );
   }
@@ -723,10 +722,11 @@ const sourceValidator = v.optional(
 /**
  * One sign-in for every kind of principal.
  *
- * The username is matched against administrator emails first, then workspace
- * IDs, then human agents' usernames. An email always contains "@", a workspace
- * ID never contains "@" or ".", and a human agent's username is
- * `<workspace-id>.<name>` — so the three namespaces cannot collide. The caller
+ * The username is matched against administrator and user emails first, then
+ * workspace IDs, then human agents' emails or usernames. An email always
+ * contains "@", a workspace ID never contains "@" or ".", and a human agent's
+ * username is `<workspace-id>.<name>` — so the namespaces cannot collide, and
+ * an email belongs to one login only (`loginEmailTaken`). The caller
  * is told which area to open rather than being asked to choose a role up
  * front.
  *
@@ -746,7 +746,7 @@ export const login = action({
   },
   handler: async (ctx, args): Promise<LoginOutcome> => {
     const identifier = args.username.trim().toLowerCase();
-    const generic = "Incorrect username or password.";
+    const generic = "Incorrect email or password.";
 
     const admin: Doc<"admins"> | null = await ctx.runQuery(
       internal.authDb.adminByEmail,
@@ -773,9 +773,13 @@ export const login = action({
     const memberLogin: Doc<"memberCredentials"> | null =
       admin || user || workspace
         ? null
-        : await ctx.runQuery(internal.authDb.memberCredentialByUsername, {
-            username: identifier,
-          });
+        : identifier.includes("@")
+          ? await ctx.runQuery(internal.authDb.memberCredentialByEmail, {
+              email: identifier,
+            })
+          : await ctx.runQuery(internal.authDb.memberCredentialByUsername, {
+              username: identifier,
+            });
 
     const stored =
       admin?.passwordHash ??
@@ -786,7 +790,7 @@ export const login = action({
     // Always verify something, so a wrong username and a wrong password are
     // indistinguishable from the outside.
     const ok = await verifyPassword(args.password, stored ?? unmatchableHash());
-    if (!ok || !stored) throw new Error(generic);
+    if (!ok || !stored) throw new ConvexError(generic);
 
     // Only reachable with a matching, active credential of one of the three.
     const principal: LoginPrincipal | null = admin
@@ -802,9 +806,9 @@ export const login = action({
           : workspace && credential
             ? { role: "workspace", workspaceId: workspace._id }
             : null;
-    if (!principal) throw new Error(generic);
+    if (!principal) throw new ConvexError(generic);
     if (principal.role === "user" && args.client === "mcp") {
-      throw new Error(
+      throw new ConvexError(
         "The MCP server cannot sign in with a user's password. Use a connector URL from the workspace dashboard instead."
       );
     }
@@ -821,12 +825,12 @@ export const login = action({
     );
     if (protectedLogin) {
       if (!source) {
-        throw new Error(
+        throw new ConvexError(
           "Two-factor authentication is on for this login. Update the app to sign in."
         );
       }
       if (source === "mcp") {
-        throw new Error(
+        throw new ConvexError(
           "Two-factor authentication is on for this login, so the MCP server cannot sign in with its password. Use a connector URL from the dashboard instead."
         );
       }
@@ -857,7 +861,7 @@ async function profileOf(
     internal.authDb.principalProfile,
     principalFields(principal)
   );
-  if (!found.ok) throw new Error(found.error);
+  if (!found.ok) throw new ConvexError(found.error);
   return {
     role: principal.role,
     label: found.label,
@@ -884,7 +888,7 @@ export const continueLogin = action({
       { tokenHash: await sha256Hex(token) }
     );
     if (!found || found.expiresAt < Date.now()) {
-      throw new Error("This sign-in has expired. Sign in again.");
+      throw new ConvexError("This sign-in has expired. Sign in again.");
     }
 
     const principal: LoginPrincipal | null =
@@ -901,14 +905,14 @@ export const continueLogin = action({
             : found.role === "workspace" && found.workspaceId
               ? { role: "workspace", workspaceId: found.workspaceId }
               : null;
-    if (!principal) throw new Error("This sign-in has expired. Sign in again.");
+    if (!principal) throw new ConvexError("This sign-in has expired. Sign in again.");
 
     const profile = await profileOf(ctx, principal);
     const challenge = { id: found._id, token, expiresAt: found.expiresAt };
 
     if (found.stage === "twoFactor") {
       if (!args.code?.trim()) {
-        throw new Error("Enter the code from your authenticator app.");
+        throw new ConvexError("Enter the code from your authenticator app.");
       }
       await checkCode(ctx, keyOf(principal), args.code, "active");
       return await finishSignIn(
@@ -922,7 +926,7 @@ export const continueLogin = action({
     }
 
     if (!args.replace) {
-      throw new Error("Sign out the other session to continue.");
+      throw new ConvexError("Sign out the other session to continue.");
     }
     const opened = await openSession(ctx, principal, {
       source: found.source,
@@ -930,7 +934,7 @@ export const continueLogin = action({
       mode: "replace",
       challengeId: found._id,
     });
-    if (!opened.ok) throw new Error("Could not open a session.");
+    if (!opened.ok) throw new ConvexError("Could not open a session.");
     return {
       status: "signedIn",
       sessionToken: opened.sessionToken,
@@ -1099,7 +1103,7 @@ export const issueMcpToken = action({
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
     );
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const token = randomToken(MCP_TOKEN_BYTES);
     const prefix = token.slice(0, MCP_PREFIX_CHARS);
@@ -1215,7 +1219,7 @@ export const mcpLogin = action({
   }> => {
     const generic = "Invalid connector token.";
     const token = args.token.trim();
-    if (token.length < 24) throw new Error(generic);
+    if (token.length < 24) throw new ConvexError(generic);
 
     const tokenHash = await sha256Hex(token);
 
@@ -1254,11 +1258,11 @@ export const mcpLogin = action({
     } | null = await ctx.runQuery(internal.authDb.workspaceByMcpTokenHash, {
       tokenHash,
     });
-    if (!found) throw new Error(generic);
+    if (!found) throw new ConvexError(generic);
 
     const { workspace } = found;
     if (workspace.status === "archived") {
-      throw new Error("This workspace has been archived.");
+      throw new ConvexError("This workspace has been archived.");
     }
 
     // A company whose dashboard access was revoked must not keep a working
@@ -1269,7 +1273,7 @@ export const mcpLogin = action({
       { workspaceId: workspace._id }
     );
     if (!credential || credential.status !== "active") {
-      throw new Error(generic);
+      throw new ConvexError(generic);
     }
 
     await ctx.runMutation(internal.authDb.touchMcpToken, {
@@ -1302,7 +1306,7 @@ export const generateWorkspacePassword = action({
       internal.workspaces.getInternal,
       { workspaceId: args.workspaceId }
     );
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const password = generatePassword();
     await ctx.runMutation(internal.authDb.upsertWorkspaceCredential, {
@@ -1340,26 +1344,26 @@ export const changeWorkspacePassword = action({
   handler: async (ctx, args): Promise<{ success: true }> => {
     const principal = await ctx.runQuery(api.authDb.me, {});
     if (principal?.role !== "workspace" || !principal.workspaceSlug) {
-      throw new Error("Sign in to the workspace first.");
+      throw new ConvexError("Sign in to the workspace first.");
     }
     if (args.newPassword.length < 12) {
-      throw new Error("Choose a password of at least 12 characters.");
+      throw new ConvexError("Choose a password of at least 12 characters.");
     }
 
     const workspace: Doc<"workspaces"> | null = await ctx.runQuery(
       internal.authDb.workspaceBySlug,
       { slug: principal.workspaceSlug }
     );
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const credential: Doc<"workspaceCredentials"> | null = await ctx.runQuery(
       internal.authDb.credentialForWorkspace,
       { workspaceId: workspace._id }
     );
-    if (!credential) throw new Error("This workspace has no password yet.");
+    if (!credential) throw new ConvexError("This workspace has no password yet.");
 
     if (!(await verifyPassword(args.currentPassword, credential.passwordHash))) {
-      throw new Error("The current password is incorrect.");
+      throw new ConvexError("The current password is incorrect.");
     }
 
     await ctx.runMutation(internal.authDb.replaceOwnCredential, {
@@ -1382,19 +1386,19 @@ export const issueMemberLogin = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ username: string; password: string }> => {
+  ): Promise<{ username: string; email: string | null; password: string }> => {
     // The guard, and the check that there is somebody to issue it to.
     const found = await ctx.runQuery(internal.authDb.memberForLogin, {
       memberId: args.memberId,
     });
     if (found.member.status === "inactive") {
-      throw new Error(
+      throw new ConvexError(
         `${found.member.name} is inactive. Set them to active or away first.`
       );
     }
 
     const password = generatePassword();
-    const { username } = await ctx.runMutation(
+    const { username, email } = await ctx.runMutation(
       internal.authDb.upsertMemberCredential,
       {
         memberId: args.memberId,
@@ -1403,7 +1407,7 @@ export const issueMemberLogin = action({
     );
 
     // Returned once. Only the hash is kept.
-    return { username, password };
+    return { username, email, password };
   },
 });
 

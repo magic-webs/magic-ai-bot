@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { CopyIcon, KeyIcon } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 export type WorkspaceOption = { _id: Id<"workspaces">; name: string; slug: string };
 
@@ -26,7 +27,7 @@ export function randomPassword(): string {
 }
 
 export function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return friendlyError(error);
 }
 
 export async function copy(value: string, what: string) {

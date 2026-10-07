@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { stepHref } from "@/lib/onboarding";
+import { friendlyError } from "@/lib/errors";
 import {
   ArrowRightIcon,
   CardsIcon,
@@ -125,7 +126,7 @@ function AgentForm({
     } catch (error) {
       toast.add({
         title: "Could not save the agent",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -315,7 +316,7 @@ function AgentRow({
     } catch (error) {
       toast.add({
         title: "Could not change the status",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

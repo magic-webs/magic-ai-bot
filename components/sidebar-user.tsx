@@ -37,6 +37,7 @@ import {
   Sun03Icon,
   Tick02Icon,
   UnfoldMoreIcon,
+  Wallet01Icon,
 } from "@hugeicons/core-free-icons";
 
 const APPEARANCE_ICONS: Record<Appearance, typeof Sun03Icon> = {
@@ -64,10 +65,12 @@ function initialsOf(label: string): string {
  */
 export function SidebarUser({
   settingsHref,
+  billingHref,
   settingsLabel = "Workspace settings",
   showPlatformLink = true,
 }: {
   settingsHref: string;
+  billingHref?: string;
   /** The platform console names its own settings; a workspace names theirs. */
   settingsLabel?: string;
   /** Off inside /admin, where "All workspaces" would point at the page you
@@ -167,6 +170,12 @@ export function SidebarUser({
               <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
               {settingsLabel}
             </DropdownMenuItem>
+            {billingHref ? (
+              <DropdownMenuItem render={<Link href={billingHref} />}>
+                <HugeiconsIcon icon={Wallet01Icon} strokeWidth={2} />
+                Billing
+              </DropdownMenuItem>
+            ) : null}
             {session.isStaff && showPlatformLink ? (
               <DropdownMenuItem render={<Link href="/admin/workspaces" />}>
                 <HugeiconsIcon icon={Building03Icon} strokeWidth={2} />

@@ -10,8 +10,8 @@
 //
 // WhatsApp only delivers *approved templates* to someone outside the 24-hour
 // window, which is where nearly every alert lands, so the WhatsApp side sends
-// nothing but templates synced from the panel. Email goes through Zoho
-// ZeptoMail with templates the workspace writes itself.
+// nothing but templates synced from the panel. Email goes out through the
+// platform's own mail account with templates the workspace writes itself.
 //
 // No Convex imports, so the queries can hand the app the same slots, previews
 // and variable lists the sender uses.
@@ -704,33 +704,48 @@ export function billingCategory(
 }
 
 // ---------------------------------------------------------------------------
-// ZeptoMail
+// Email
 // ---------------------------------------------------------------------------
 
-/**
- * ZeptoMail's data centres. An account lives in the one matching the Zoho
- * domain it signed up on, and a token is only valid there.
- */
-export const ZEPTO_REGIONS = [
-  { value: "com", label: "Global (.com)" },
-  { value: "in", label: "India (.in)" },
-  { value: "eu", label: "Europe (.eu)" },
-  { value: "com.au", label: "Australia (.com.au)" },
-  { value: "jp", label: "Japan (.jp)" },
-  { value: "ca", label: "Canada (.ca)" },
-  { value: "sa", label: "Saudi Arabia (.sa)" },
-  { value: "com.cn", label: "China (.com.cn)" },
-] as const;
+export const PLATFORM_EMAIL_DEFAULTS = {
+  url: "https://cpaas.zoho.in/v1.1/email",
+  fromEmail: "notifications@magicwebs.ai",
+  fromName: "Magic Agent",
+} as const;
 
-export type ZeptoRegion = (typeof ZEPTO_REGIONS)[number]["value"];
+export type PlatformEmail = {
+  token: string;
+  url: string;
+  fromEmail: string;
+  fromName: string;
+};
 
-export function isZeptoRegion(value: string): value is ZeptoRegion {
-  return ZEPTO_REGIONS.some((region) => region.value === value);
+export function platformFrom(): Pick<PlatformEmail, "fromEmail" | "fromName"> {
+  return {
+    fromEmail:
+      process.env.ZEPTOMAIL_FROM_EMAIL?.trim() || PLATFORM_EMAIL_DEFAULTS.fromEmail,
+    fromName:
+      process.env.ZEPTOMAIL_FROM_NAME?.trim() || PLATFORM_EMAIL_DEFAULTS.fromName,
+  };
 }
 
-export function zeptoEndpoint(region: string | undefined): string {
-  const suffix = region && isZeptoRegion(region) ? region : "com";
-  return `https://api.zeptomail.${suffix}/v1.1/email`;
+export function platformEmail(): PlatformEmail | null {
+  const token = process.env.ZEPTOMAIL_TOKEN?.trim();
+  if (!token) return null;
+  return {
+    token,
+    url: process.env.ZEPTOMAIL_URL?.trim() || PLATFORM_EMAIL_DEFAULTS.url,
+    ...platformFrom(),
+  };
+}
+
+export function senderName(
+  workspaceName: string | undefined,
+  savedName: string | undefined,
+  platformName: string
+): string {
+  const name = savedName?.trim() || workspaceName?.trim();
+  return name ? `${name} via ${platformName}` : platformName;
 }
 
 /**

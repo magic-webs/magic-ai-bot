@@ -32,6 +32,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { friendlyError } from "@/lib/errors";
 
 type Draft = {
   percent: Record<MessageCategory, string>;
@@ -170,7 +171,7 @@ export function MarkupDialog({
     } catch (error) {
       toast.add({
         title: "Could not save the markup",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -191,7 +192,7 @@ export function MarkupDialog({
     } catch (error) {
       toast.add({
         title: "Could not reset the markup",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

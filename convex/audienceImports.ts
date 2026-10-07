@@ -1,4 +1,4 @@
-import { v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   internalAction,
@@ -53,7 +53,7 @@ const rawContact = v.object({
 
 async function requireImport(ctx: QueryCtx, importId: Id<"audienceImports">) {
   const row = await ctx.db.get("audienceImports", importId);
-  if (!row) throw new Error("Import not found");
+  if (!row) throw new ConvexError("Import not found");
   await requireWorkspace(ctx, row.workspaceId);
   return row;
 }
@@ -179,10 +179,10 @@ export const addRows = mutation({
   },
   handler: async (ctx, args) => {
     const importDoc = await requireImport(ctx, args.importId);
-    if (importDoc.status !== "uploading") throw new Error("This import is already being sorted.");
-    if (args.rows.length > MAX_ADD) throw new Error(`Send at most ${MAX_ADD} rows at a time.`);
+    if (importDoc.status !== "uploading") throw new ConvexError("This import is already being sorted.");
+    if (args.rows.length > MAX_ADD) throw new ConvexError(`Send at most ${MAX_ADD} rows at a time.`);
     if (importDoc.total + args.rows.length > MAX_ROWS) {
-      throw new Error(`One import can hold at most ${MAX_ROWS.toLocaleString()} people.`);
+      throw new ConvexError(`One import can hold at most ${MAX_ROWS.toLocaleString()} people.`);
     }
 
     const now = Date.now();
@@ -246,7 +246,7 @@ export const startSorting = mutation({
   handler: async (ctx, args) => {
     const importDoc = await requireImport(ctx, args.importId);
     if (importDoc.status !== "uploading") return { success: true };
-    if (importDoc.total === 0) throw new Error("There is nobody in this file to import.");
+    if (importDoc.total === 0) throw new ConvexError("There is nobody in this file to import.");
     await ctx.db.patch("audienceImports", importDoc._id, {
       status: importDoc.counts.queued > 0 ? "sorting" : "review",
       updatedAt: Date.now(),
@@ -467,7 +467,7 @@ export const sortBatch = internalAction({
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (/AI_GATEWAY_API_KEY|401|403/.test(message)) fatal = message;
+        if (/not available right now|401|403/.test(message)) fatal = message;
         return { rowId: row._id, category: validityOf(row.name), sortError: message.slice(0, 200) };
       }
     });
@@ -533,14 +533,14 @@ export const markQueuedForCheck = internalMutation({
 
 async function requireRow(ctx: QueryCtx, rowId: Id<"audienceImportRows">) {
   const row = await ctx.db.get("audienceImportRows", rowId);
-  if (!row) throw new Error("Row not found");
+  if (!row) throw new ConvexError("Row not found");
   const importDoc = await requireImport(ctx, row.importId);
   return { row, importDoc };
 }
 
 function reviewable(importDoc: Doc<"audienceImports">) {
   if (importDoc.status !== "review") {
-    throw new Error("This import can only be changed while it is in review.");
+    throw new ConvexError("This import can only be changed while it is in review.");
   }
 }
 
@@ -591,7 +591,7 @@ export const updateRow = mutation({
               )
               .first()
           : null;
-      if (clash) throw new Error(`That number is already on line ${clash.line}.`);
+      if (clash) throw new ConvexError(`That number is already on line ${clash.line}.`);
       const status: RowStatus = problem ? "invalid" : "ready";
       await ctx.db.patch("audienceImportRows", row._id, {
         raw,
@@ -612,7 +612,7 @@ export const updateRow = mutation({
     if (args.category !== undefined) {
       const categories = await categoriesFor(ctx, importDoc.workspaceId);
       if (!categories.some((category) => category.key === args.category)) {
-        throw new Error("Unknown category");
+        throw new ConvexError("Unknown category");
       }
       const status: RowStatus = row.status === "check" ? "ready" : row.status;
       await ctx.db.patch("audienceImportRows", row._id, {
@@ -633,7 +633,7 @@ export const setRowsStatus = mutation({
     status: v.union(v.literal("ready"), v.literal("skipped")),
   },
   handler: async (ctx, args) => {
-    if (args.rowIds.length > MAX_ADD) throw new Error(`Pick at most ${MAX_ADD} rows.`);
+    if (args.rowIds.length > MAX_ADD) throw new ConvexError(`Pick at most ${MAX_ADD} rows.`);
     const now = Date.now();
     const moves = new Map<Id<"audienceImports">, Array<[RowStatus, RowStatus]>>();
     let importDoc: Doc<"audienceImports"> | null = null;
@@ -719,7 +719,7 @@ export const save = mutation({
   handler: async (ctx, args) => {
     const importDoc = await requireImport(ctx, args.importId);
     reviewable(importDoc);
-    if (importDoc.counts.ready === 0) throw new Error("Nobody is ready to save yet.");
+    if (importDoc.counts.ready === 0) throw new ConvexError("Nobody is ready to save yet.");
     const now = Date.now();
     const name = args.audienceName?.trim().slice(0, 80);
     const audienceId = name
@@ -857,7 +857,7 @@ export const discard = mutation({
   args: { importId: v.id("audienceImports") },
   handler: async (ctx, args) => {
     const importDoc = await requireImport(ctx, args.importId);
-    if (importDoc.status === "saving") throw new Error("This import is saving right now.");
+    if (importDoc.status === "saving") throw new ConvexError("This import is saving right now.");
     await ctx.db.patch("audienceImports", importDoc._id, {
       status: "discarded",
       updatedAt: Date.now(),

@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 import { kvArg, workspaceArg } from "../args.mjs";
-import { CONVEX_URL, DEFAULT_WORKSPACE } from "../config.mjs";
+import { DEFAULT_WORKSPACE } from "../config.mjs";
 import { api, authorize, call, currentSession, state } from "../convex.mjs";
 import { handler, ok } from "../results.mjs";
 import { reachableWorkspaces, resolveWorkspace } from "../workspaces.mjs";
@@ -27,7 +27,6 @@ export function register(server) {
       return ok({
         signedInAs: session.label,
         role: session.role,
-        convexUrl: CONVEX_URL,
         defaultWorkspace: DEFAULT_WORKSPACE ?? session.workspaceSlug ?? null,
         workspaces: all.map((w) => ({ slug: w.slug, name: w.name, status: w.status })),
       });

@@ -39,6 +39,7 @@ import {
   TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * View and edit one catalogue entry.
@@ -105,7 +106,7 @@ export default function EditProductPage({
     } catch (error) {
       toast.add({
         title: "Could not remove it",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
       setRemoving(false);

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { stepHref, SUGGESTED_FACTS } from "@/lib/onboarding";
+import { friendlyError } from "@/lib/errors";
 import { FloppyDiskIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
 
 /**
@@ -103,7 +104,7 @@ export function FactsStep() {
     } catch (error) {
       toast.add({
         title: "Save failed",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {

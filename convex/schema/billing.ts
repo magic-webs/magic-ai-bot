@@ -118,6 +118,7 @@ export const billingTables = {
     trialEndsAt: v.optional(v.number()),
     manualPaidThrough: v.optional(v.number()),
     discountPercent: v.optional(v.number()),
+    discountFixedMicros: v.optional(v.number()),
     extraAgentPriceMicros: v.optional(v.number()),
     adminNote: v.optional(v.string()),
     subscriptionId: v.optional(v.id("billingSubscriptions")),

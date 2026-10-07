@@ -1,4 +1,4 @@
-import { v, type ObjectType } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import {
   query,
   mutation,
@@ -256,7 +256,7 @@ async function ensureRouter(
   if (existing) return { agentId: existing._id, created: false };
 
   const workspace = await ctx.db.get("workspaces", workspaceId);
-  if (!workspace) throw new Error("Workspace not found");
+  if (!workspace) throw new ConvexError("Workspace not found");
 
   const now = Date.now();
   const agentId = await ctx.db.insert("agents", {
@@ -334,7 +334,7 @@ async function ensureFollowUpDesk(
   if (existing) return { agentId: existing._id, created: false };
 
   const workspace = await ctx.db.get("workspaces", workspaceId);
-  if (!workspace) throw new Error("Workspace not found");
+  if (!workspace) throw new ConvexError("Workspace not found");
 
   const now = Date.now();
   const agentId = await ctx.db.insert("agents", {
@@ -390,7 +390,7 @@ export async function ensureMarketingDesk(
   if (existing) return { agentId: existing._id, created: false };
 
   const workspace = await ctx.db.get("workspaces", workspaceId);
-  if (!workspace) throw new Error("Workspace not found");
+  if (!workspace) throw new ConvexError("Workspace not found");
 
   const now = Date.now();
   const agentId = await ctx.db.insert("agents", {
@@ -576,7 +576,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     return await insertSpecialist(ctx, workspace, args);
   },
 });
@@ -609,9 +609,9 @@ export const createFromTemplate = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
     const template = findTemplate(args.template);
-    if (!template) throw new Error(`There is no agent template "${args.template}".`);
+    if (!template) throw new ConvexError(`There is no agent template "${args.template}".`);
 
     const renamed = !!args.botName?.trim() && args.botName.trim() !== template.botName;
     const filled = fillTemplate(template, {
@@ -646,7 +646,7 @@ export const update = mutation({
     await requireAgent(ctx, args.agentId);
     const { agentId, ...rest } = args;
     const existing = await ctx.db.get("agents", agentId);
-    if (!existing) throw new Error("Agent not found");
+    if (!existing) throw new ConvexError("Agent not found");
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {
@@ -704,7 +704,7 @@ export const remove = mutation({
         .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
         .collect();
       if (pointed.length > 0) {
-        throw new Error(
+        throw new ConvexError(
           `The front desk still answers ${pointed.length} channel(s). Point them at another agent first.`
         );
       }

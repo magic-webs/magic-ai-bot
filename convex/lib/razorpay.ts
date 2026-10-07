@@ -13,6 +13,8 @@
  * micros and milliseconds. Both conversions happen here and nowhere else.
  */
 
+import { ConvexError } from "convex/values";
+
 const API = "https://api.razorpay.com/v1";
 
 export type RazorpayConfig = { keyId: string; keySecret: string };
@@ -26,7 +28,7 @@ export function razorpayConfig(): RazorpayConfig | null {
 export function requireRazorpay(): RazorpayConfig {
   const config = razorpayConfig();
   if (!config) {
-    throw new Error(
+    throw new ConvexError(
       "Payments are not set up yet. The platform needs its Razorpay keys before it can take a payment."
     );
   }

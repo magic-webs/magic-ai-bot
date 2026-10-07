@@ -67,6 +67,7 @@ import type * as lib_panel from "../lib/panel.js";
 import type * as lib_plans from "../lib/plans.js";
 import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_prompt from "../lib/prompt.js";
+import type * as lib_publicUrl from "../lib/publicUrl.js";
 import type * as lib_razorpay from "../lib/razorpay.js";
 import type * as lib_records from "../lib/records.js";
 import type * as lib_regional from "../lib/regional.js";
@@ -184,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   "lib/plans": typeof lib_plans;
   "lib/pricing": typeof lib_pricing;
   "lib/prompt": typeof lib_prompt;
+  "lib/publicUrl": typeof lib_publicUrl;
   "lib/razorpay": typeof lib_razorpay;
   "lib/records": typeof lib_records;
   "lib/regional": typeof lib_regional;

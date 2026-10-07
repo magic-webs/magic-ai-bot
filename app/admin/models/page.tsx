@@ -61,6 +61,7 @@ import {
   RobotIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import { friendlyError } from "@/lib/errors";
 
 type Catalogue = NonNullable<
   ReturnType<typeof useQuery<typeof api.models.list>>
@@ -187,7 +188,7 @@ function ModelDialog({
     } catch (error) {
       toast.add({
         title: "Could not save the model",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -365,7 +366,7 @@ export default function AdminModelsPage() {
     } catch (error) {
       toast.add({
         title: "Could not change the model",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     }
@@ -391,7 +392,7 @@ export default function AdminModelsPage() {
     } catch (error) {
       toast.add({
         title: "Could not reprice",
-        description: error instanceof Error ? error.message : String(error),
+        description: friendlyError(error),
         type: "error",
       });
     } finally {
@@ -425,9 +426,7 @@ export default function AdminModelsPage() {
     } catch (error) {
       toast.add({
         title: "Could not move every agent",
-        description: `${moved} moved before it stopped. ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        description: `${moved} moved before it stopped. ${friendlyError(error)}`,
         type: "error",
       });
     } finally {
@@ -663,10 +662,7 @@ export default function AdminModelsPage() {
                                           } catch (error) {
                                             toast.add({
                                               title: "Could not remove it",
-                                              description:
-                                                error instanceof Error
-                                                  ? error.message
-                                                  : String(error),
+                                              description: friendlyError(error),
                                               type: "error",
                                             });
                                           }

@@ -380,7 +380,8 @@ function LoginForm() {
             <CardHeader>
               <CardTitle>Sign in</CardTitle>
               <CardDescription>
-                Use the username and password you were given.
+                Use your email, or the username you were given, and your
+                password.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -393,7 +394,7 @@ function LoginForm() {
               ) : null}
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username">Email or username</Label>
                 <Input
                   id="username"
                   autoComplete="username"

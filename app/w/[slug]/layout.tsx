@@ -73,9 +73,7 @@ import {
   ToolboxIcon,
   UserGroupIcon,
   UserMultipleIcon,
-  Wallet01Icon,
   WhatsappIcon,
-  WorkflowSquare01Icon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 
@@ -136,7 +134,6 @@ const NAV: Array<{
         exact: true,
       },
       { href: "/agents", label: "Agents", icon: Robot01Icon },
-      { href: "/agent-config", label: "Agent map", icon: WorkflowSquare01Icon },
       { href: "/tools", label: "Custom tools", icon: Wrench01Icon },
       { href: "/channels", label: "Channels", icon: WhatsappIcon },
     ],
@@ -188,9 +185,6 @@ const NAV: Array<{
   // something you do once you have agents to give it to, and it is not a
   // setting — it changes what the agents can do.
   { label: "Integrations", icon: ConnectIcon, href: "/integrations" },
-  // Beside Settings: what the account is charged is read about the account,
-  // not worked on like the rows above it.
-  { label: "Billing", icon: Wallet01Icon, href: "/billing" },
   { label: "Settings", icon: Settings01Icon, href: "/settings" },
 ];
 
@@ -491,7 +485,10 @@ export default function WorkspaceLayout({
           </SidebarContent>
 
           <SidebarFooter>
-            <SidebarUser settingsHref={`${base}/settings`} />
+            <SidebarUser
+              settingsHref={`${base}/settings`}
+              billingHref={`${base}/billing`}
+            />
           </SidebarFooter>
         </Sidebar>
 

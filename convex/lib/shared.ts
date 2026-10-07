@@ -26,6 +26,19 @@ export function truncate(text: string, max: number): string {
   return `${text.slice(0, max)}… [truncated ${text.length - max} chars]`;
 }
 
+export function readableError(message: string): string {
+  const thrown = message.match(/Uncaught \w*Error:\s*([^\n]+)/)?.[1];
+  const text = (thrown ?? message)
+    .replace(/\[CONVEX [^\]]*\]\s*/g, "")
+    .replace(/\[Request ID:[^\]]*\]\s*/g, "")
+    .replace(/Server Error|Called by client/g, "")
+    .split("\n")
+    .filter((line) => !/^\s*at\s/.test(line))
+    .join("\n")
+    .trim();
+  return text || "Something went wrong.";
+}
+
 export function buildSearchBlob(parts: Array<string | undefined>): string {
   return parts.filter(Boolean).join(" ").toLowerCase();
 }

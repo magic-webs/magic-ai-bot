@@ -32,7 +32,7 @@ import {
   rupeesOf,
   useMoney,
 } from "@/components/billing/plan-bits";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -113,7 +113,7 @@ function report(title: string, error: unknown) {
     });
     return;
   }
-  toast.add({ title, description: errorMessage(error), type: "error" });
+  toast.add({ title, description: friendlyError(error), type: "error" });
 }
 
 /** The order Checkout paid, from its answer or, failing that, from ours. */

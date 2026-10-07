@@ -13,7 +13,7 @@
 // A reminder is an ordinary `marketingEvents` row, so the calendar, the
 // sender and the send log need nothing new to handle it.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -53,7 +53,7 @@ async function requireCampaign(
   campaignId: Id<"marketingCampaigns">
 ): Promise<Doc<"marketingCampaigns">> {
   const campaign = await ctx.db.get("marketingCampaigns", campaignId);
-  if (!campaign) throw new Error("Event not found");
+  if (!campaign) throw new ConvexError("Event not found");
   await requireWorkspace(ctx, campaign.workspaceId);
   return campaign;
 }
@@ -137,21 +137,21 @@ export const save = mutation({
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    if (!workspace) throw new ConvexError("Workspace not found");
 
     const title = args.title.trim();
     const details = args.details.trim();
     const startTime = args.startTime?.trim() || undefined;
-    if (!title) throw new Error("Give the event a name.");
-    if (title.length > 80) throw new Error("Keep the name under 80 characters.");
-    if (!isLocalDate(args.date)) throw new Error("Pick the day of the event.");
+    if (!title) throw new ConvexError("Give the event a name.");
+    if (title.length > 80) throw new ConvexError("Keep the name under 80 characters.");
+    if (!isLocalDate(args.date)) throw new ConvexError("Pick the day of the event.");
     if (startTime && !isLocalTime(startTime)) {
-      throw new Error("Pick a start time, or leave it empty.");
+      throw new ConvexError("Pick a start time, or leave it empty.");
     }
     if (!details) {
-      throw new Error("Say what the event is — the desk writes every reminder from it.");
+      throw new ConvexError("Say what the event is — the desk writes every reminder from it.");
     }
-    if (details.length > 2000) throw new Error("Keep the details under 2,000 characters.");
+    if (details.length > 2000) throw new ConvexError("Keep the details under 2,000 characters.");
     if (args.templateId) {
       await templateInWorkspace(ctx, args.workspaceId, args.templateId);
     }
@@ -159,7 +159,7 @@ export const save = mutation({
     const offsets = [...new Set(args.touches)]
       .filter((offset) => EVENT_TOUCH_OFFSETS.includes(offset))
       .sort((a, b) => a - b);
-    if (offsets.length === 0) throw new Error("Pick at least one message to send.");
+    if (offsets.length === 0) throw new ConvexError("Pick at least one message to send.");
 
     const now = Date.now();
     const sendHour = clampHour(args.sendHour);
@@ -167,7 +167,7 @@ export const save = mutation({
       args.segments?.find((row) => row.offset === offset)?.segment ?? defaultSegment(offset);
     for (const id of [...(args.audience?.audienceIds ?? []), ...(args.audience?.excludeAudienceIds ?? [])]) {
       const list = await ctx.db.get("audiences", id);
-      if (!list || list.workspaceId !== args.workspaceId) throw new Error("A list was not found.");
+      if (!list || list.workspaceId !== args.workspaceId) throw new ConvexError("A list was not found.");
     }
     const fields = {
       audience: args.audience,
@@ -189,7 +189,7 @@ export const save = mutation({
     let briefChanged = true;
     if (args.campaignId) {
       const existing = await requireCampaign(ctx, args.campaignId);
-      if (existing.workspaceId !== args.workspaceId) throw new Error("Event not found");
+      if (existing.workspaceId !== args.workspaceId) throw new ConvexError("Event not found");
       briefChanged =
         existing.title !== fields.title ||
         existing.date !== fields.date ||
@@ -272,7 +272,7 @@ export const save = mutation({
     if (scheduled === 0 && !sentBefore) {
       // Thrown, so nothing above is kept: an event with nothing left to send
       // is not worth saving, and the owner should hear why.
-      throw new Error(
+      throw new ConvexError(
         "Every message you picked falls in the past. Pick a later day or a later reminder."
       );
     }
@@ -292,14 +292,14 @@ export const updateMessage = mutation({
   args: { eventId: v.id("marketingEvents"), message: v.string() },
   handler: async (ctx, args) => {
     const event = await ctx.db.get("marketingEvents", args.eventId);
-    if (!event?.campaignId) throw new Error("Reminder not found");
+    if (!event?.campaignId) throw new ConvexError("Reminder not found");
     await requireWorkspace(ctx, event.workspaceId);
-    if (!isPending(event)) throw new Error("This one has already gone out.");
+    if (!isPending(event)) throw new ConvexError("This one has already gone out.");
 
     const message = asParameter(args.message);
-    if (!message) throw new Error("Write the message, or let the desk write it.");
+    if (!message) throw new ConvexError("Write the message, or let the desk write it.");
     if (message.length > MAX_MESSAGE) {
-      throw new Error(`Keep it under ${MAX_MESSAGE} characters.`);
+      throw new ConvexError(`Keep it under ${MAX_MESSAGE} characters.`);
     }
     await ctx.db.patch("marketingEvents", event._id, {
       message,
@@ -315,7 +315,7 @@ export const remove = mutation({
     const campaign = await requireCampaign(ctx, args.campaignId);
     const touches = await touchesOf(ctx, campaign._id);
     if (touches.some((row) => row.status === "sending")) {
-      throw new Error("A reminder for this event is sending right now. Wait for it to finish.");
+      throw new ConvexError("A reminder for this event is sending right now. Wait for it to finish.");
     }
     for (const row of touches) {
       if (isPending(row)) {

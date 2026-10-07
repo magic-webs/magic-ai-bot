@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { toast } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/convex-server";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * What the Notifications page and its dialogs share: the shapes the queries
@@ -24,7 +24,7 @@ export type NotificationLog = FunctionReturnType<
 >[number];
 
 export function fail(title: string, error: unknown) {
-  toast.add({ title, description: errorMessage(error), type: "error" });
+  toast.add({ title, description: friendlyError(error), type: "error" });
 }
 
 export async function copyText(value: string, label: string) {
