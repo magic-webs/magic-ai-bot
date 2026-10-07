@@ -245,11 +245,22 @@ function interactive(
 }
 
 function contactJson(card: ContactCard): Json {
+  // Meta rejects a name that carries formatted_name alone.
+  const named =
+    card.firstName ||
+    card.lastName ||
+    card.middleName ||
+    card.prefix ||
+    card.suffix;
+  const [first, ...rest] = card.formattedName.trim().split(/\s+/);
+  const firstName = card.firstName ?? (named ? undefined : first);
+  const lastName =
+    card.lastName ?? (named || rest.length === 0 ? undefined : rest.join(" "));
   return {
     name: {
       formatted_name: card.formattedName,
-      ...(card.firstName ? { first_name: card.firstName } : {}),
-      ...(card.lastName ? { last_name: card.lastName } : {}),
+      ...(firstName ? { first_name: firstName } : {}),
+      ...(lastName ? { last_name: lastName } : {}),
       ...(card.middleName ? { middle_name: card.middleName } : {}),
       ...(card.prefix ? { prefix: card.prefix } : {}),
       ...(card.suffix ? { suffix: card.suffix } : {}),

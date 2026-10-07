@@ -802,7 +802,13 @@ function buildRichMessageTools(ctx: ActionCtx, turn: TurnContext): ToolSet {
         contacts: [
           {
             formattedName: input.name,
-            phones: [{ phone: input.phone, type: "WORK" }],
+            phones: [
+              {
+                phone: input.phone,
+                type: "WORK",
+                waId: input.phone.replace(/\D/g, "") || undefined,
+              },
+            ],
             ...(input.email
               ? { emails: [{ email: input.email, type: "WORK" }] }
               : {}),
