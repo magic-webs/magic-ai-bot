@@ -152,7 +152,7 @@ export const APP_TOOL_NAMES: string[] = APPS.map((app) => app.toolName);
 
 /** Kept small: the whole list is written into the tool's description. */
 export const MAX_APP_ITEMS = 60;
-const MAX_PREFILL_FIELDS = 30;
+const MAX_PREFILL_FIELDS = 150;
 const MAX_PRIZES = 20;
 
 /** WhatsApp caps a button label at twenty characters. */
