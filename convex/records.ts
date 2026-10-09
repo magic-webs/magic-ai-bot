@@ -7,6 +7,7 @@
 // rather than a table per vertical.
 
 import { ConvexError, v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import {
   action,
   internalAction,
@@ -481,6 +482,51 @@ export const listRecords = query({
       ...row,
       filedBy: row.agentId ? (byId.get(row.agentId) ?? null) : null,
     }));
+  },
+});
+
+export const exportPage = query({
+  args: {
+    bookId: v.id("recordBooks"),
+    stage: v.optional(v.string()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const book = await requireRecordBook(ctx, args.bookId);
+    const result = args.stage
+      ? await ctx.db
+          .query("records")
+          .withIndex("by_book_stage", (q) =>
+            q.eq("bookId", args.bookId).eq("stage", args.stage)
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
+      : await ctx.db
+          .query("records")
+          .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+          .order("desc")
+          .paginate(args.paginationOpts);
+
+    const agents = await ctx.db
+      .query("agents")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", book.workspaceId))
+      .collect();
+    const byId = new Map(agents.map((agent) => [agent._id, agent.botName]));
+
+    return {
+      ...result,
+      page: result.page.map((row) => ({
+        reference: row.reference,
+        person: row.person ?? null,
+        values: row.values,
+        stage: row.stage ?? null,
+        notes: row.notes ?? null,
+        source: row.source,
+        filedBy: row.agentId ? (byId.get(row.agentId) ?? null) : null,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      })),
+    };
   },
 });
 

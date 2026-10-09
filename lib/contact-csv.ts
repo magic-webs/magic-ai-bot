@@ -175,7 +175,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  * spaced the way it is written, which also stops Excel reading twelve digits
  * as 9.19877E+11 and losing them on the next save.
  */
-function phoneCell(digits: string): string {
+export function phoneCell(digits: string): string {
   if (/^91\d{10}$/.test(digits)) {
     return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`;
   }

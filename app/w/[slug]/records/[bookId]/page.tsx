@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { SelectField } from "@/components/select-field";
+import { ExportRecordsButton } from "@/components/export-records-button";
 import { useSession } from "@/components/use-session";
 import {
   Card,
@@ -1029,6 +1030,9 @@ export default function RecordBookPage({
                 placeholder="Every stage"
               />
             ) : null}
+            <div className="ml-auto">
+              <ExportRecordsButton book={book} stage={stageFilter || undefined} />
+            </div>
           </div>
 
           {rows === undefined ? (
