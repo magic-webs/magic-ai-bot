@@ -6,11 +6,8 @@ import {
   internalMutation,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import {
-  requireKnowledgeSource,
-  requireSignedIn,
-  requireWorkspace,
-} from "./lib/auth";
+import { requireKnowledgeSource, requireWorkspace } from "./lib/auth";
+import { deleteFile, requireOwnKey, uploadUrlFor } from "./lib/files";
 
 export const listByWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
@@ -74,7 +71,7 @@ export const addSource = mutation({
     ),
     rawText: v.optional(v.string()),
     url: v.optional(v.string()),
-    storageId: v.optional(v.id("_storage")),
+    fileKey: v.optional(v.string()),
     filename: v.optional(v.string()),
     mimeType: v.optional(v.string()),
     size: v.optional(v.number()),
@@ -88,9 +85,10 @@ export const addSource = mutation({
     if ((args.kind === "text" || args.kind === "faq") && !args.rawText?.trim()) {
       throw new ConvexError("Text content is required");
     }
-    if (args.kind === "file" && !args.storageId) {
+    if (args.kind === "file" && !args.fileKey) {
       throw new ConvexError("Upload the file before creating a file source");
     }
+    requireOwnKey(args.fileKey, "knowledge", args.workspaceId);
 
     const now = Date.now();
     const sourceId = await ctx.db.insert("knowledgeSources", {
@@ -100,7 +98,7 @@ export const addSource = mutation({
       kind: args.kind,
       rawText: args.rawText,
       url: args.url,
-      storageId: args.storageId,
+      fileKey: args.fileKey,
       filename: args.filename,
       mimeType: args.mimeType,
       size: args.size,
@@ -118,10 +116,10 @@ export const addSource = mutation({
 });
 
 export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireSignedIn(ctx);
-    return await ctx.storage.generateUploadUrl();
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return await uploadUrlFor("knowledge", args.workspaceId);
   },
 });
 
@@ -249,7 +247,7 @@ export const remove = mutation({
       .withIndex("by_source", (q) => q.eq("sourceId", args.sourceId))
       .collect();
     for (const chunk of chunks) await ctx.db.delete(chunk._id);
-    if (source.storageId) await ctx.storage.delete(source.storageId);
+    await deleteFile(ctx, source.fileKey, source.storageId);
     await ctx.db.delete(args.sourceId);
     return { success: true };
   },

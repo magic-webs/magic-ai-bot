@@ -21,7 +21,8 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireOwner, requireSignedIn, requireWorkspace } from "./lib/auth";
+import { requireOwner, requireWorkspace } from "./lib/auth";
+import { deleteFile, requireOwnKey, uploadUrlFor, urlFor } from "./lib/files";
 import {
   LOGIN_EMAIL_TAKEN,
   loginEmailOf,
@@ -52,10 +53,8 @@ async function photoFor(
   ctx: QueryCtx,
   member: Doc<"teamMembers">
 ): Promise<string | null> {
-  if (member.photoStorageId) {
-    const url = await ctx.storage.getUrl(member.photoStorageId);
-    if (url) return url;
-  }
+  const url = await urlFor(ctx, member.photoKey, member.photoStorageId);
+  if (url) return url;
   return member.photoUrl?.trim() || null;
 }
 
@@ -106,10 +105,10 @@ export const activeForReply = query({
 });
 
 export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireSignedIn(ctx);
-    return await ctx.storage.generateUploadUrl();
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return await uploadUrlFor("team", args.workspaceId);
   },
 });
 
@@ -120,13 +119,14 @@ export const create = mutation({
     role: v.string(),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
-    photoStorageId: v.optional(v.id("_storage")),
+    photoKey: v.optional(v.string()),
     photoUrl: v.optional(v.string()),
     note: v.optional(v.string()),
     status: v.optional(memberStatus),
   },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
+    requireOwnKey(args.photoKey, "team", args.workspaceId);
     const name = args.name.trim();
     if (!name) throw new ConvexError("A human agent needs a name");
 
@@ -137,7 +137,7 @@ export const create = mutation({
       role: args.role.trim() || "Team",
       email: checkedEmail(args.email),
       phone: args.phone?.trim() || undefined,
-      photoStorageId: args.photoStorageId,
+      photoKey: args.photoKey,
       photoUrl: args.photoUrl?.trim() || undefined,
       note: args.note?.trim() || undefined,
       status: args.status ?? "active",
@@ -155,7 +155,7 @@ export const update = mutation({
     role: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
-    photoStorageId: v.optional(v.id("_storage")),
+    photoKey: v.optional(v.string()),
     photoUrl: v.optional(v.string()),
     note: v.optional(v.string()),
     status: v.optional(memberStatus),
@@ -165,6 +165,7 @@ export const update = mutation({
     const member = await ctx.db.get("teamMembers", memberId);
     if (!member) throw new ConvexError("Human agent not found");
     await requireWorkspace(ctx, member.workspaceId);
+    requireOwnKey(args.photoKey, "team", member.workspaceId);
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [key, value] of Object.entries(rest)) {
@@ -190,12 +191,9 @@ export const update = mutation({
     }
 
     // A new upload replaces the old file rather than orphaning it in storage.
-    if (
-      args.photoStorageId &&
-      member.photoStorageId &&
-      args.photoStorageId !== member.photoStorageId
-    ) {
-      await ctx.storage.delete(member.photoStorageId).catch(() => undefined);
+    if (args.photoKey && args.photoKey !== member.photoKey) {
+      await deleteFile(ctx, member.photoKey, member.photoStorageId);
+      patch.photoStorageId = undefined;
     }
 
     await ctx.db.patch(memberId, patch);
@@ -210,9 +208,7 @@ export const remove = mutation({
     if (!member) return { success: true };
     await requireWorkspace(ctx, member.workspaceId);
 
-    if (member.photoStorageId) {
-      await ctx.storage.delete(member.photoStorageId).catch(() => undefined);
-    }
+    await deleteFile(ctx, member.photoKey, member.photoStorageId);
 
     // Off the roster is off the desk: their login goes, and so does every
     // session it had open.

@@ -9,6 +9,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireMember } from "./lib/auth";
+import { urlFor } from "./lib/files";
 import { inboxRows } from "./conversations";
 
 /**
@@ -25,9 +26,7 @@ export const me = query({
     const workspace = await ctx.db.get("workspaces", principal.workspaceId);
     if (!member || !workspace) return null;
 
-    const photo = member.photoStorageId
-      ? await ctx.storage.getUrl(member.photoStorageId)
-      : null;
+    const photo = await urlFor(ctx, member.photoKey, member.photoStorageId);
 
     // For the faces on the agents' bubbles, and nothing more.
     const agents = await ctx.db

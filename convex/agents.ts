@@ -42,6 +42,7 @@ import {
 } from "./lib/auth";
 import { deleteConversation } from "./lib/inbox";
 import { deleteMessage } from "./lib/delivery";
+import { deleteFile } from "./lib/files";
 
 export const DEFAULT_TONE = {
   traits: ["professional", "warm", "clear", "consultative"],
@@ -757,7 +758,7 @@ export const remove = mutation({
         .withIndex("by_source", (q) => q.eq("sourceId", source._id))
         .collect();
       for (const chunk of chunks) await ctx.db.delete(chunk._id);
-      if (source.storageId) await ctx.storage.delete(source.storageId);
+      await deleteFile(ctx, source.fileKey, source.storageId);
       await ctx.db.delete(source._id);
     }
 

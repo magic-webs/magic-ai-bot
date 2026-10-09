@@ -14,6 +14,7 @@ import {
   requireWorkspace,
 } from "./lib/auth";
 import { logoSrcFor } from "./lib/branding";
+import { deleteFile, requireOwnKey, uploadUrlFor } from "./lib/files";
 import { orderRecords, statusForStage } from "./lib/ordersBook";
 import { grantWelcomeBonus } from "./lib/wallet";
 import {
@@ -259,7 +260,7 @@ export const generateLogoUploadUrl = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
-    return await ctx.storage.generateUploadUrl();
+    return await uploadUrlFor("logos", args.workspaceId);
   },
 });
 
@@ -273,7 +274,7 @@ export const generateLogoUploadUrl = mutation({
 export const setLogo = mutation({
   args: {
     workspaceId: v.id("workspaces"),
-    storageId: v.optional(v.id("_storage")),
+    key: v.optional(v.string()),
     url: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -282,22 +283,23 @@ export const setLogo = mutation({
     if (!workspace) throw new ConvexError("Workspace not found");
 
     const url = args.url?.trim() || undefined;
-    if (!args.storageId && !url) throw new ConvexError("Upload a logo or paste a link.");
-    if (!args.storageId && url && !/^https:\/\//i.test(url)) {
+    if (!args.key && !url) throw new ConvexError("Upload a logo or paste a link.");
+    requireOwnKey(args.key, "logos", args.workspaceId);
+    if (!args.key && url && !/^https:\/\//i.test(url)) {
       // The web chat embeds on customers' https sites, where an http image is
       // blocked as mixed content — so a link that would not show is refused.
       throw new ConvexError("The logo link has to start with https://.");
     }
 
-    if (
-      workspace.logoStorageId &&
-      workspace.logoStorageId !== args.storageId
-    ) {
-      await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
-    }
+    await deleteFile(
+      ctx,
+      workspace.logoKey !== args.key ? workspace.logoKey : undefined,
+      workspace.logoStorageId
+    );
     await ctx.db.patch("workspaces", args.workspaceId, {
-      logoStorageId: args.storageId,
-      logoUrl: args.storageId ? undefined : url,
+      logoKey: args.key,
+      logoStorageId: undefined,
+      logoUrl: args.key ? undefined : url,
       updatedAt: Date.now(),
     });
     return { success: true };
@@ -311,10 +313,9 @@ export const clearLogo = mutation({
     await requireWorkspace(ctx, args.workspaceId);
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
     if (!workspace) throw new ConvexError("Workspace not found");
-    if (workspace.logoStorageId) {
-      await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
-    }
+    await deleteFile(ctx, workspace.logoKey, workspace.logoStorageId);
     await ctx.db.patch("workspaces", args.workspaceId, {
+      logoKey: undefined,
       logoStorageId: undefined,
       logoUrl: undefined,
       updatedAt: Date.now(),
@@ -382,7 +383,7 @@ export const remove = mutation({
         .withIndex("by_source", (q) => q.eq("sourceId", source._id))
         .collect();
       for (const chunk of chunks) await ctx.db.delete(chunk._id);
-      if (source.storageId) await ctx.storage.delete(source.storageId);
+      await deleteFile(ctx, source.fileKey, source.storageId);
       await ctx.db.delete(source._id);
     }
 
@@ -394,8 +395,7 @@ export const remove = mutation({
       .collect();
     for (const product of products) {
       for (const image of product.images ?? []) {
-        if (!image.storageId) continue;
-        await ctx.storage.delete(image.storageId).catch(() => undefined);
+        await deleteFile(ctx, image.fileKey, image.storageId);
       }
     }
 
@@ -447,8 +447,8 @@ export const remove = mutation({
     if (markups) await ctx.db.delete(markups._id);
 
     const workspace = await ctx.db.get("workspaces", args.workspaceId);
-    if (workspace?.logoStorageId) {
-      await ctx.storage.delete(workspace.logoStorageId).catch(() => undefined);
+    if (workspace) {
+      await deleteFile(ctx, workspace.logoKey, workspace.logoStorageId);
     }
 
     await ctx.db.delete(args.workspaceId);

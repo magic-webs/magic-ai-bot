@@ -22,7 +22,13 @@
 // ---------------------------------------------------------------------------
 
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildSearchBlob } from "./lib/shared";
@@ -36,6 +42,7 @@ import {
   stageForStatus,
 } from "./lib/ordersBook";
 import { loginEmailOf, loginEmailTaken } from "./authDb";
+import { newFileKey, r2, type FileFolder } from "./lib/files";
 
 const WORKSPACE_BATCH = 20;
 const ORDER_BATCH = 100;
@@ -560,5 +567,265 @@ export const memberLoginEmails = internalMutation({
       });
     }
     return { filled, clashes, done: page.isDone };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Convex storage → R2
+//
+//   npx convex run migrations:storageToR2
+//   npx convex run migrations:sweepStorage
+//
+// Copies every uploaded file a row points at into R2, moves the row onto the
+// key and deletes the Convex copy. The sweep then deletes what is left in
+// Convex storage, which nothing points at, and refuses while anything does.
+// ---------------------------------------------------------------------------
+
+const FILE_BATCH = 25;
+
+const LEGACY_TABLES = [
+  "workspaces",
+  "teamMembers",
+  "knowledgeSources",
+  "products",
+] as const;
+type LegacyTable = (typeof LEGACY_TABLES)[number];
+const legacyTable = v.union(
+  v.literal("workspaces"),
+  v.literal("teamMembers"),
+  v.literal("knowledgeSources"),
+  v.literal("products")
+);
+
+const FOLDER: Record<LegacyTable, FileFolder> = {
+  workspaces: "logos",
+  teamMembers: "team",
+  knowledgeSources: "knowledge",
+  products: "products",
+};
+
+type LegacyFile = {
+  rowId: string;
+  workspaceId: Id<"workspaces">;
+  storageId: Id<"_storage">;
+};
+type LegacyPage = { files: LegacyFile[]; cursor: string; isDone: boolean };
+
+async function legacyPage(
+  ctx: QueryCtx,
+  table: LegacyTable,
+  cursor: string | null
+): Promise<LegacyPage> {
+  const opts = { numItems: FILE_BATCH, cursor };
+  const files: LegacyFile[] = [];
+  const add = (
+    rowId: string,
+    workspaceId: Id<"workspaces">,
+    storageId: Id<"_storage"> | undefined
+  ) => {
+    if (storageId) files.push({ rowId, workspaceId, storageId });
+  };
+
+  switch (table) {
+    case "workspaces": {
+      const page = await ctx.db.query("workspaces").paginate(opts);
+      for (const row of page.page) add(row._id, row._id, row.logoStorageId);
+      return { files, cursor: page.continueCursor, isDone: page.isDone };
+    }
+    case "teamMembers": {
+      const page = await ctx.db.query("teamMembers").paginate(opts);
+      for (const row of page.page) add(row._id, row.workspaceId, row.photoStorageId);
+      return { files, cursor: page.continueCursor, isDone: page.isDone };
+    }
+    case "knowledgeSources": {
+      const page = await ctx.db.query("knowledgeSources").paginate(opts);
+      for (const row of page.page) add(row._id, row.workspaceId, row.storageId);
+      return { files, cursor: page.continueCursor, isDone: page.isDone };
+    }
+    case "products": {
+      const page = await ctx.db.query("products").paginate(opts);
+      for (const row of page.page) {
+        for (const image of row.images ?? []) {
+          add(row._id, row.workspaceId, image.storageId);
+        }
+      }
+      return { files, cursor: page.continueCursor, isDone: page.isDone };
+    }
+  }
+}
+
+export const legacyFilesPage = internalQuery({
+  args: { table: legacyTable, cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args): Promise<LegacyPage> =>
+    await legacyPage(ctx, args.table, args.cursor),
+});
+
+async function moveRowToKey(
+  ctx: MutationCtx,
+  table: LegacyTable,
+  rowId: string,
+  storageId: Id<"_storage">,
+  key: string | undefined
+): Promise<boolean> {
+  switch (table) {
+    case "workspaces": {
+      const id = ctx.db.normalizeId("workspaces", rowId);
+      const row = id ? await ctx.db.get(id) : null;
+      if (!row || row.logoStorageId !== storageId) return false;
+      await ctx.db.patch(row._id, { logoKey: key, logoStorageId: undefined });
+      return true;
+    }
+    case "teamMembers": {
+      const id = ctx.db.normalizeId("teamMembers", rowId);
+      const row = id ? await ctx.db.get(id) : null;
+      if (!row || row.photoStorageId !== storageId) return false;
+      await ctx.db.patch(row._id, { photoKey: key, photoStorageId: undefined });
+      return true;
+    }
+    case "knowledgeSources": {
+      const id = ctx.db.normalizeId("knowledgeSources", rowId);
+      const row = id ? await ctx.db.get(id) : null;
+      if (!row || row.storageId !== storageId) return false;
+      await ctx.db.patch(row._id, { fileKey: key, storageId: undefined });
+      return true;
+    }
+    case "products": {
+      const id = ctx.db.normalizeId("products", rowId);
+      const row = id ? await ctx.db.get(id) : null;
+      const images = row?.images ?? [];
+      if (!row || !images.some((image) => image.storageId === storageId)) {
+        return false;
+      }
+      await ctx.db.patch(row._id, {
+        images: images.flatMap((image) => {
+          if (image.storageId !== storageId) return [image];
+          return key ? [{ ...image, storageId: undefined, fileKey: key }] : [];
+        }),
+      });
+      return true;
+    }
+  }
+}
+
+export const adoptFile = internalMutation({
+  args: {
+    table: legacyTable,
+    rowId: v.string(),
+    storageId: v.id("_storage"),
+    key: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const moved = await moveRowToKey(
+      ctx,
+      args.table,
+      args.rowId,
+      args.storageId,
+      args.key
+    );
+    if (!moved && args.key) await r2.deleteObject(ctx, args.key);
+    await ctx.storage.delete(args.storageId).catch(() => undefined);
+  },
+});
+
+export const storageToR2 = internalAction({
+  args: {
+    table: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const index = args.table ?? 0;
+    const table = LEGACY_TABLES[index];
+    if (!table) {
+      console.log("[storageToR2] done");
+      return null;
+    }
+
+    const page: LegacyPage = await ctx.runQuery(
+      internal.migrations.legacyFilesPage,
+      { table, cursor: args.cursor ?? null }
+    );
+    for (const file of page.files) {
+      const blob = await ctx.storage.get(file.storageId);
+      const key = blob
+        ? await r2.store(ctx, blob, {
+            key: newFileKey(FOLDER[table], file.workspaceId),
+            type: blob.type || undefined,
+          })
+        : undefined;
+      await ctx.runMutation(internal.migrations.adoptFile, {
+        table,
+        rowId: file.rowId,
+        storageId: file.storageId,
+        key,
+      });
+    }
+    console.log(`[storageToR2] ${table}: moved ${page.files.length}`);
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.migrations.storageToR2,
+      page.isDone
+        ? { table: index + 1, cursor: null }
+        : { table: index, cursor: page.cursor }
+    );
+    return null;
+  },
+});
+
+type StoragePage = { count: number; bytes: number; cursor: string; isDone: boolean };
+
+export const storagePage = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()), dryRun: v.boolean() },
+  handler: async (ctx, args): Promise<StoragePage> => {
+    const page = await ctx.db.system
+      .query("_storage")
+      .paginate({ numItems: 100, cursor: args.cursor });
+    if (!args.dryRun) {
+      for (const file of page.page) await ctx.storage.delete(file._id);
+    }
+    return {
+      count: page.page.length,
+      bytes: page.page.reduce((sum, file) => sum + file.size, 0),
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+export const sweepStorage = internalAction({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args): Promise<{ files: number; bytes: number }> => {
+    const dryRun = args.dryRun ?? false;
+    for (const table of dryRun ? [] : LEGACY_TABLES) {
+      let cursor: string | null = null;
+      for (;;) {
+        const page: LegacyPage = await ctx.runQuery(
+          internal.migrations.legacyFilesPage,
+          { table, cursor }
+        );
+        if (page.files.length) {
+          throw new Error(
+            `${table} still points at Convex storage; run storageToR2 first`
+          );
+        }
+        if (page.isDone) break;
+        cursor = page.cursor;
+      }
+    }
+
+    let files = 0;
+    let bytes = 0;
+    let cursor: string | null = null;
+    for (;;) {
+      const page: StoragePage = await ctx.runMutation(
+        internal.migrations.storagePage,
+        { cursor: dryRun ? cursor : null, dryRun }
+      );
+      files += page.count;
+      bytes += page.bytes;
+      if (page.isDone) break;
+      cursor = page.cursor;
+    }
+    return { files, bytes };
   },
 });

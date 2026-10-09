@@ -9,11 +9,8 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { kvPair, requirementField, productImage } from "./schema";
 import { slugify, buildSearchBlob, randomKey } from "./lib/shared";
-import {
-  requireProduct,
-  requireSignedIn,
-  requireWorkspace,
-} from "./lib/auth";
+import { requireProduct, requireWorkspace } from "./lib/auth";
+import { deleteFile, requireOwnKey, uploadUrlFor, urlFor } from "./lib/files";
 
 const productInput = {
   sku: v.optional(v.string()),
@@ -68,6 +65,7 @@ async function uniqueProductSlug(
 }
 
 type StoredImage = {
+  fileKey?: string;
   storageId?: Id<"_storage">;
   externalUrl?: string;
   alt?: string;
@@ -87,9 +85,8 @@ async function resolveImages(
 ): Promise<Array<{ url: string; alt: string | null }>> {
   const out: Array<{ url: string; alt: string | null }> = [];
   for (const image of images ?? []) {
-    const url = image.storageId
-      ? await ctx.storage.getUrl(image.storageId)
-      : image.externalUrl;
+    const url =
+      (await urlFor(ctx, image.fileKey, image.storageId)) ?? image.externalUrl;
     // A file deleted out from under the row resolves to null. Skipping it beats
     // rendering a broken thumbnail.
     if (url) out.push({ url, alt: image.alt ?? null });
@@ -122,23 +119,34 @@ async function deleteOrphanedImages(
   before: StoredImage[] | undefined,
   after: StoredImage[] | undefined
 ): Promise<void> {
-  const kept = new Set(
-    (after ?? [])
-      .map((image) => image.storageId)
-      .filter((id): id is Id<"_storage"> => Boolean(id))
-  );
+  const kept = new Set<string>();
+  for (const image of after ?? []) {
+    if (image.fileKey) kept.add(image.fileKey);
+    if (image.storageId) kept.add(image.storageId);
+  }
   for (const image of before ?? []) {
-    if (!image.storageId || kept.has(image.storageId)) continue;
-    // A file already gone is not an error worth failing the save over.
-    await ctx.storage.delete(image.storageId).catch(() => undefined);
+    await deleteFile(
+      ctx,
+      image.fileKey && !kept.has(image.fileKey) ? image.fileKey : undefined,
+      image.storageId && !kept.has(image.storageId) ? image.storageId : undefined
+    );
+  }
+}
+
+function requireOwnImages(
+  images: StoredImage[] | undefined,
+  workspaceId: Id<"workspaces">
+) {
+  for (const image of images ?? []) {
+    requireOwnKey(image.fileKey, "products", workspaceId);
   }
 }
 
 export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireSignedIn(ctx);
-    return await ctx.storage.generateUploadUrl();
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireWorkspace(ctx, args.workspaceId);
+    return await uploadUrlFor("products", args.workspaceId);
   },
 });
 
@@ -218,6 +226,7 @@ export const create = mutation({
   args: { workspaceId: v.id("workspaces"), ...productInput },
   handler: async (ctx, args) => {
     await requireWorkspace(ctx, args.workspaceId);
+    requireOwnImages(args.images, args.workspaceId);
     const now = Date.now();
     const slug = await uniqueProductSlug(ctx, args.workspaceId, args.name);
     return await ctx.db.insert("products", {
@@ -277,6 +286,7 @@ export const update = mutation({
     }
 
     if (args.images !== undefined) {
+      requireOwnImages(args.images, existing.workspaceId);
       await deleteOrphanedImages(ctx, existing.images, args.images);
     }
 

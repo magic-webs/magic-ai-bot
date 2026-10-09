@@ -56,6 +56,7 @@ export const toolParameter = v.object({
 });
 
 export const productImage = v.object({
+  fileKey: v.optional(v.string()),
   storageId: v.optional(v.id("_storage")),
   externalUrl: v.optional(v.string()),
   alt: v.optional(v.string()),

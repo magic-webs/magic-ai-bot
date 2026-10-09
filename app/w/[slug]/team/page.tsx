@@ -62,6 +62,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { friendlyError } from "@/lib/errors";
+import { putFile } from "@/lib/upload";
 import {
   ArrowRightIcon,
   ArrowsClockwiseIcon,
@@ -474,21 +475,12 @@ function MemberDialog({
     if (!name.trim() || busy) return;
     setBusy(true);
     try {
-      let photoStorageId: Id<"_storage"> | undefined;
-      if (file) {
-        const uploadUrl = await generateUploadUrl({});
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": file.type },
-          body: file,
-        });
-        if (!response.ok) {
-          throw new Error(`Upload failed with HTTP ${response.status}`);
-        }
-        ({ storageId: photoStorageId } = (await response.json()) as {
-          storageId: Id<"_storage">;
-        });
-      }
+      const photoKey = file
+        ? await putFile(
+            await generateUploadUrl({ workspaceId: workspace._id }),
+            file
+          )
+        : undefined;
 
       const fields = {
         name,
@@ -497,7 +489,7 @@ function MemberDialog({
         phone,
         note,
         status: status as "active" | "away" | "inactive",
-        photoStorageId,
+        photoKey,
         photoUrl: photoUrl.trim() || undefined,
       };
 

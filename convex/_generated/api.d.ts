@@ -49,6 +49,7 @@ import type * as lib_contactClean from "../lib/contactClean.js";
 import type * as lib_currency from "../lib/currency.js";
 import type * as lib_dailyStats from "../lib/dailyStats.js";
 import type * as lib_delivery from "../lib/delivery.js";
+import type * as lib_files from "../lib/files.js";
 import type * as lib_gateway from "../lib/gateway.js";
 import type * as lib_google from "../lib/google.js";
 import type * as lib_inbox from "../lib/inbox.js";
@@ -167,6 +168,7 @@ declare const fullApi: ApiFromModules<{
   "lib/currency": typeof lib_currency;
   "lib/dailyStats": typeof lib_dailyStats;
   "lib/delivery": typeof lib_delivery;
+  "lib/files": typeof lib_files;
   "lib/gateway": typeof lib_gateway;
   "lib/google": typeof lib_google;
   "lib/inbox": typeof lib_inbox;
@@ -264,4 +266,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  r2: import("@convex-dev/r2/_generated/component.js").ComponentApi<"r2">;
+};

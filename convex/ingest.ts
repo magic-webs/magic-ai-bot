@@ -4,6 +4,7 @@ import { ConvexError, v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { aiGateway, EMBEDDING_MODEL } from "./lib/gateway";
+import { r2 } from "./lib/files";
 import { embedMany } from "ai";
 // pdf-parse-fork has no bundled types
 // @ts-expect-error -- untyped CommonJS module
@@ -121,7 +122,11 @@ export const processSource = internalAction({
           text = htmlToText(await response.text());
         }
       } else {
-        const blob = await ctx.storage.get(source.storageId!);
+        const blob = source.fileKey
+          ? await fetch(await r2.getUrl(source.fileKey)).then((response) =>
+              response.ok ? response.blob() : null
+            )
+          : await ctx.storage.get(source.storageId!);
         if (!blob) throw new ConvexError("Uploaded file is no longer in storage");
         const buffer = Buffer.from(await blob.arrayBuffer());
         const mime = source.mimeType ?? "";

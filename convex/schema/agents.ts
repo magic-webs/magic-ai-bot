@@ -124,6 +124,7 @@ export const agentsTables = {
     ),
     rawText: v.optional(v.string()),
     url: v.optional(v.string()),
+    fileKey: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     filename: v.optional(v.string()),
     mimeType: v.optional(v.string()),

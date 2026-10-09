@@ -227,6 +227,7 @@ export function draftFromProduct(
     images: paired
       .filter((entry) => !variantSwatchUrls.has(entry.url))
       .map((entry) => ({
+        fileKey: entry.image.fileKey,
         storageId: entry.image.storageId,
         externalUrl: entry.image.externalUrl,
         alt: entry.alt,
@@ -621,7 +622,7 @@ export function ProductForm({
     try {
       const images = await uploadDrafts(
         [...draft.images, ...consequences.images],
-        generateUploadUrl
+        () => generateUploadUrl({ workspaceId: workspace._id })
       );
 
       const requirements = [

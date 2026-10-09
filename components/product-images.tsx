@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
+import { putFile, type UploadTarget } from "@/lib/upload";
 import {
   ImageIcon,
   UploadSimpleIcon,
@@ -28,6 +29,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
  */
 export type ImageDraft = {
   /** Set for an image already stored against the product. */
+  fileKey?: string;
   storageId?: Id<"_storage">;
   /** Set for an image hosted somewhere else. */
   externalUrl?: string;
@@ -40,13 +42,19 @@ export type ImageDraft = {
 
 /** Builds the editor's state from what the server returned for a product. */
 export function draftsFromProduct(
-  images: Array<{ storageId?: Id<"_storage">; externalUrl?: string; alt?: string }>,
+  images: Array<{
+    fileKey?: string;
+    storageId?: Id<"_storage">;
+    externalUrl?: string;
+    alt?: string;
+  }>,
   resolved: Array<{ url: string; alt: string | null }>
 ): ImageDraft[] {
   // `resolvedImages` drops entries whose file has gone missing, so the two
   // lists are matched by position over whichever is shorter rather than
   // zipped blindly.
   return images.slice(0, resolved.length).map((image, index) => ({
+    fileKey: image.fileKey,
     storageId: image.storageId,
     externalUrl: image.externalUrl,
     alt: image.alt ?? "",
@@ -60,9 +68,10 @@ export function draftsFromProduct(
  */
 export async function uploadDrafts(
   drafts: ImageDraft[],
-  getUploadUrl: () => Promise<string>
+  getUploadUrl: () => Promise<UploadTarget>
 ): Promise<
   Array<{
+    fileKey?: string;
     storageId?: Id<"_storage">;
     externalUrl?: string;
     alt?: string;
@@ -72,8 +81,8 @@ export async function uploadDrafts(
   for (const draft of drafts) {
     const alt = draft.alt.trim() || undefined;
 
-    if (draft.storageId) {
-      out.push({ storageId: draft.storageId, alt });
+    if (draft.fileKey || draft.storageId) {
+      out.push({ fileKey: draft.fileKey, storageId: draft.storageId, alt });
       continue;
     }
     if (!draft.file) {
@@ -81,21 +90,12 @@ export async function uploadDrafts(
       continue;
     }
 
-    const uploadUrl = await getUploadUrl();
-    const response = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": draft.file.type || "application/octet-stream" },
-      body: draft.file,
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Could not upload ${draft.file.name} (HTTP ${response.status})`
-      );
-    }
-    const { storageId } = (await response.json()) as {
-      storageId: Id<"_storage">;
-    };
-    out.push({ storageId, alt });
+    const fileKey = await putFile(await getUploadUrl(), draft.file).catch(
+      (error: Error) => {
+        throw new Error(`Could not upload ${draft.file!.name}: ${error.message}`);
+      }
+    );
+    out.push({ fileKey, alt });
   }
   return out;
 }
@@ -218,7 +218,7 @@ export function ProductImagesEditor({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {value.map((draft, index) => (
             <div
-              key={`${draft.storageId ?? draft.externalUrl ?? draft.preview}-${index}`}
+              key={`${draft.fileKey ?? draft.storageId ?? draft.externalUrl ?? draft.preview}-${index}`}
               className="flex flex-col gap-1.5 rounded-md border p-2"
             >
               <div className="relative overflow-hidden rounded bg-muted">

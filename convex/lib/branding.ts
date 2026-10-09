@@ -1,5 +1,6 @@
 import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { urlFor } from "./files";
 
 /**
  * The company logo to draw, whichever way it was supplied, or null for none.
@@ -10,11 +11,9 @@ import type { QueryCtx } from "../_generated/server";
  */
 export async function logoSrcFor(
   ctx: Pick<QueryCtx, "storage">,
-  workspace: Pick<Doc<"workspaces">, "logoStorageId" | "logoUrl">
+  workspace: Pick<Doc<"workspaces">, "logoKey" | "logoStorageId" | "logoUrl">
 ): Promise<string | null> {
-  if (workspace.logoStorageId) {
-    const url = await ctx.storage.getUrl(workspace.logoStorageId);
-    if (url) return url;
-  }
+  const url = await urlFor(ctx, workspace.logoKey, workspace.logoStorageId);
+  if (url) return url;
   return workspace.logoUrl?.trim() || null;
 }

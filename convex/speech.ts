@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateSpeech } from "ai";
 import { aiGateway, SPEECH_MODEL } from "./lib/gateway";
+import { fileUrl, newFileKey, r2 } from "./lib/files";
 
 /**
  * Spoken greetings.
@@ -15,7 +16,7 @@ import { aiGateway, SPEECH_MODEL } from "./lib/gateway";
  * The audio is stored rather than returned inline. A base64 payload would have
  * to cross the websocket as a string and then be turned back into something
  * playable on the client, and `expo-audio` takes a URL on every platform it
- * runs on — data URIs are only reliable on web. Convex storage hands back a
+ * runs on — data URIs are only reliable on web. R2 hands back a
  * plain https URL, which also means the device can cache it.
  */
 
@@ -106,12 +107,11 @@ export const greet = action({
     });
 
     const mediaType = result.audio.mediaType || "audio/mpeg";
-    const stored = await ctx.storage.store(
-      new Blob([new Uint8Array(result.audio.uint8Array)], { type: mediaType })
-    );
-
-    const url = await ctx.storage.getUrl(stored);
-    if (!url) throw new ConvexError("The voice greeting is not available right now.");
+    const key = await r2.store(ctx, new Uint8Array(result.audio.uint8Array), {
+      key: newFileKey("speech", workspace._id),
+      type: mediaType,
+    });
+    const url = fileUrl(key);
 
     return { url, text, mediaType };
   },

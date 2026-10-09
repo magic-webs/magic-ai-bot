@@ -177,7 +177,7 @@ function ProductDialog({
       // Files chosen in this dialog are uploaded now rather than on selection,
       // so cancelling out of the dialog leaves nothing behind in storage.
       const images = await uploadDrafts(form.images, () =>
-        generateUploadUrl({})
+        generateUploadUrl({ workspaceId: workspace._id })
       );
 
       const payload = {

@@ -5,7 +5,6 @@
 import { useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { CompanyLogo } from "@/components/company-logo";
 import { Button } from "@/components/ui/button";
@@ -22,6 +21,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { LinkIcon, TrashIcon, UploadSimpleIcon } from "@phosphor-icons/react";
 import { friendlyError } from "@/lib/errors";
+import { putFile } from "@/lib/upload";
 
 /** Larger than any logo needs to be; a 10 MB PNG is a photo, not a mark. */
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -74,19 +74,11 @@ export function CompanyLogoCard() {
 
     setBusy("upload");
     try {
-      const uploadUrl = await generateUploadUrl({ workspaceId: workspace._id });
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!response.ok) {
-        throw new Error(`Upload failed with HTTP ${response.status}`);
-      }
-      const { storageId } = (await response.json()) as {
-        storageId: Id<"_storage">;
-      };
-      await setLogo({ workspaceId: workspace._id, storageId });
+      const key = await putFile(
+        await generateUploadUrl({ workspaceId: workspace._id }),
+        file
+      );
+      await setLogo({ workspaceId: workspace._id, key });
       toast.add({ title: "Logo updated", type: "success" });
     } catch (error) {
       fail("Could not upload the logo", error);

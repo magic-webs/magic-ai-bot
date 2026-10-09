@@ -61,6 +61,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import { friendlyError } from "@/lib/errors";
+import { putFile } from "@/lib/upload";
 
 const KIND_ICONS = {
   text: FileTextIcon,
@@ -171,25 +172,17 @@ function AddSourceDialog() {
     }
     setBusy(true);
     try {
-      const uploadUrl = await generateUploadUrl({});
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      if (!response.ok) {
-        throw new Error(`Upload failed with HTTP ${response.status}`);
-      }
-      const { storageId } = (await response.json()) as {
-        storageId: Id<"_storage">;
-      };
+      const fileKey = await putFile(
+        await generateUploadUrl({ workspaceId: workspace._id }),
+        file
+      );
 
       await addSource({
         workspaceId: workspace._id,
         agentId,
         title: title || file.name,
         kind: "file",
-        storageId,
+        fileKey,
         filename: file.name,
         mimeType: file.type || "application/octet-stream",
         size: file.size,
