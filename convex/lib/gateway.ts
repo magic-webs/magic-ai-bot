@@ -15,8 +15,8 @@ import { ConvexError } from "convex/values";
 
 // Re-exported, not redeclared: the value has to be reachable from queries and
 // mutations too, which may not import the SDK, so it lives in shared.ts.
-// DeepSeek V4.1 Flash is tool-capable, reads images and holds 1M tokens of
-// context, at $0.30/$1.20 per million — still under gpt-4.1-mini's $0.40/$1.60.
+// Claude Haiku 5.5 is tool-capable, reads images and holds 1M tokens of
+// context, at $0.10/$0.50 per million up to 100K prompt tokens.
 export { DEFAULT_CHAT_MODEL } from "./shared";
 
 /**
@@ -72,8 +72,15 @@ const PROVIDER_ROUTING: Record<string, string[]> = {
   "deepseek/deepseek-v4.1-flash": ["deepseek", "deepinfra","morph","fireworks"],
 };
 
-/** `providerOptions` for a gateway model id, or undefined when it is unrouted. */
+/** `providerOptions` for a gateway model id, or undefined when it needs none. */
 export function gatewayRouting(model: string) {
   const providers = PROVIDER_ROUTING[model];
-  return providers ? { gateway: { order: providers, only: providers } } : undefined;
+  const caching = model.startsWith("anthropic/") ? ("auto" as const) : undefined;
+  if (!providers && !caching) return undefined;
+  return {
+    gateway: {
+      ...(providers && { order: providers, only: providers }),
+      ...(caching && { caching }),
+    },
+  };
 }

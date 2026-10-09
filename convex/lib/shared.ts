@@ -211,7 +211,7 @@ export const ROUTER_DEFAULTS = {
  * An agent keeps the model it was saved with, so changing this moves new
  * agents only. /admin/models has the button that moves the rest.
  */
-export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4.1-flash";
+export const DEFAULT_CHAT_MODEL = "anthropic/claude-haiku-5.5";
 
 /**
  * What the model picker offers. Ids are the Vercel AI Gateway's
@@ -232,6 +232,10 @@ export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4.1-flash";
  * an empty `aiModels` table offers — and the order the merged list keeps.
  */
 export const CHAT_MODELS = [
+  {
+    id: "anthropic/claude-haiku-5.5",
+    label: "Claude Haiku 5.5 — tool-capable, vision, 1M context",
+  },
   {
     id: "deepseek/deepseek-v4.1-flash",
     label: "DeepSeek V4.1 Flash — tool-capable, vision, 1M context",

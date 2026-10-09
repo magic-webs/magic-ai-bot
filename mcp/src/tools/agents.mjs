@@ -125,7 +125,7 @@ export function register(server) {
           .string()
           .optional()
           .describe(
-            "Admin only; everyone else gets the default, deepseek/deepseek-v4.1-flash"
+            "Admin only; everyone else gets the default, anthropic/claude-haiku-5.5"
           ),
         builtinTools: z
           .array(z.enum(BUILTIN_TOOL_KEYS))
