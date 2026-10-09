@@ -10,6 +10,19 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
  */
 export function buildServer(): McpServer;
 
+export type McpTool = {
+  name: string;
+  title: string;
+  description: string;
+  readOnly: boolean;
+  destructive: boolean;
+};
+
+export type McpToolGroup = { title: string; admin: boolean; tools: McpTool[] };
+
+/** Every tool's name and description, grouped, without building a server. */
+export function toolCatalogue(): McpToolGroup[];
+
 /** Signs in to Convex and refreshes the access token. Throws if unconfigured. */
 export function authorize(): Promise<void>;
 

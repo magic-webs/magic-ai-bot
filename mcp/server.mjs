@@ -36,6 +36,7 @@ import { main } from "./src/cli.mjs";
 
 // The module surface the Next route handler imports.
 export { buildServer } from "./src/build-server.mjs";
+export { toolCatalogue } from "./src/tools/index.mjs";
 export {
   authorize,
   describeSession,
