@@ -99,6 +99,8 @@ export const recordsTables = {
         formKey: v.string(),
       })
     ),
+    lastSerial: v.optional(v.number()),
+    recordCount: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -110,6 +112,7 @@ export const recordsTables = {
     workspaceId: v.id("workspaces"),
     bookId: v.id("recordBooks"),
     reference: v.string(),
+    serialNumber: v.optional(v.number()),
     agentId: v.optional(v.id("agents")),
     conversationId: v.optional(v.id("conversations")),
     contactId: v.optional(v.id("contacts")),

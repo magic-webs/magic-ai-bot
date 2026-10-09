@@ -91,6 +91,7 @@ const ago = (instant: number) => formatDistanceToNow(instant, { addSuffix: true 
 const EMAIL_VARIABLES = [
   { path: "record.person.name", label: "Name" },
   { path: "record.reference", label: "Reference" },
+  { path: "record.serialNumber", label: "Serial number" },
   { path: "record.stage", label: "Stage" },
   { path: "book.name", label: "Book" },
   { path: "orderNumber", label: "Order number" },

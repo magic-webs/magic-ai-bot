@@ -889,7 +889,10 @@ function Pipeline({
           return (
             <div key={record._id} className="flex flex-col gap-1.5 rounded-md border p-2">
               <div className="flex min-w-0 items-baseline justify-between gap-2 text-xs">
-                <span className="truncate font-medium">{record.bookName}</span>
+                <span className="truncate font-medium">
+                  {record.bookName}
+                  {record.serialNumber ? ` #${record.serialNumber}` : ""}
+                </span>
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                   {record.reference}
                 </span>

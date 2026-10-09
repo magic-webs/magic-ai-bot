@@ -1128,6 +1128,7 @@ function buildRecordTools(
         return {
           ok: true,
           reference: filed.reference,
+          serialNumber: filed.serialNumber,
           stage: filed.stage,
           message: `Recorded as ${filed.reference}. Give the customer that reference and tell them what happens next.`,
         };

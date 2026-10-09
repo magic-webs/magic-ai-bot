@@ -42,6 +42,7 @@ import {
   stageForStatus,
 } from "./lib/ordersBook";
 import { loginEmailOf, loginEmailTaken } from "./authDb";
+import { claimSerial } from "./records";
 import { newFileKey, r2, type FileFolder } from "./lib/files";
 
 const WORKSPACE_BATCH = 20;
@@ -141,6 +142,7 @@ async function copyOrder(
     workspaceId: order.workspaceId,
     bookId: book._id,
     reference: order.orderNumber,
+    serialNumber: await claimSerial(ctx, book._id),
     agentId: order.agentId,
     conversationId: order.conversationId,
     contactId: order.contactId,
@@ -827,5 +829,82 @@ export const sweepStorage = internalAction({
       cursor = page.cursor;
     }
     return { files, bytes };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Record serial numbers
+//
+//   npx convex run migrations:recordSerials
+//
+// Numbers each book's records from 1 in the order they were filed, then
+// starts the book's counter so new records carry on from there.
+// ---------------------------------------------------------------------------
+
+const BOOK_BATCH = 50;
+const SERIAL_BATCH = 200;
+
+export const recordSerials = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("recordBooks")
+      .paginate({ numItems: BOOK_BATCH, cursor: args.cursor ?? null });
+
+    for (const book of page.page) {
+      if (book.lastSerial !== undefined) continue;
+      await ctx.scheduler.runAfter(0, internal.migrations.recordSerialsForBook, {
+        bookId: book._id,
+        cursor: null,
+        serial: 0,
+        count: 0,
+      });
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.recordSerials, {
+        cursor: page.continueCursor,
+      });
+    }
+  },
+});
+
+export const recordSerialsForBook = internalMutation({
+  args: {
+    bookId: v.id("recordBooks"),
+    cursor: v.union(v.string(), v.null()),
+    serial: v.number(),
+    count: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const book = await ctx.db.get("recordBooks", args.bookId);
+    if (!book || book.lastSerial !== undefined) return;
+
+    const page = await ctx.db
+      .query("records")
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .paginate({ numItems: SERIAL_BATCH, cursor: args.cursor });
+
+    let serial = args.serial;
+    for (const record of page.page) {
+      serial = record.serialNumber ?? serial + 1;
+      if (record.serialNumber === undefined) {
+        await ctx.db.patch(record._id, { serialNumber: serial });
+      }
+    }
+    const count = args.count + page.page.length;
+
+    // Same transaction as the last page read, so a record filed meanwhile
+    // either lands in this page or sees the counter.
+    if (page.isDone) {
+      await ctx.db.patch(book._id, { lastSerial: serial, recordCount: count });
+      return;
+    }
+    await ctx.scheduler.runAfter(0, internal.migrations.recordSerialsForBook, {
+      bookId: args.bookId,
+      cursor: page.continueCursor,
+      serial,
+      count,
+    });
   },
 });

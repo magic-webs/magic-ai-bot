@@ -130,7 +130,10 @@ function RecordDetail({ book, row }: { book: Book; row: RecordRow }) {
       />
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle className="font-mono">{row.reference}</DialogTitle>
+          <DialogTitle className="font-mono">
+            {row.serialNumber ? `#${row.serialNumber} · ` : ""}
+            {row.reference}
+          </DialogTitle>
           <DialogDescription>
             {row.source === "manual"
               ? "Added by your team"
@@ -257,7 +260,7 @@ function AddRecordDialog({ book }: { book: Book }) {
   const save = async () => {
     setSaving(true);
     try {
-      await createRecord({
+      const created = await createRecord({
         bookId: book._id,
         person:
           person.name || person.phone || person.email
@@ -276,7 +279,12 @@ function AddRecordDialog({ book }: { book: Book }) {
       setPerson({ name: "", phone: "", email: "" });
       setValues({});
       setNotes("");
-      toast.add({ title: `${book.name} added.`, type: "success" });
+      toast.add({
+        title: created.serialNumber
+          ? `${book.name} #${created.serialNumber} added.`
+          : `${book.name} added.`,
+        type: "success",
+      });
     } catch (error) {
       toast.add({
         title: friendlyError(error, "Could not add it."),
@@ -999,7 +1007,12 @@ export default function RecordBookPage({
 
       <Tabs defaultValue="filed">
         <TabsList>
-          <TabsTrigger value="filed">Filed</TabsTrigger>
+          <TabsTrigger value="filed">
+            Filed
+            {book.recordCount !== undefined ? (
+              <Badge variant="secondary">{book.recordCount}</Badge>
+            ) : null}
+          </TabsTrigger>
           <TabsTrigger value="setup">What to collect</TabsTrigger>
           <TabsTrigger value="webhooks">
             <BroadcastIcon className="size-4" /> Send elsewhere
@@ -1059,6 +1072,7 @@ export default function RecordBookPage({
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-0">#</TableHead>
                   <TableHead>Reference</TableHead>
                   <TableHead>About</TableHead>
                   {book.fields.slice(0, 2).map((field) => (
@@ -1076,6 +1090,9 @@ export default function RecordBookPage({
                   const details = detailsOf(row);
                   return (
                     <TableRow key={row._id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {row.serialNumber ?? "—"}
+                      </TableCell>
                       <TableCell className="font-mono text-xs">
                         {row.reference}
                       </TableCell>

@@ -36,6 +36,7 @@ export function recordsToCsv(
   const withStage = book.stages.length > 0;
 
   const header = [
+    "Serial",
     "Reference",
     "Name",
     "Phone",
@@ -54,6 +55,7 @@ export function recordsToCsv(
     const values = new Map(record.values.map((pair) => [pair.key, pair.value]));
     const digits = record.person?.phone?.replace(/\D/g, "") ?? "";
     return [
+      record.serialNumber?.toString() ?? "",
       record.reference,
       record.person?.name ?? "",
       digits ? phoneCell(digits) : "",

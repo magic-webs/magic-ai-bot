@@ -257,6 +257,8 @@ export async function ensureOrdersBook(
     // Active from the start, unlike a book the team drafts: agents were
     // taking orders before this book existed and must not stop.
     status: "active",
+    lastSerial: 0,
+    recordCount: 0,
     createdAt: now,
     updatedAt: now,
   });

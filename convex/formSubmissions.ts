@@ -34,7 +34,12 @@ import {
   type AppSubmission,
 } from "./lib/apps";
 import { checkValues, type RecordField } from "./lib/records";
-import { freshReference, insertBook, searchBlobFor } from "./records";
+import {
+  claimSerial,
+  freshReference,
+  insertBook,
+  searchBlobFor,
+} from "./records";
 
 export const submissionShape = v.object({
   id: v.string(),
@@ -145,10 +150,12 @@ async function fileSubmission(
     book.workspaceId,
     book.referencePrefix
   );
+  const serialNumber = await claimSerial(ctx, book._id);
   const recordId = await ctx.db.insert("records", {
     workspaceId: book.workspaceId,
     bookId: book._id,
     reference,
+    serialNumber,
     agentId: row.agentId,
     conversationId: row.conversationId,
     contactId: row.contactId,

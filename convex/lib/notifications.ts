@@ -57,6 +57,7 @@ const CONTACT: EventVariable[] = [
 
 const RECORD: EventVariable[] = [
   { path: "record.reference", label: "Reference" },
+  { path: "record.serialNumber", label: "Serial number" },
   { path: "record.stage", label: "Stage" },
   { path: "record.person.name", label: "Name" },
   { path: "record.person.phone", label: "Phone" },
@@ -850,6 +851,7 @@ export function sampleData(
     record: {
       id: "test",
       reference: `${shape.referencePrefix}-TEST01`,
+      serialNumber: 1,
       stage: shape.stages[1] ?? shape.stages[0] ?? null,
       person,
       details: Object.fromEntries(

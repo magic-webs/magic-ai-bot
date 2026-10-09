@@ -149,6 +149,21 @@ export async function freshReference(
   return makeReference(prefix, draw(10));
 }
 
+/** Undefined until `migrations:recordSerials` has numbered the book's older records. */
+export async function claimSerial(
+  ctx: MutationCtx,
+  bookId: Id<"recordBooks">
+): Promise<number | undefined> {
+  const book = await ctx.db.get("recordBooks", bookId);
+  if (!book || book.lastSerial === undefined) return undefined;
+  const serialNumber = book.lastSerial + 1;
+  await ctx.db.patch(bookId, {
+    lastSerial: serialNumber,
+    recordCount: (book.recordCount ?? 0) + 1,
+  });
+  return serialNumber;
+}
+
 // ---------------------------------------------------------------------------
 // Books — the dashboard side
 // ---------------------------------------------------------------------------
@@ -166,20 +181,24 @@ export const listBooks = query({
     // rather than making every row a second query from the client.
     const withCounts = await Promise.all(
       books.map(async (book) => {
-        const rows = await ctx.db
-          .query("records")
-          .withIndex("by_book", (q) => q.eq("bookId", book._id))
-          .take(501);
+        const recordCount =
+          book.recordCount ??
+          (
+            await ctx.db
+              .query("records")
+              .withIndex("by_book", (q) => q.eq("bookId", book._id))
+              .take(501)
+          ).length;
         const hooks = await ctx.db
           .query("recordWebhooks")
           .withIndex("by_book", (q) => q.eq("bookId", book._id))
           .collect();
         return {
           ...book,
-          recordCount: rows.length,
+          recordCount,
           // Past 500 the exact figure stops being interesting and starts being
           // expensive. The page says "500+".
-          recordCountExact: rows.length <= 500,
+          recordCountExact: book.recordCount !== undefined || recordCount <= 500,
           webhookCount: hooks.filter((hook) => hook.enabled).length,
         };
       })
@@ -215,6 +234,7 @@ export const listBookLinks = query({
         pluralName: book.pluralName,
         handle: book.handle,
         status: book.status,
+        recordCount: book.recordCount ?? null,
       }));
   },
 });
@@ -330,6 +350,8 @@ export async function insertBook(
     // page's own switch is what turns it on.
     status: args.status ?? "draft",
     formSource: args.formSource,
+    lastSerial: 0,
+    recordCount: 0,
     createdAt: now,
     updatedAt: now,
   });
@@ -516,6 +538,7 @@ export const exportPage = query({
     return {
       ...result,
       page: result.page.map((row) => ({
+        serialNumber: row.serialNumber ?? null,
         reference: row.reference,
         person: row.person ?? null,
         values: row.values,
@@ -586,11 +609,13 @@ export const createRecord = mutation({
       book.referencePrefix
     );
     const stage = args.stage ?? book.stages[0];
+    const serialNumber = await claimSerial(ctx, args.bookId);
 
     const recordId = await ctx.db.insert("records", {
       workspaceId: book.workspaceId,
       bookId: args.bookId,
       reference,
+      serialNumber,
       contactId: args.contactId,
       person: args.person,
       values: checked.values,
@@ -609,7 +634,7 @@ export const createRecord = mutation({
       byAgent: false,
     });
 
-    return { recordId, reference };
+    return { recordId, reference, serialNumber: serialNumber ?? null };
   },
 });
 
@@ -646,6 +671,7 @@ export const forConversation = query({
       out.push({
         _id: record._id,
         reference: record.reference,
+        serialNumber: record.serialNumber ?? null,
         bookId: book._id,
         bookName: book.name,
         stages: book.stages,
@@ -711,8 +737,14 @@ export const updateRecord = mutation({
 export const removeRecord = mutation({
   args: { recordId: v.id("records") },
   handler: async (ctx, args) => {
-    await requireRecord(ctx, args.recordId);
+    const record = await requireRecord(ctx, args.recordId);
     await ctx.db.delete(args.recordId);
+    const book = await ctx.db.get("recordBooks", record.bookId);
+    if (book?.recordCount !== undefined) {
+      await ctx.db.patch(book._id, {
+        recordCount: Math.max(0, book.recordCount - 1),
+      });
+    }
     return { success: true };
   },
 });
@@ -860,6 +892,7 @@ export const deliveryContext = internalQuery({
       record: {
         id: record._id,
         reference: record.reference,
+        serialNumber: record.serialNumber ?? null,
         stage: record.stage ?? null,
         person: record.person ?? null,
         details: detailsObject(record.values),
@@ -1024,6 +1057,7 @@ export const sendTestWebhook = action({
         record: {
           id: "test",
           reference: `${hook.book.referencePrefix}-TESTXX`,
+          serialNumber: (hook.book.lastSerial ?? 0) + 1,
           stage: hook.book.stages[0] ?? null,
           person: {
             name: "Test Person",
@@ -1150,11 +1184,13 @@ export const fileFromTool = internalMutation({
       book.referencePrefix
     );
     const stage = book.stages[0];
+    const serialNumber = await claimSerial(ctx, args.bookId);
 
     const recordId = await ctx.db.insert("records", {
       workspaceId: book.workspaceId,
       bookId: args.bookId,
       reference,
+      serialNumber,
       agentId: args.agentId,
       conversationId: args.conversationId,
       contactId: args.contactId,
@@ -1175,7 +1211,12 @@ export const fileFromTool = internalMutation({
       byAgent: true,
     });
 
-    return { recordId, reference, stage: stage ?? null };
+    return {
+      recordId,
+      reference,
+      serialNumber: serialNumber ?? null,
+      stage: stage ?? null,
+    };
   },
 });
 
