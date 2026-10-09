@@ -164,7 +164,11 @@ export const agentsTables = {
   aiModels: defineTable({
     modelId: v.string(),
     label: v.string(),
-    kind: v.union(v.literal("chat"), v.literal("embedding")),
+    kind: v.union(
+      v.literal("chat"),
+      v.literal("embedding"),
+      v.literal("classification")
+    ),
     inputPer1M: v.number(),
     outputPer1M: v.number(),
     enabled: v.boolean(),

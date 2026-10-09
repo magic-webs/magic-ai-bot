@@ -1,25 +1,33 @@
 /**
- * The AI model catalogue, as endpoints.
- *
- * Adding a model used to mean two edits and a deploy — a price in
- * convex/lib/pricing.ts and a label in CHAT_MODELS — which is why a model the
- * gateway shipped last week bills at zero until someone notices. These let an
- * administrator add or reprice one from /admin/models instead. The constants
- * stay as the floor; see convex/lib/modelCatalogue.ts for how the two layer.
+ * The AI model catalogue, as endpoints. The models themselves are fixed in
+ * `MODELS`; these change how each one is labelled, priced and offered. See
+ * convex/lib/modelCatalogue.ts for how the two layer.
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { requireAdmin, requireSignedIn } from "./lib/auth";
 import {
   chatModelOptions,
   lookupPrice,
   lookupPromptCaching,
   mergedCatalogue,
+  modelRow,
 } from "./lib/modelCatalogue";
-import { costNanoUsd } from "./lib/pricing";
+import { MODEL_PRICES, costNanoUsd } from "./lib/pricing";
 import { addToUsageDaily } from "./lib/usageDaily";
-import { DEFAULT_CHAT_MODEL, supportsPromptCaching } from "./lib/shared";
+import {
+  DEFAULT_CHAT_MODEL,
+  builtinModel,
+  supportsPromptCaching,
+} from "./lib/shared";
 
 // A mutation may not rewrite an unbounded number of rows, and repricing is a
 // correction rather than a migration. The page reports what is left so an
@@ -30,29 +38,6 @@ const REPRICE_CAP = 2_000;
 // mutation may read. The page calls again with the cursor until it is done.
 const MOVE_BATCH = 100;
 
-const kindValidator = v.union(v.literal("chat"), v.literal("embedding"));
-
-/**
- * The gateway addresses models as `creator/model`, and `gatewayModelId`
- * qualifies a bare id to `openai/…`. So a bare id typed here would not be the
- * model that gets called — it would silently become an OpenAI one. Rejected
- * with the reason rather than accepted and mis-routed.
- */
-function normaliseModelId(raw: string): string {
-  const modelId = raw.trim();
-  if (!modelId) throw new ConvexError("A model id is required.");
-  if (/\s/.test(modelId)) {
-    throw new ConvexError("A model id cannot contain spaces.");
-  }
-  const parts = modelId.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new ConvexError(
-      `"${modelId}" is not a gateway model id. Use the creator/model form, e.g. xiaomi/mimo-v2.6-flash — a bare id is sent to OpenAI.`
-    );
-  }
-  return modelId;
-}
-
 /** USD per 1M tokens. Negative or non-finite would cost history nonsense. */
 function price(value: number, field: string): number {
   if (!Number.isFinite(value) || value < 0) {
@@ -61,12 +46,45 @@ function price(value: number, field: string): number {
   return value;
 }
 
-/**
- * Every model the platform knows about, with where each one came from.
- *
- * Admin-only: it is the price list, and it names models no workspace is
- * offered.
- */
+function requireBuiltin(modelId: string) {
+  const model = builtinModel(modelId.trim());
+  if (!model) throw new ConvexError(`Unknown model: ${modelId}`);
+  return model;
+}
+
+/** Write the override row for a built-in, creating it from the shipped values. */
+async function patchRow(
+  ctx: MutationCtx,
+  modelId: string,
+  patch: Partial<
+    Pick<
+      Doc<"aiModels">,
+      "label" | "inputPer1M" | "outputPer1M" | "enabled" | "promptCaching" | "notes"
+    >
+  >
+) {
+  const model = requireBuiltin(modelId);
+  const now = Date.now();
+  const existing = await modelRow(ctx, model.id);
+  if (existing) {
+    await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
+    return;
+  }
+  const shipped = MODEL_PRICES[model.id];
+  await ctx.db.insert("aiModels", {
+    modelId: model.id,
+    label: model.label,
+    kind: model.role,
+    inputPer1M: shipped.input,
+    outputPer1M: shipped.output,
+    enabled: true,
+    ...patch,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/** Every model with its price. Admin-only: it is the price list. */
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -90,111 +108,43 @@ export const catalogue = query({
   },
 });
 
-/**
- * Add a model, or change one that is already there.
- *
- * One endpoint rather than create/update because the model id is the identity:
- * an admin typing an id that already exists means "reprice that", not "make a
- * second row for it", and a unique index with a create-only mutation would
- * just turn that into an error to explain.
- */
-export const upsert = mutation({
+/** Relabel or reprice a model. */
+export const update = mutation({
   args: {
     modelId: v.string(),
     label: v.string(),
-    kind: kindValidator,
     inputPer1M: v.number(),
     outputPer1M: v.number(),
-    enabled: v.boolean(),
-    promptCaching: v.optional(v.boolean()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-
-    const modelId = normaliseModelId(args.modelId);
-    const label = args.label.trim() || modelId;
-    const inputPer1M = price(args.inputPer1M, "Input price");
-    // An embedding model is only ever charged on input; storing an output
-    // price for one would put a number in the table that can never be reached.
-    const outputPer1M =
-      args.kind === "embedding" ? 0 : price(args.outputPer1M, "Output price");
-    const notes = args.notes?.trim() || undefined;
-    const now = Date.now();
-
-    const existing = await ctx.db
-      .query("aiModels")
-      .withIndex("by_modelId", (q) => q.eq("modelId", modelId))
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        label,
-        kind: args.kind,
-        inputPer1M,
-        outputPer1M,
-        enabled: args.enabled,
-        promptCaching: args.promptCaching,
-        notes,
-        updatedAt: now,
-      });
-      return { modelId, created: false };
-    }
-
-    await ctx.db.insert("aiModels", {
-      modelId,
-      label,
-      kind: args.kind,
-      inputPer1M,
-      outputPer1M,
-      enabled: args.enabled,
-      promptCaching: args.promptCaching,
-      notes,
-      createdAt: now,
-      updatedAt: now,
+    const model = requireBuiltin(args.modelId);
+    await patchRow(ctx, model.id, {
+      label: args.label.trim() || model.label,
+      inputPer1M: price(args.inputPer1M, "Input price"),
+      outputPer1M:
+        model.role === "chat" ? price(args.outputPer1M, "Output price") : 0,
+      notes: args.notes?.trim() || undefined,
     });
-    return { modelId, created: true };
+    return { modelId: model.id };
   },
 });
 
-/** Offer it in the picker, or stop offering it. Its price is untouched. */
+/** Offer a chat model in the picker, or stop offering it. */
 export const setEnabled = mutation({
   args: { modelId: v.string(), enabled: v.boolean() },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    const modelId = args.modelId.trim();
-
-    const existing = await ctx.db
-      .query("aiModels")
-      .withIndex("by_modelId", (q) => q.eq("modelId", modelId))
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        enabled: args.enabled,
-        updatedAt: Date.now(),
-      });
-      return { modelId };
+    const model = requireBuiltin(args.modelId);
+    if (model.role !== "chat") {
+      throw new ConvexError("Only chat models are offered in the picker.");
     }
-
-    // Toggling a built-in writes the override that makes the toggle stick —
-    // the constant cannot be edited from here, so the row becomes the answer.
-    const catalogue = await mergedCatalogue(ctx);
-    const entry = catalogue.find((row) => row.modelId === modelId);
-    if (!entry) throw new ConvexError(`Unknown model: ${modelId}`);
-
-    const now = Date.now();
-    await ctx.db.insert("aiModels", {
-      modelId,
-      label: entry.label,
-      kind: entry.kind,
-      inputPer1M: entry.inputPer1M,
-      outputPer1M: entry.outputPer1M,
-      enabled: args.enabled,
-      createdAt: now,
-      updatedAt: now,
-    });
-    return { modelId };
+    if (model.isDefault && !args.enabled) {
+      throw new ConvexError("The default chat model is always offered.");
+    }
+    await patchRow(ctx, model.id, { enabled: args.enabled });
+    return { modelId: model.id };
   },
 });
 
@@ -203,41 +153,12 @@ export const setPromptCaching = mutation({
   args: { modelId: v.string(), promptCaching: v.boolean() },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    const modelId = args.modelId.trim();
-    if (!supportsPromptCaching(modelId)) {
+    const model = requireBuiltin(args.modelId);
+    if (!supportsPromptCaching(model.id)) {
       throw new ConvexError("Only Anthropic models need prompt caching set.");
     }
-
-    const existing = await ctx.db
-      .query("aiModels")
-      .withIndex("by_modelId", (q) => q.eq("modelId", modelId))
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        promptCaching: args.promptCaching,
-        updatedAt: Date.now(),
-      });
-      return { modelId };
-    }
-
-    const catalogue = await mergedCatalogue(ctx);
-    const entry = catalogue.find((row) => row.modelId === modelId);
-    if (!entry) throw new ConvexError(`Unknown model: ${modelId}`);
-
-    const now = Date.now();
-    await ctx.db.insert("aiModels", {
-      modelId,
-      label: entry.label,
-      kind: entry.kind,
-      inputPer1M: entry.inputPer1M,
-      outputPer1M: entry.outputPer1M,
-      enabled: entry.enabled,
-      promptCaching: args.promptCaching,
-      createdAt: now,
-      updatedAt: now,
-    });
-    return { modelId };
+    await patchRow(ctx, model.id, { promptCaching: args.promptCaching });
+    return { modelId: model.id };
   },
 });
 
@@ -247,24 +168,30 @@ export const promptCaching = internalQuery({
   handler: async (ctx, args) => lookupPromptCaching(ctx, args.modelId),
 });
 
-/**
- * Drop the row.
- *
- * For a custom model that removes it outright. For an override it restores the
- * shipped price and label, which is the only way back to them — hence "reset"
- * in the UI rather than "delete".
- */
-export const remove = mutation({
+/** Drop every change made from the dashboard and go back to what ships. */
+export const reset = mutation({
   args: { modelId: v.string() },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    const existing = await ctx.db
-      .query("aiModels")
-      .withIndex("by_modelId", (q) => q.eq("modelId", args.modelId.trim()))
-      .unique();
-    if (!existing) return { removed: false };
+    const existing = await modelRow(ctx, args.modelId);
+    if (!existing) return { reset: false };
     await ctx.db.delete(existing._id);
-    return { removed: true };
+    return { reset: true };
+  },
+});
+
+/** Delete every `aiModels` row for a model that is not in `MODELS`. */
+export const removeCustomModels = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("aiModels").collect();
+    const removed: string[] = [];
+    for (const row of rows) {
+      if (builtinModel(row.modelId)) continue;
+      await ctx.db.delete(row._id);
+      removed.push(row.modelId);
+    }
+    return { removed };
   },
 });
 

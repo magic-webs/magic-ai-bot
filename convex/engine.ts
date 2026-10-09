@@ -1953,8 +1953,6 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
 
       let stepText = "";
       try {
-        // Qualified on the way out, so an agent still configured with a bare
-        // OpenAI id keeps working through the gateway.
         const model = gatewayModelId(agent.model);
         const result = await generateText({
           model: aiGateway()(model),
@@ -1982,7 +1980,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
           conversationId: turn.conversationId,
           source: "chat",
           channelType: args.channelType,
-          model: agent.model,
+          model: model,
           kind: "chat",
           inputTokens: result.usage.inputTokens ?? 0,
           outputTokens: result.usage.outputTokens ?? 0,

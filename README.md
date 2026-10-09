@@ -91,23 +91,25 @@ Then, in the console:
 
 Every model call goes through the [Vercel AI
 Gateway](https://vercel.com/docs/ai-gateway), so one `AI_GATEWAY_API_KEY`
-reaches all three things the platform needs:
+reaches all of them. The platform runs a fixed set, listed in `MODELS` in
+`convex/lib/shared.ts`:
 
-| Use | Model | Why that one |
+| Use | Model | Notes |
 | --- | --- | --- |
-| Chat | `anthropic/claude-haiku-5.5` | Tool-capable, reads images, 1M context, $0.10/$0.50 per million tokens up to 100K prompt tokens, prompt-cached through the gateway |
-| Retrieval | `openai/text-embedding-3-small` | The `knowledgeChunks` vector index is pinned to 1536 dimensions — any other model stops matching and every source in every workspace needs re-embedding |
-| Voice notes | `openai/whisper-1` | Same model the direct OpenAI call used |
+| Chat (default) | `anthropic/claude-haiku-5.5` | Tool-capable, reads images, 1M context, $0.10/$0.50 per million tokens up to 100K prompt tokens, prompt-cached through the gateway |
+| Chat | `deepseek/deepseek-v4.1-flash` | Tool-capable, reads images, 1M context, $0.30/$1.20 per million tokens |
+| Embedding | `openai/text-embedding-3-small` | The `knowledgeChunks` vector index is pinned to 1536 dimensions — any other model stops matching and every source in every workspace needs re-embedding |
+| Classification | `typesafe-ai/jev` | Sorts and scores guests and imported contacts |
+| Voice notes | `openai/whisper-1` | Not token-priced |
+
+/admin/models can relabel and reprice these, take a chat model out of the agent
+picker, and switch prompt caching off for an Anthropic model. It cannot add
+models. An agent saved with a model outside the list runs on the default chat
+model.
 
 `convex/lib/gateway.ts` is the only file that builds a provider, and only the
 Node-runtime actions import it — `lib/shared.ts` is imported by React, so the
 model *ids* live there and the SDK never reaches the browser bundle.
-
-Agents saved before the gateway hold a bare id like `gpt-4.1-mini`. Those are
-qualified to `openai/gpt-4.1-mini` at the call rather than migrated, so an
-agent nobody has touched keeps answering on the model it was configured with,
-through the new route. `convex/lib/pricing.ts` therefore keys both forms, or
-old usage rows would become an unpriced gap.
 
 ## Architecture
 

@@ -205,13 +205,77 @@ export const ROUTER_DEFAULTS = {
     "Escalate to a human if the customer asks for a person, is complaining, or no colleague on the team covers what they need.",
 } as const;
 
+export type ModelRole = "chat" | "embedding" | "classification";
+
 /**
- * The model a new agent and every desk is created with.
+ * Every model the platform runs, and the only ones it runs. Ids are the
+ * Vercel AI Gateway's `creator/model` form. Prices live in convex/lib/pricing.ts
+ * so they stay out of the browser bundle.
  *
- * An agent keeps the model it was saved with, so changing this moves new
- * agents only. /admin/models has the button that moves the rest.
+ * /admin/models can relabel and reprice these and switch chat models in and out
+ * of the picker, but cannot add to the list.
+ */
+export const MODELS = [
+  {
+    id: "anthropic/claude-haiku-5.5",
+    label: "Claude Haiku 5.5 — tool-capable, vision, 1M context",
+    role: "chat",
+    isDefault: true,
+  },
+  {
+    id: "deepseek/deepseek-v4.1-flash",
+    label: "DeepSeek V4.1 Flash — tool-capable, vision, 1M context",
+    role: "chat",
+    isDefault: false,
+  },
+  {
+    id: "openai/text-embedding-3-small",
+    label: "Text Embedding 3 Small — 1536 dimensions",
+    role: "embedding",
+    isDefault: true,
+  },
+  {
+    id: "typesafe-ai/jev",
+    label: "Jev — classification and scoring",
+    role: "classification",
+    isDefault: true,
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  role: ModelRole;
+  isDefault: boolean;
+}>;
+
+export type ModelId = (typeof MODELS)[number]["id"];
+
+/**
+ * The model a new agent and every desk is created with, and what an agent
+ * saved with a model no longer in `MODELS` runs on.
  */
 export const DEFAULT_CHAT_MODEL = "anthropic/claude-haiku-5.5";
+
+/**
+ * Retrieval. The knowledgeChunks vector index is pinned to 1536 dimensions, so
+ * any other model would silently stop matching and every source in every
+ * workspace would need re-embedding.
+ */
+export const DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
+
+export const DEFAULT_CLASSIFICATION_MODEL = "typesafe-ai/jev";
+
+/** What the agent picker offers before the catalogue query lands. */
+export const CHAT_MODELS = MODELS.filter((model) => model.role === "chat").map(
+  ({ id, label }) => ({ id, label })
+);
+
+export function builtinModel(modelId: string) {
+  return MODELS.find((model) => model.id === modelId);
+}
+
+export function isChatModel(modelId: string): boolean {
+  return builtinModel(modelId)?.role === "chat";
+}
 
 /**
  * Whether a model needs the gateway to place cache markers for it. Anthropic
@@ -220,43 +284,6 @@ export const DEFAULT_CHAT_MODEL = "anthropic/claude-haiku-5.5";
 export function supportsPromptCaching(modelId: string): boolean {
   return modelId.startsWith("anthropic/");
 }
-
-/**
- * What the model picker offers. Ids are the Vercel AI Gateway's
- * `creator/model` form, which is what convex/lib/gateway.ts sends.
- *
- * A `provider/model` id such as `deepinfra/deepseek-v4-flash` is the other
- * form the gateway takes: the same model, but pinned to one inference
- * provider instead of whichever of the nine serving it the gateway picks.
- * Worth offering to a workspace that wants its latency to stop moving.
- *
- * An agent saved before the gateway holds a bare id like `gpt-4.1-mini`; that
- * still runs, qualified to `openai/…` at the call, so this list does not have
- * to carry history.
- *
- * Not the last word on what the picker shows. An administrator adds, relabels
- * and retires models from /admin/models, and the picker reads the merged
- * result through `api.models.catalogue`. This array is what a deployment with
- * an empty `aiModels` table offers — and the order the merged list keeps.
- */
-export const CHAT_MODELS = [
-  {
-    id: "anthropic/claude-haiku-5.5",
-    label: "Claude Haiku 5.5 — tool-capable, vision, 1M context",
-  },
-  {
-    id: "deepseek/deepseek-v4.1-flash",
-    label: "DeepSeek V4.1 Flash — tool-capable, vision, 1M context",
-  },
-  {
-    id: "xiaomi/mimo-v2.6-flash",
-    label: "MiMo V2.6 Flash — tool-capable, 1M context, cheap",
-  },
-  {
-    id: "inclusionai/ling-3.0-flash-fin",
-    label: "Ling 3.0 Flash Fin — finance-tuned, 256K context, free",
-  }
-] as const;
 
 // The most an anonymous website visitor may send in one message. Generous for a
 // chat box, small enough that nobody can bill a workspace for an essay.

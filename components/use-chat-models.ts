@@ -9,17 +9,13 @@ import { CHAT_MODELS } from "@/convex/lib/shared";
 /**
  * The options an agent's model picker offers.
  *
- * The list is no longer a constant — an administrator adds and retires models
- * from /admin/models — so it is read from Convex, with `CHAT_MODELS` as the
- * first paint. That constant is what a fresh deployment's catalogue merges
- * from anyway, so the fallback is the same list in the same order rather than
- * a placeholder that shifts under the cursor once the query lands.
+ * Read from Convex, because an administrator can relabel the chat models and
+ * take them out of the picker from /admin/models, with `CHAT_MODELS` as the
+ * first paint.
  *
- * `current` is the agent's saved model. An agent configured before the gateway
- * holds a bare id, and one configured with a model since retired holds an id
- * the picker no longer offers; either way, without appending it the trigger
- * would render empty and the next save would silently move the agent onto
- * whichever model the picker happened to show.
+ * `current` is the agent's saved model. One saved with a model the picker no
+ * longer offers is appended, or the trigger would render empty and the next
+ * save would silently move the agent onto whichever model it happened to show.
  */
 export function useChatModelOptions(current?: string): SelectFieldOption[] {
   const catalogue = useQuery(api.models.catalogue, {});

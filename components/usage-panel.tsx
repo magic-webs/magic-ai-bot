@@ -33,7 +33,7 @@ const NANO = 1_000_000_000;
 /**
  * Money, at a precision that survives being small.
  *
- * A single web-playground turn on gpt-4.1-mini costs well under a cent, so
+ * A single web-playground turn on Claude Haiku 5.5 costs well under a cent, so
  * rounding to 2dp would show every real figure as $0.00 and make the page look
  * broken. Small amounts get 4dp; only sums past a dollar drop to cents.
  */

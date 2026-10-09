@@ -109,7 +109,7 @@ export const ask = action({
       workspaceId: args.workspaceId,
       agentId: args.agentId,
       source: "assistant",
-      model: agent.model,
+      model: model,
       kind: "chat",
       inputTokens: result.usage.inputTokens ?? 0,
       outputTokens: result.usage.outputTokens ?? 0,

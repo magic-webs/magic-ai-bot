@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
+import { DEFAULT_CLASSIFICATION_MODEL } from "./shared";
 
-export const JEV_MODEL = "typesafe-ai/jev";
+export const JEV_MODEL = DEFAULT_CLASSIFICATION_MODEL;
 const ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 
 export type JevQuestion =

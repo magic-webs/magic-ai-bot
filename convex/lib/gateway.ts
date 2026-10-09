@@ -1,9 +1,9 @@
 /**
  * The model provider: Vercel AI Gateway.
  *
- * One key reaches every model the platform needs — DeepSeek for chat, OpenAI's
- * embedding model for retrieval, Whisper for voice notes — so there is a single
- * credential and a single bill instead of one per vendor.
+ * One key reaches every model the platform needs — the chat models, OpenAI's
+ * embedding model for retrieval, Jev for classification, Whisper for voice
+ * notes — so there is a single credential and a single bill.
  *
  * Imported only by the Node actions (engine, ai, ingest, whatsapp). Never from
  * lib/shared.ts or lib/prompt.ts: those are imported by React, and pulling the
@@ -14,22 +14,16 @@ import { createGateway } from "ai";
 import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
-import { supportsPromptCaching } from "./shared";
+import {
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_EMBEDDING_MODEL,
+  isChatModel,
+  supportsPromptCaching,
+} from "./shared";
 
-// Re-exported, not redeclared: the value has to be reachable from queries and
-// mutations too, which may not import the SDK, so it lives in shared.ts.
-// Claude Haiku 5.5 is tool-capable, reads images and holds 1M tokens of
-// context, at $0.10/$0.50 per million up to 100K prompt tokens.
 export { DEFAULT_CHAT_MODEL } from "./shared";
 
-/**
- * Retrieval. Deliberately still OpenAI's small embedding model, routed through
- * the gateway: the knowledgeChunks vector index is pinned to 1536 dimensions,
- * so any other model would silently stop matching and every source in every
- * workspace would need re-embedding. DeepSeek publishes no embedding model
- * anyway. Same vectors as before, same index, new billing route.
- */
-export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
+export const EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL;
 
 /** Voice notes. The same Whisper the direct OpenAI call used. */
 export const TRANSCRIPTION_MODEL = "openai/whisper-1";
@@ -53,14 +47,12 @@ export function aiGateway() {
 }
 
 /**
- * The gateway addresses models as `creator/model`. Agent rows written before
- * this change hold bare OpenAI ids like `gpt-4.1-mini`, so they are qualified
- * on the way out rather than migrated — an agent nobody has touched keeps
- * answering on the model it was configured with, through the new route.
+ * The chat model a call runs on. An agent saved with a model that is no longer
+ * in `MODELS` runs on the default rather than on a model nobody prices.
  */
-export function gatewayModelId(model: string): string {
-  const trimmed = model.trim();
-  return trimmed.includes("/") ? trimmed : `openai/${trimmed}`;
+export function gatewayModelId(model: string | undefined): string {
+  const trimmed = model?.trim() ?? "";
+  return isChatModel(trimmed) ? trimmed : DEFAULT_CHAT_MODEL;
 }
 
 /**

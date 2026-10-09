@@ -1,72 +1,62 @@
 /**
- * The model catalogue — what the platform offers, and what it charges for it.
+ * The model catalogue — the fixed `MODELS` list, with whatever an
+ * administrator has changed about each one from /admin/models layered on top.
  *
- * Two sources, deliberately layered:
- *
- *   1. The constants this repo ships with — `MODEL_PRICES` for the price and
- *      `CHAT_MODELS` for what the picker offers. They are the floor: code
- *      review sees them, and history written before the `aiModels` table
- *      existed is still costed by them.
- *   2. The `aiModels` table, which an administrator edits from
- *      /admin/models. A row either introduces a model the constants have never
- *      heard of, or overrides one whose list price has moved.
- *
- * The table wins. That is the whole point: the gateway adds models and moves
- * prices faster than this repo ships, and an unpriced model silently bills a
- * workspace at zero.
+ * An `aiModels` row may relabel or reprice a model, take a chat model out of
+ * the picker, or switch its prompt caching off. A row for a model that is not
+ * in `MODELS` is ignored.
  *
  * Kept in lib/ rather than in models.ts because usage.ts costs every call
  * through `lookupPrice` and should not have to import a module of endpoints to
  * do it.
  */
 
+import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { MODEL_PRICES, type ModelPrice } from "./pricing";
-import { CHAT_MODELS, supportsPromptCaching } from "./shared";
+import {
+  MODELS,
+  builtinModel,
+  supportsPromptCaching,
+  type ModelRole,
+} from "./shared";
 
 type Ctx = QueryCtx | MutationCtx;
-
-export type ModelKind = "chat" | "embedding";
 
 export type CatalogueEntry = {
   modelId: string;
   label: string;
-  kind: ModelKind;
+  role: ModelRole;
   /** USD per 1M tokens. */
   inputPer1M: number;
   outputPer1M: number;
-  /** Whether the model picker offers it. A disabled model is still priced. */
+  isDefault: boolean;
+  /** Whether the agent picker offers it. Only chat models are offered. */
   enabled: boolean;
-  /** Whether the gateway places cache markers. Only Anthropic models use it. */
   promptCaching: boolean;
   notes?: string;
-  /**
-   * builtin  — shipped in the constants, untouched
-   * override — shipped, but repriced or relabelled from the dashboard
-   * custom   — added from the dashboard; the constants know nothing about it
-   *
-   * The admin table shows this so nobody wonders why deleting a row leaves the
-   * model on screen: deleting an override falls back to the constant.
-   */
-  source: "builtin" | "override" | "custom";
+  /** An administrator has changed it from what ships. */
+  customised: boolean;
 };
 
-/**
- * The price to cost a call at, or null to fall through to `MODEL_PRICES`.
- *
- * One indexed read per model call. `usage.record` already writes a row, so the
- * extra read is on a path that was never free.
- */
+export async function modelRow(
+  ctx: Ctx,
+  modelId: string
+): Promise<Doc<"aiModels"> | null> {
+  return await ctx.db
+    .query("aiModels")
+    .withIndex("by_modelId", (q) => q.eq("modelId", modelId.trim()))
+    .unique();
+}
+
+/** The price to cost a call at, or null to fall through to `MODEL_PRICES`. */
 export async function lookupPrice(
   ctx: Ctx,
   model: string
 ): Promise<ModelPrice | null> {
-  const row = await ctx.db
-    .query("aiModels")
-    .withIndex("by_modelId", (q) => q.eq("modelId", model.trim()))
-    .unique();
-  if (!row) return null;
-  return { input: row.inputPer1M, output: row.outputPer1M, kind: row.kind };
+  if (!builtinModel(model.trim())) return null;
+  const row = await modelRow(ctx, model);
+  return row ? { input: row.inputPer1M, output: row.outputPer1M } : null;
 }
 
 /** Whether a call to this model should ask the gateway to cache its prompt. */
@@ -75,97 +65,31 @@ export async function lookupPromptCaching(
   model: string
 ): Promise<boolean> {
   const modelId = model.trim();
-  if (!supportsPromptCaching(modelId)) return false;
-  const row = await ctx.db
-    .query("aiModels")
-    .withIndex("by_modelId", (q) => q.eq("modelId", modelId))
-    .unique();
-  return row?.promptCaching ?? true;
+  if (!builtinModel(modelId) || !supportsPromptCaching(modelId)) return false;
+  return (await modelRow(ctx, modelId))?.promptCaching ?? true;
 }
 
-/** Where a built-in sits in the picker, or -1 if the picker never offers it. */
-function builtinRank(modelId: string): number {
-  return CHAT_MODELS.findIndex((model) => model.id === modelId);
-}
-
-/**
- * Every model the platform knows about, constants and table merged.
- *
- * A built-in that is priced but not in `CHAT_MODELS` — the pre-gateway
- * `gpt-4o-mini`, the embedding models — is listed as disabled rather than
- * hidden, because that is exactly what it is: priced, not offered.
- */
 export async function mergedCatalogue(ctx: Ctx): Promise<CatalogueEntry[]> {
-  // The table is a handful of rows an operator typed; there is nothing to
-  // paginate.
   const rows = await ctx.db.query("aiModels").collect();
   const byId = new Map(rows.map((row) => [row.modelId, row]));
 
-  const entries: CatalogueEntry[] = [];
-  const seen = new Set<string>();
-
-  for (const [modelId, price] of Object.entries(MODEL_PRICES)) {
-    seen.add(modelId);
-    const override = byId.get(modelId);
-    const label =
-      CHAT_MODELS.find((model) => model.id === modelId)?.label ?? modelId;
-    entries.push(
-      override
-        ? {
-            modelId,
-            label: override.label,
-            kind: override.kind,
-            inputPer1M: override.inputPer1M,
-            outputPer1M: override.outputPer1M,
-            enabled: override.enabled,
-            promptCaching:
-              supportsPromptCaching(modelId) && (override.promptCaching ?? true),
-            notes: override.notes,
-            source: "override",
-          }
-        : {
-            modelId,
-            label,
-            kind: price.kind,
-            inputPer1M: price.input,
-            outputPer1M: price.output,
-            enabled: builtinRank(modelId) >= 0,
-            promptCaching: supportsPromptCaching(modelId),
-            source: "builtin",
-          }
-    );
-  }
-
-  for (const row of rows) {
-    if (seen.has(row.modelId)) continue;
-    entries.push({
-      modelId: row.modelId,
-      label: row.label,
-      kind: row.kind,
-      inputPer1M: row.inputPer1M,
-      outputPer1M: row.outputPer1M,
-      enabled: row.enabled,
+  return MODELS.map((model) => {
+    const row = byId.get(model.id);
+    const price = MODEL_PRICES[model.id];
+    return {
+      modelId: model.id,
+      label: row?.label ?? model.label,
+      role: model.role,
+      inputPer1M: row?.inputPer1M ?? price.input,
+      outputPer1M: row?.outputPer1M ?? price.output,
+      isDefault: model.isDefault,
+      enabled:
+        model.role === "chat" && (model.isDefault || (row?.enabled ?? true)),
       promptCaching:
-        supportsPromptCaching(row.modelId) && (row.promptCaching ?? true),
-      notes: row.notes,
-      source: "custom",
-    });
-  }
-
-  // Chat before embeddings, offered before retired, and the built-in picker
-  // order preserved inside that — an operator reading the table should meet
-  // the models in the same order the agent screen offers them.
-  return entries.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === "chat" ? -1 : 1;
-    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
-    const rankA = builtinRank(a.modelId);
-    const rankB = builtinRank(b.modelId);
-    if (rankA !== rankB) {
-      if (rankA < 0) return 1;
-      if (rankB < 0) return -1;
-      return rankA - rankB;
-    }
-    return a.modelId.localeCompare(b.modelId);
+        supportsPromptCaching(model.id) && (row?.promptCaching ?? true),
+      notes: row?.notes,
+      customised: row !== undefined,
+    };
   });
 }
 
@@ -175,6 +99,6 @@ export async function chatModelOptions(
 ): Promise<Array<{ id: string; label: string }>> {
   const catalogue = await mergedCatalogue(ctx);
   return catalogue
-    .filter((entry) => entry.kind === "chat" && entry.enabled)
+    .filter((entry) => entry.enabled)
     .map((entry) => ({ id: entry.modelId, label: entry.label }));
 }
