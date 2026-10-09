@@ -72,9 +72,31 @@ export default function AdminOverviewPage() {
   const access = useQuery(api.authDb.accessSummary, {});
   const usage = useQuery(api.usage.adminSummary, { days: WINDOW_DAYS, now });
 
+  const header = (
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">
+          Overview
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every workspace on this deployment, and what they have spent over
+          the last {WINDOW_DAYS} days.
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        nativeButton={false}
+        render={<Link href="/admin/workspaces" />}
+      >
+        <BuildingsIcon /> Workspaces
+      </Button>
+    </header>
+  );
+
   if (workspaces === undefined || access === undefined || usage === undefined) {
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
+        {header}
         <DashboardSkeleton />
       </div>
     );
@@ -162,24 +184,7 @@ export default function AdminOverviewPage() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">
-            Overview
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Every workspace on this deployment, and what they have spent over
-            the last {WINDOW_DAYS} days.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          nativeButton={false}
-          render={<Link href="/admin/workspaces" />}
-        >
-          <BuildingsIcon /> Workspaces
-        </Button>
-      </header>
+      {header}
 
       {/* Both of these are things to go and do, so they sit above the
           figures rather than as a footnote under them. */}

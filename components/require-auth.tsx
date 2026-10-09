@@ -36,15 +36,23 @@ import type { SessionEndReason } from "@/lib/session";
  * puts someone here, and proxy.ts reads that same cookie as "signed in", so a
  * bare link would bounce straight back. Clearing it is what lets the form load.
  */
-export function RequireAuth({ children }: { children: React.ReactNode }) {
+export function RequireAuth({
+  children,
+  fallback,
+}: {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}) {
   const reason = useSessionEndReason();
 
   return (
     <>
       <AuthLoading>
-        <div className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Spinner /> Checking your session…
-        </div>
+        {fallback ?? (
+          <div className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Checking your session…
+          </div>
+        )}
       </AuthLoading>
 
       <Unauthenticated>

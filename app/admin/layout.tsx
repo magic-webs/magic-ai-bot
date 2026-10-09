@@ -31,7 +31,8 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeaderSkeleton, TableSkeleton } from "@/components/skeletons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
   AiBrain01Icon,
@@ -104,13 +105,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     if (blocked) router.replace("/admin/workspaces");
   }, [blocked, router]);
 
-  if (session.isLoading || blocked) {
-    return (
-      <div className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Spinner /> Loading…
-      </div>
-    );
-  }
+  if (session.isLoading || blocked) return <AdminShellSkeleton />;
 
   if (!session.isStaff) {
     return (
@@ -206,9 +201,67 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+const NAV_SKELETON_WIDTHS = ["w-20", "w-24", "w-28", "w-20", "w-24", "w-28", "w-24", "w-20", "w-16", "w-14", "w-16"];
+
+/** The shell with placeholders, so the first paint is the page's shape. */
+function AdminShellSkeleton() {
+  return (
+    <SidebarProvider className="h-svh overflow-hidden">
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <div className="flex items-center gap-2 p-2">
+            <Skeleton className="size-8 shrink-0 rounded-lg" />
+            <div className="flex flex-1 flex-col gap-1.5 group-data-[collapsible=icon]:hidden">
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-2.5 w-20" />
+            </div>
+          </div>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>Platform</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {NAV_SKELETON_WIDTHS.map((width, i) => (
+                  <SidebarMenuItem key={i}>
+                    <div className="flex h-8 items-center gap-2 px-2">
+                      <Skeleton className="size-4 shrink-0 rounded-md" />
+                      <Skeleton
+                        className={`h-3.5 ${width} group-data-[collapsible=icon]:hidden`}
+                      />
+                    </div>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarFooter>
+          <div className="flex items-center gap-2 p-2">
+            <Skeleton className="size-8 shrink-0 rounded-full" />
+            <div className="flex flex-1 flex-col gap-1.5 group-data-[collapsible=icon]:hidden">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-2.5 w-24" />
+            </div>
+          </div>
+        </SidebarFooter>
+      </Sidebar>
+      <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
+          <SidebarTrigger />
+        </header>
+        <div className="flex min-w-0 flex-1 flex-col gap-5 p-4 sm:p-6">
+          <PageHeaderSkeleton />
+          <TableSkeleton rows={6} />
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+
 export default function AdminLayout({ children }: LayoutProps<"/admin">) {
   return (
-    <RequireAuth>
+    <RequireAuth fallback={<AdminShellSkeleton />}>
       <AdminShell>{children}</AdminShell>
     </RequireAuth>
   );

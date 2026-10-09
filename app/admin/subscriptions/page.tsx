@@ -61,6 +61,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { StatTilesSkeleton, TableSkeleton } from "@/components/skeletons";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -1324,9 +1325,13 @@ export default function AdminSubscriptionsPage() {
       </header>
 
       {data === undefined ? (
-        <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Spinner /> Loading subscriptions…
-        </div>
+        <>
+          <StatTilesSkeleton
+            count={6}
+            className="grid-cols-2 sm:grid-cols-3 xl:grid-cols-6"
+          />
+          <TableSkeleton rows={6} columns={5} />
+        </>
       ) : !data.enabled ? (
         <Empty className="border border-dashed">
           <EmptyHeader>

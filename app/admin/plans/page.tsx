@@ -59,6 +59,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { CardGridSkeleton, PanelSkeleton } from "@/components/skeletons";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
@@ -1080,9 +1081,10 @@ export default function AdminPlansPage() {
       </header>
 
       {data === undefined ? (
-        <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Spinner /> Loading plans…
-        </div>
+        <>
+          <PanelSkeleton lines={3} />
+          <CardGridSkeleton count={3} />
+        </>
       ) : settings === null ? (
         <EnableBilling />
       ) : (

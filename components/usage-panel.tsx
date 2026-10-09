@@ -9,7 +9,7 @@ import { RankedBars, StatTile, ActivityChart } from "@/components/dashboard-char
 import { SelectField } from "@/components/select-field";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
+import { DashboardSkeleton } from "@/components/skeletons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Table,
@@ -82,11 +82,7 @@ export function UsagePanel() {
   });
 
   if (data === undefined) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Spinner /> Loading usage…
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const { totals, previous } = data;

@@ -143,3 +143,53 @@ export function DashboardSkeleton() {
     </div>
   );
 }
+
+/** A row of KPI tiles — a label, a figure and a hint each. */
+export function StatTilesSkeleton({
+  count = 4,
+  className = "sm:grid-cols-2 lg:grid-cols-4",
+}: {
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`grid shrink-0 gap-3 ${className}`} aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3"
+        >
+          <Skeleton className="h-2.5 w-20" />
+          <Skeleton className="h-7 w-16" />
+          <Skeleton className="h-2.5 w-28" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A titled card holding a few lines of settings. */
+export function PanelSkeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <div
+      className="flex shrink-0 flex-col gap-3 rounded-xl border border-border p-4"
+      aria-hidden
+    >
+      <Skeleton className="h-4 w-40" />
+      <Skeleton className="h-3 w-72 max-w-full" />
+      {Array.from({ length: lines }, (_, i) => (
+        <Skeleton key={i} className={`h-8 ${WIDTHS[i % WIDTHS.length]}`} />
+      ))}
+    </div>
+  );
+}
+
+/** A page heading — title and one line under it. */
+export function PageHeaderSkeleton() {
+  return (
+    <div className="flex flex-col gap-2" aria-hidden>
+      <Skeleton className="h-7 w-48" />
+      <Skeleton className="h-3.5 w-80 max-w-full" />
+    </div>
+  );
+}

@@ -35,7 +35,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
+import { StatTilesSkeleton, TableSkeleton } from "@/components/skeletons";
 import {
   Table,
   TableBody,
@@ -166,10 +166,11 @@ export default function AdminBillingPage() {
         </div>
       </header>
 
-      {data === undefined ? (
-        <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Spinner /> Loading billing…
-        </div>
+      {data === undefined || meta === undefined ? (
+        <>
+          <StatTilesSkeleton count={3} className="lg:grid-cols-3" />
+          <TableSkeleton rows={6} columns={5} />
+        </>
       ) : (
         <>
           {data.truncated ? (
