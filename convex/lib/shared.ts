@@ -214,6 +214,14 @@ export const ROUTER_DEFAULTS = {
 export const DEFAULT_CHAT_MODEL = "anthropic/claude-haiku-5.5";
 
 /**
+ * Whether a model needs the gateway to place cache markers for it. Anthropic
+ * caches only on explicit markers; the rest cache on their own.
+ */
+export function supportsPromptCaching(modelId: string): boolean {
+  return modelId.startsWith("anthropic/");
+}
+
+/**
  * What the model picker offers. Ids are the Vercel AI Gateway's
  * `creator/model` form, which is what convex/lib/gateway.ts sends.
  *

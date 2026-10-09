@@ -12,6 +12,9 @@
 
 import { createGateway } from "ai";
 import { ConvexError } from "convex/values";
+import { internal } from "../_generated/api";
+import type { ActionCtx } from "../_generated/server";
+import { supportsPromptCaching } from "./shared";
 
 // Re-exported, not redeclared: the value has to be reachable from queries and
 // mutations too, which may not import the SDK, so it lives in shared.ts.
@@ -73,9 +76,12 @@ const PROVIDER_ROUTING: Record<string, string[]> = {
 };
 
 /** `providerOptions` for a gateway model id, or undefined when it needs none. */
-export function gatewayRouting(model: string) {
+export async function gatewayOptions(ctx: ActionCtx, model: string) {
   const providers = PROVIDER_ROUTING[model];
-  const caching = model.startsWith("anthropic/") ? ("auto" as const) : undefined;
+  const cached =
+    supportsPromptCaching(model) &&
+    (await ctx.runQuery(internal.models.promptCaching, { modelId: model }));
+  const caching = cached ? ("auto" as const) : undefined;
   if (!providers && !caching) return undefined;
   return {
     gateway: {

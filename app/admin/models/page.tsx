@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { DEFAULT_CHAT_MODEL } from "@/convex/lib/shared";
+import { DEFAULT_CHAT_MODEL, supportsPromptCaching } from "@/convex/lib/shared";
 import { SelectField } from "@/components/select-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,7 @@ type Draft = {
   inputPer1M: string;
   outputPer1M: string;
   enabled: boolean;
+  promptCaching: boolean;
   notes: string;
 };
 
@@ -105,6 +106,7 @@ const BLANK: Draft = {
   inputPer1M: "",
   outputPer1M: "",
   enabled: true,
+  promptCaching: true,
   notes: "",
 };
 
@@ -143,6 +145,7 @@ function ModelDialog({
             inputPer1M: String(entry.inputPer1M),
             outputPer1M: String(entry.outputPer1M),
             enabled: entry.enabled,
+            promptCaching: entry.promptCaching,
             notes: entry.notes ?? "",
           }
         : BLANK
@@ -173,6 +176,9 @@ function ModelDialog({
         inputPer1M: input,
         outputPer1M: output,
         enabled: form.enabled,
+        promptCaching: supportsPromptCaching(form.modelId.trim())
+          ? form.promptCaching
+          : undefined,
         notes: form.notes || undefined,
       });
       toast.add({
@@ -301,6 +307,25 @@ function ModelDialog({
             />
           </div>
 
+          {supportsPromptCaching(form.modelId.trim()) ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border p-3">
+              <div className="flex flex-col">
+                <Label htmlFor="m-cache" className="font-normal">
+                  Prompt caching
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  Repeated prompt prefixes are read back at a tenth of the input
+                  price; writing them costs a quarter more.
+                </span>
+              </div>
+              <Switch
+                id="m-cache"
+                checked={form.promptCaching}
+                onCheckedChange={(checked) => set("promptCaching", checked)}
+              />
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="m-notes">Notes</Label>
             <Textarea
@@ -338,6 +363,7 @@ function ModelDialog({
 export default function AdminModelsPage() {
   const models = useQuery(api.models.list, {});
   const setEnabled = useMutation(api.models.setEnabled);
+  const setPromptCaching = useMutation(api.models.setPromptCaching);
   const remove = useMutation(api.models.remove);
   const reprice = useMutation(api.models.repriceUnpriced);
   const moveAgents = useMutation(api.models.moveAgentsToDefault);
@@ -366,6 +392,18 @@ export default function AdminModelsPage() {
     } catch (error) {
       toast.add({
         title: "Could not change the model",
+        description: friendlyError(error),
+        type: "error",
+      });
+    }
+  };
+
+  const toggleCaching = async (entry: Entry, promptCaching: boolean) => {
+    try {
+      await setPromptCaching({ modelId: entry.modelId, promptCaching });
+    } catch (error) {
+      toast.add({
+        title: "Could not change prompt caching",
         description: friendlyError(error),
         type: "error",
       });
@@ -544,6 +582,7 @@ export default function AdminModelsPage() {
                     <TableHead className="text-right">Out · $/1M</TableHead>
                     <TableHead className="hidden lg:table-cell">Source</TableHead>
                     <TableHead className="text-center">Offered</TableHead>
+                    <TableHead className="text-center">Prompt cache</TableHead>
                     <TableHead className="text-right">Edit</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -596,6 +635,19 @@ export default function AdminModelsPage() {
                             void toggle(model, checked)
                           }
                         />
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {supportsPromptCaching(model.modelId) ? (
+                          <Switch
+                            aria-label={`Prompt caching for ${model.modelId}`}
+                            checked={model.promptCaching}
+                            onCheckedChange={(checked) =>
+                              void toggleCaching(model, checked)
+                            }
+                          />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">

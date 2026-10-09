@@ -26,7 +26,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { aiGateway, gatewayModelId, gatewayRouting } from "./lib/gateway";
+import { aiGateway, gatewayModelId, gatewayOptions } from "./lib/gateway";
 import {
   DEFAULT_CHAT_MODEL,
   WHATSAPP_FREE_FORM_WINDOW_HOURS,
@@ -197,7 +197,7 @@ export const review = internalAction({
         try {
           const result = await generateText({
             model: aiGateway()(model),
-            providerOptions: gatewayRouting(model),
+            providerOptions: await gatewayOptions(ctx, model),
             output: Output.object({ schema: reviewSchema }),
             instructions:
               attempt === 0

@@ -22,7 +22,7 @@
 
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { MODEL_PRICES, type ModelPrice } from "./pricing";
-import { CHAT_MODELS } from "./shared";
+import { CHAT_MODELS, supportsPromptCaching } from "./shared";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -37,6 +37,8 @@ export type CatalogueEntry = {
   outputPer1M: number;
   /** Whether the model picker offers it. A disabled model is still priced. */
   enabled: boolean;
+  /** Whether the gateway places cache markers. Only Anthropic models use it. */
+  promptCaching: boolean;
   notes?: string;
   /**
    * builtin  — shipped in the constants, untouched
@@ -65,6 +67,20 @@ export async function lookupPrice(
     .unique();
   if (!row) return null;
   return { input: row.inputPer1M, output: row.outputPer1M, kind: row.kind };
+}
+
+/** Whether a call to this model should ask the gateway to cache its prompt. */
+export async function lookupPromptCaching(
+  ctx: Ctx,
+  model: string
+): Promise<boolean> {
+  const modelId = model.trim();
+  if (!supportsPromptCaching(modelId)) return false;
+  const row = await ctx.db
+    .query("aiModels")
+    .withIndex("by_modelId", (q) => q.eq("modelId", modelId))
+    .unique();
+  return row?.promptCaching ?? true;
 }
 
 /** Where a built-in sits in the picker, or -1 if the picker never offers it. */
@@ -102,6 +118,8 @@ export async function mergedCatalogue(ctx: Ctx): Promise<CatalogueEntry[]> {
             inputPer1M: override.inputPer1M,
             outputPer1M: override.outputPer1M,
             enabled: override.enabled,
+            promptCaching:
+              supportsPromptCaching(modelId) && (override.promptCaching ?? true),
             notes: override.notes,
             source: "override",
           }
@@ -112,6 +130,7 @@ export async function mergedCatalogue(ctx: Ctx): Promise<CatalogueEntry[]> {
             inputPer1M: price.input,
             outputPer1M: price.output,
             enabled: builtinRank(modelId) >= 0,
+            promptCaching: supportsPromptCaching(modelId),
             source: "builtin",
           }
     );
@@ -126,6 +145,8 @@ export async function mergedCatalogue(ctx: Ctx): Promise<CatalogueEntry[]> {
       inputPer1M: row.inputPer1M,
       outputPer1M: row.outputPer1M,
       enabled: row.enabled,
+      promptCaching:
+        supportsPromptCaching(row.modelId) && (row.promptCaching ?? true),
       notes: row.notes,
       source: "custom",
     });

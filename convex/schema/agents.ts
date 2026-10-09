@@ -168,6 +168,7 @@ export const agentsTables = {
     inputPer1M: v.number(),
     outputPer1M: v.number(),
     enabled: v.boolean(),
+    promptCaching: v.optional(v.boolean()),
     notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

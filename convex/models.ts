@@ -9,16 +9,17 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { requireAdmin, requireSignedIn } from "./lib/auth";
 import {
   chatModelOptions,
   lookupPrice,
+  lookupPromptCaching,
   mergedCatalogue,
 } from "./lib/modelCatalogue";
 import { costNanoUsd } from "./lib/pricing";
 import { addToUsageDaily } from "./lib/usageDaily";
-import { DEFAULT_CHAT_MODEL } from "./lib/shared";
+import { DEFAULT_CHAT_MODEL, supportsPromptCaching } from "./lib/shared";
 
 // A mutation may not rewrite an unbounded number of rows, and repricing is a
 // correction rather than a migration. The page reports what is left so an
@@ -105,6 +106,7 @@ export const upsert = mutation({
     inputPer1M: v.number(),
     outputPer1M: v.number(),
     enabled: v.boolean(),
+    promptCaching: v.optional(v.boolean()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -132,6 +134,7 @@ export const upsert = mutation({
         inputPer1M,
         outputPer1M,
         enabled: args.enabled,
+        promptCaching: args.promptCaching,
         notes,
         updatedAt: now,
       });
@@ -145,6 +148,7 @@ export const upsert = mutation({
       inputPer1M,
       outputPer1M,
       enabled: args.enabled,
+      promptCaching: args.promptCaching,
       notes,
       createdAt: now,
       updatedAt: now,
@@ -192,6 +196,55 @@ export const setEnabled = mutation({
     });
     return { modelId };
   },
+});
+
+/** Turn the gateway's prompt caching on or off for an Anthropic model. */
+export const setPromptCaching = mutation({
+  args: { modelId: v.string(), promptCaching: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const modelId = args.modelId.trim();
+    if (!supportsPromptCaching(modelId)) {
+      throw new ConvexError("Only Anthropic models need prompt caching set.");
+    }
+
+    const existing = await ctx.db
+      .query("aiModels")
+      .withIndex("by_modelId", (q) => q.eq("modelId", modelId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        promptCaching: args.promptCaching,
+        updatedAt: Date.now(),
+      });
+      return { modelId };
+    }
+
+    const catalogue = await mergedCatalogue(ctx);
+    const entry = catalogue.find((row) => row.modelId === modelId);
+    if (!entry) throw new ConvexError(`Unknown model: ${modelId}`);
+
+    const now = Date.now();
+    await ctx.db.insert("aiModels", {
+      modelId,
+      label: entry.label,
+      kind: entry.kind,
+      inputPer1M: entry.inputPer1M,
+      outputPer1M: entry.outputPer1M,
+      enabled: entry.enabled,
+      promptCaching: args.promptCaching,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { modelId };
+  },
+});
+
+export const promptCaching = internalQuery({
+  args: { modelId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => lookupPromptCaching(ctx, args.modelId),
 });
 
 /**

@@ -8,7 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { aiGateway, gatewayModelId, gatewayRouting, EMBEDDING_MODEL } from "./lib/gateway";
+import { aiGateway, gatewayModelId, gatewayOptions, EMBEDDING_MODEL } from "./lib/gateway";
 import {
   generateText,
   embed,
@@ -1958,7 +1958,7 @@ async function runTurn(ctx: ActionCtx, args: TurnArgs): Promise<TurnResult> {
         const model = gatewayModelId(agent.model);
         const result = await generateText({
           model: aiGateway()(model),
-          providerOptions: gatewayRouting(model),
+          providerOptions: await gatewayOptions(ctx, model),
           instructions: system,
           messages: conversationMessages,
           tools: toolset,

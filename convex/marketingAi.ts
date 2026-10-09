@@ -19,7 +19,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { aiGateway, gatewayModelId, gatewayRouting } from "./lib/gateway";
+import { aiGateway, gatewayModelId, gatewayOptions } from "./lib/gateway";
 import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 import { eventDateLabel, touchBrief, touchLabel } from "./lib/marketing";
 
@@ -105,7 +105,7 @@ export const draft = action({
       try {
         const result = await generateText({
           model: aiGateway()(model),
-          providerOptions: gatewayRouting(model),
+          providerOptions: await gatewayOptions(ctx, model),
           output: Output.object({ schema: draftSchema }),
           instructions:
             attempt === 0
@@ -228,7 +228,7 @@ async function writeTouchLines(
     try {
       const result = await generateText({
         model: aiGateway()(model),
-        providerOptions: gatewayRouting(model),
+        providerOptions: await gatewayOptions(ctx, model),
         output: Output.object({ schema: touchesSchema }),
         instructions:
           attempt === 0

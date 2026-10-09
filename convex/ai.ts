@@ -4,7 +4,7 @@ import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { aiGateway, gatewayRouting } from "./lib/gateway";
+import { aiGateway, gatewayOptions } from "./lib/gateway";
 import { DEFAULT_CHAT_MODEL } from "./lib/shared";
 import { generateText, Output } from "ai";
 import { z } from "zod";
@@ -113,7 +113,7 @@ export const draftAgent = action({
 
     const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
-      providerOptions: gatewayRouting(DRAFT_MODEL),
+      providerOptions: await gatewayOptions(ctx, DRAFT_MODEL),
       output: Output.object({ schema: agentDraftSchema }),
       instructions: [
         "You design production chat agents for real businesses.",
@@ -287,7 +287,7 @@ export const draftTool = action({
 
     const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
-      providerOptions: gatewayRouting(DRAFT_MODEL),
+      providerOptions: await gatewayOptions(ctx, DRAFT_MODEL),
       output: Output.object({ schema: toolDraftSchema }),
       instructions: [
         "You design tools for an LLM chat agent. Output a single tool definition.",
@@ -448,7 +448,7 @@ export const draftCatalogue = action({
 
     const { output, usage } = await generateText({
       model: aiGateway()(DRAFT_MODEL),
-      providerOptions: gatewayRouting(DRAFT_MODEL),
+      providerOptions: await gatewayOptions(ctx, DRAFT_MODEL),
       output: Output.object({ schema: catalogueSchema }),
       instructions: [
         "You build product catalogues for quoting bots.",
