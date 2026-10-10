@@ -12,6 +12,7 @@ const proxiedPrefixes = [
   "/apps",
   "/l",
   "/integrations/google",
+  "/instagram",
 ];
 
 const nextConfig: NextConfig = {
