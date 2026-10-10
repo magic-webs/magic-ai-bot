@@ -130,6 +130,7 @@ export const recordsTables = {
     source: v.union(
       v.literal("whatsapp"),
       v.literal("web"),
+      v.literal("instagram"),
       v.literal("api"),
       v.literal("manual"),
       v.literal("form")

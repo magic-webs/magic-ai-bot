@@ -70,6 +70,8 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
+import { InstagramLogo } from "@/components/brand-icons";
+import { CHANNEL_LABEL, type ChannelKind } from "@/components/channel-mark";
 
 // ---------------------------------------------------------------------------
 
@@ -81,7 +83,7 @@ type Lead = {
   reviewedAt: number | null;
   followUpCount: number;
   status: string;
-  channelType: "whatsapp" | "web";
+  channelType: ChannelKind;
   messageCount: number;
   lastMessageAt: number;
   lastMessagePreview: string | null;
@@ -363,11 +365,15 @@ function LeadCard({
             "mt-0.5 shrink-0",
             lead.channelType === "whatsapp"
               ? "text-emerald-600 dark:text-emerald-400"
-              : "text-muted-foreground"
+              : lead.channelType === "instagram"
+                ? "text-pink-600 dark:text-pink-400"
+                : "text-muted-foreground"
           )}
         >
           {lead.channelType === "whatsapp" ? (
             <WhatsappLogoIcon className="size-4" />
+          ) : lead.channelType === "instagram" ? (
+            <InstagramLogo />
           ) : (
             <GlobeIcon className="size-4" />
           )}
@@ -678,14 +684,20 @@ function LeadTable({
                         "shrink-0",
                         lead.channelType === "whatsapp"
                           ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-muted-foreground"
+                          : lead.channelType === "instagram"
+                            ? "text-pink-600 dark:text-pink-400"
+                            : "text-muted-foreground"
                       )}
                       title={
-                        lead.channelType === "whatsapp" ? "WhatsApp" : "Website"
+                        lead.channelType === "web"
+                          ? "Website"
+                          : CHANNEL_LABEL[lead.channelType]
                       }
                     >
                       {lead.channelType === "whatsapp" ? (
                         <WhatsappLogoIcon className="size-4" />
+                      ) : lead.channelType === "instagram" ? (
+                        <InstagramLogo />
                       ) : (
                         <GlobeIcon className="size-4" />
                       )}

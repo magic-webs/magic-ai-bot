@@ -12,7 +12,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { kvPair } from "./schema";
+import { channelType, kvPair } from "./schema";
 import { deleteMessage, noteSent } from "./lib/delivery";
 import { historyText, type Outbound } from "./lib/whatsappSend";
 import { normaliseBirthday } from "./lib/marketing";
@@ -119,7 +119,7 @@ export const inboxArgs = {
       v.literal("closed")
     )
   ),
-  channelType: v.optional(v.union(v.literal("whatsapp"), v.literal("web"))),
+  channelType: v.optional(channelType),
   channelId: v.optional(v.id("channels")),
   agentId: v.optional(v.id("agents")),
   stageId: v.optional(v.id("leadStages")),
@@ -462,7 +462,7 @@ export const getWithContact = query({
     // clock during render without breaking the purity rule the lint config
     // enforces.
     const freeFormWindowClosed =
-      conversation.channelType === "whatsapp" &&
+      conversation.channelType !== "web" &&
       (lastInboundAt === null ||
         Date.now() - lastInboundAt >
           WHATSAPP_FREE_FORM_WINDOW_HOURS * 60 * 60_000);
@@ -880,29 +880,34 @@ export const sendManualReply = action({
     }
 
     let whatsapp: { wamid?: string } | undefined;
-    if (context.channelType === "whatsapp") {
+    if (context.channelType !== "web") {
       if (!context.channelId || !context.externalId) {
         return {
           ok: false,
           error:
-            "This thread has no WhatsApp channel attached, so there is nowhere to send it.",
+            "This thread has no channel attached, so there is nowhere to send it.",
         };
       }
       const sent: { ok: boolean; error?: string; wamid?: string } =
-        await ctx.runAction(internal.whatsapp.sendOutbound, {
-          channelId: context.channelId,
-          to: context.externalId,
-          message: { kind: "text", body },
-          source: "human",
-          conversationId: args.conversationId,
-        });
+        await ctx.runAction(
+          context.channelType === "instagram"
+            ? internal.instagram.sendOutbound
+            : internal.whatsapp.sendOutbound,
+          {
+            channelId: context.channelId,
+            to: context.externalId,
+            message: { kind: "text", body },
+            source: "human",
+            conversationId: args.conversationId,
+          }
+        );
       if (!sent.ok) {
         return {
           ok: false,
-          error: sent.error ?? "WhatsApp rejected the message.",
+          error: sent.error ?? "The channel rejected the message.",
         };
       }
-      whatsapp = { wamid: sent.wamid };
+      if (context.channelType === "whatsapp") whatsapp = { wamid: sent.wamid };
     }
     // On the web widget there is nothing to post to: recording the message is
     // the delivery, and the visitor's open subscription renders it. Same
@@ -985,7 +990,7 @@ export const startTurn = internalMutation({
     workspaceId: v.id("workspaces"),
     agentId: v.id("agents"),
     channelId: v.optional(v.id("channels")),
-    channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+    channelType: channelType,
     externalId: v.string(),
     contactName: v.optional(v.string()),
     contactPhone: v.optional(v.string()),
@@ -1313,7 +1318,7 @@ export const finishTurn = internalMutation({
         args.conversationId
       );
       const delivery =
-        conversation?.channelType === "whatsapp" ? ("pending" as const) : undefined;
+        conversation?.channelType !== "web" ? ("pending" as const) : undefined;
       replyMessageId = await ctx.db.insert("messages", {
         workspaceId: args.workspaceId,
         conversationId: args.conversationId,

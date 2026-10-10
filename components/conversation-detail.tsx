@@ -14,7 +14,7 @@ import { ContactAvatar } from "@/components/contact-avatar";
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { WindowClock } from "@/components/window-clock";
 import { SelectField } from "@/components/select-field";
-import { CHANNEL_LABEL, ChannelMark } from "@/components/channel-mark";
+import { CHANNEL_LABEL, ChannelMark, type ChannelKind } from "@/components/channel-mark";
 import {
   Countdown,
   HandbackCountdown,
@@ -100,7 +100,7 @@ export const STATUS_OPTIONS = [
 // Auto-generated web session ids are noise in a list; show something readable.
 export function displayContact(row: {
   contactLabel: string;
-  channelType: "whatsapp" | "web";
+  channelType: ChannelKind;
 }): string {
   if (row.channelType === "web" && /^web-[a-z0-9]+$/i.test(row.contactLabel)) {
     return `Web visitor ${row.contactLabel.slice(-4)}`;
@@ -584,7 +584,7 @@ export function ConversationDetail({
                 <ClockIcon className="size-3.5 shrink-0" />
                 Last activity {relative(conversation.lastMessageAt)}
               </span>
-              {conversation.channelType === "whatsapp" ? (
+              {conversation.channelType !== "web" ? (
                 <HeaderWindow lastInboundAt={detail.lastInboundAt} />
               ) : null}
             </div>
@@ -958,7 +958,7 @@ function ThreadDetails({
     ? holdEnd(conversation.humanHandlingAt, conversation.humanHandlingUntil)
     : null;
   const window24 =
-    conversation.channelType === "whatsapp"
+    conversation.channelType !== "web"
       ? replyWindow(lastInboundAt, now)
       : null;
 
@@ -1084,7 +1084,7 @@ function ThreadDetails({
         )}
       </DetailSection>
 
-      {conversation.channelType === "whatsapp" ? (
+      {conversation.channelType !== "web" ? (
         <DetailSection title="Reply window">
           {window24 ? (
             <div className="flex items-center gap-3">
@@ -1095,14 +1095,15 @@ function ThreadDetails({
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Closed — only an approved template gets through until they
-                  write again.
+                  {conversation.channelType === "whatsapp"
+                    ? "Closed — only an approved template gets through until they write again."
+                    : "Closed — nothing gets through until they write again."}
                 </p>
               )}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              They have not written on WhatsApp yet.
+              They have not written on {CHANNEL_LABEL[conversation.channelType]} yet.
             </p>
           )}
         </DetailSection>

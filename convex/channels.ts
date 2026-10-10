@@ -5,6 +5,7 @@ import {
   internalQuery,
   internalMutation,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { randomKey, maskSecret } from "./lib/shared";
 import {
@@ -33,7 +34,12 @@ function redact(channel: Doc<"channels">) {
           accessToken: maskSecret(channel.whatsapp.accessToken) ?? "",
         }
       : undefined,
-    hasAccessToken: Boolean(channel.whatsapp?.accessToken),
+    instagram: channel.instagram
+      ? { ...channel.instagram, accessToken: maskSecret(channel.instagram.accessToken) ?? "" }
+      : undefined,
+    hasAccessToken: Boolean(
+      channel.whatsapp?.accessToken ?? channel.instagram?.accessToken
+    ),
   };
 }
 
@@ -100,7 +106,9 @@ export const inboxChannels = query({
         name: channel.name,
         type: channel.type,
         status: channel.status,
-        phone: channel.whatsapp?.displayPhoneNumber ?? null,
+        phone:
+          channel.whatsapp?.displayPhoneNumber ??
+          (channel.instagram ? `@${channel.instagram.username}` : null),
       }));
   },
 });
@@ -241,6 +249,12 @@ export const remove = mutation({
   args: { channelId: v.id("channels") },
   handler: async (ctx, args) => {
     await requireChannel(ctx, args.channelId);
+    const channel = await ctx.db.get("channels", args.channelId);
+    if (channel?.instagram?.accessToken) {
+      await ctx.scheduler.runAfter(0, internal.instagram.unsubscribe, {
+        accessToken: channel.instagram.accessToken,
+      });
+    }
     await ctx.db.delete(args.channelId);
     return { success: true };
   },

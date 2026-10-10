@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -61,6 +62,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
 import { ChannelQr } from "@/components/channel-qr";
+import { InstagramLogo } from "@/components/brand-icons";
 import { CardGridSkeleton } from "@/components/skeletons";
 import {
   WhatsappLogoIcon,
@@ -664,6 +666,180 @@ function WebChannelDialog({
   );
 }
 
+const INSTAGRAM_GRADIENT =
+  "bg-[radial-gradient(circle_at_30%_107%,#fdf497_0%,#fdf497_5%,#fd5949_45%,#d6249f_60%,#285AEB_90%)]";
+
+function useInstagramConnect() {
+  const workspace = useWorkspace();
+  const startConnect = useAction(api.instagram.startConnect);
+  const [busy, setBusy] = useState(false);
+
+  const connect = async (agentId: string, name: string) => {
+    setBusy(true);
+    try {
+      const { url } = await startConnect({
+        workspaceId: workspace._id,
+        agentId: agentId as Id<"agents">,
+        name,
+        returnTo: `${window.location.origin}/w/${workspace.slug}/channels`,
+      });
+      window.location.assign(url);
+    } catch (error) {
+      toast.add({
+        title: "Could not start Instagram sign-in",
+        description: friendlyError(error),
+        type: "error",
+      });
+      setBusy(false);
+    }
+  };
+
+  return { connect, busy };
+}
+
+function InstagramDialog({
+  channelId,
+  initial,
+  trigger,
+}: {
+  channelId?: Id<"channels">;
+  initial?: WebChannelForm;
+  trigger: React.ReactElement;
+}) {
+  const workspace = useWorkspace();
+  const agents = useQuery(api.agents.listByWorkspace, {
+    workspaceId: workspace._id,
+  });
+  const updateChannel = useMutation(api.channels.update);
+  const { connect, busy: connecting } = useInstagramConnect();
+
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<WebChannelForm>(
+    initial ?? { name: "Instagram", agentId: "" }
+  );
+  const busy = saving || connecting;
+
+  const selectedAgentId =
+    form.agentId || defaultChannelAgentId(agents) || "";
+
+  const submit = async () => {
+    if (!selectedAgentId) {
+      toast.add({ title: "Pick the agent that answers here", type: "error" });
+      return;
+    }
+    if (!channelId) {
+      await connect(selectedAgentId, form.name);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateChannel({
+        channelId,
+        name: form.name,
+        agentId: selectedAgentId as Id<"agents">,
+      });
+      toast.add({ title: "Channel updated", type: "success" });
+      setOpen(false);
+    } catch (error) {
+      toast.add({
+        title: "Save failed",
+        description: friendlyError(error),
+        type: "error",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={trigger} />
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {channelId ? "Edit Instagram" : "Connect Instagram"}
+          </DialogTitle>
+          <DialogDescription>
+            {channelId
+              ? "Rename this account or change the agent that answers its messages."
+              : "Sign in with the Instagram professional account whose direct messages your agent should answer."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ig-name">Channel name</Label>
+            <Input
+              id="ig-name"
+              value={form.name}
+              placeholder="Instagram"
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, name: event.target.value }))
+              }
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ig-agent">Agent that answers</Label>
+            <SelectField
+              id="ig-agent"
+              className="w-full"
+              value={selectedAgentId}
+              placeholder="No agents yet"
+              onValueChange={(next) =>
+                setForm((prev) => ({ ...prev, agentId: next }))
+              }
+              options={agentOptions(agents)}
+            />
+          </div>
+        </div>
+
+        {channelId ? null : (
+          <p className="text-xs text-muted-foreground">
+            Only business and creator accounts can be connected. After signing
+            in, turn on{" "}
+            <strong className="text-foreground">Allow access to messages</strong>{" "}
+            in the Instagram app under Settings {"→"} Messages and story replies{" "}
+            {"→"} Connected tools.
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          {channelId ? (
+            <Button onClick={submit} disabled={busy}>
+              {busy ? <Spinner /> : null} Save changes
+            </Button>
+          ) : (
+            <Button
+              onClick={submit}
+              disabled={busy}
+              className={`${INSTAGRAM_GRADIENT} text-white hover:opacity-90`}
+            >
+              {busy ? <Spinner /> : <InstagramLogo />} Continue with Instagram
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ConnectInstagramButton() {
+  return (
+    <InstagramDialog
+      trigger={
+        <Button className={`${INSTAGRAM_GRADIENT} text-white hover:opacity-90`}>
+          <InstagramLogo /> Connect Instagram
+        </Button>
+      }
+    />
+  );
+}
+
 /**
  * A row's action menu.
  *
@@ -680,13 +856,17 @@ function WebChannelDialog({
  */
 function ChannelMenu({
   isWeb,
+  isInstagram,
   edit,
   onRotate,
+  onReconnect,
   onDelete,
 }: {
   isWeb: boolean;
+  isInstagram: boolean;
   edit: React.ReactNode;
   onRotate: () => Promise<void>;
+  onReconnect: () => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const [rotating, setRotating] = useState(false);
@@ -704,9 +884,15 @@ function ChannelMenu({
         />
         <DropdownMenuContent align="end" className="w-56">
           {edit}
-          <DropdownMenuItem onClick={() => setRotating(true)}>
-            {isWeb ? "Rotate embed code" : "Rotate callback URL"}
-          </DropdownMenuItem>
+          {isInstagram ? (
+            <DropdownMenuItem onClick={() => void onReconnect()}>
+              Reconnect Instagram
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={() => setRotating(true)}>
+              {isWeb ? "Rotate embed code" : "Rotate callback URL"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
@@ -748,7 +934,9 @@ function ChannelMenu({
               Customers can no longer reach you here, and{" "}
               {isWeb
                 ? "the widget on your website stops loading."
-                : "inbound WhatsApp messages to this number stop being answered."}{" "}
+                : isInstagram
+                  ? "direct messages to this Instagram account stop being answered."
+                  : "inbound WhatsApp messages to this number stop being answered."}{" "}
               Conversations already received are kept. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -767,6 +955,7 @@ function ChannelMenu({
 const FILTERS = [
   { value: "all", label: "All" },
   { value: "whatsapp", label: "WhatsApp" },
+  { value: "instagram", label: "Instagram" },
   { value: "web", label: "Website" },
   { value: "inactive", label: "Inactive" },
 ] as const;
@@ -824,6 +1013,8 @@ type ChannelRow = FunctionReturnType<typeof api.channels.listByWorkspace>[number
 /** The addresses a channel is reached at, worked out once per render. */
 type ChannelLinks = {
   isWeb: boolean;
+  isInstagram: boolean;
+  igLink: string | null;
   live: boolean;
   webhookUrl: string;
   widgetUrl: string;
@@ -845,6 +1036,10 @@ function channelLinks(
   );
   return {
     isWeb: channel.type === "web",
+    isInstagram: channel.type === "instagram",
+    igLink: channel.instagram
+      ? `https://ig.me/m/${channel.instagram.username}`
+      : null,
     live: channel.status === "active",
     webhookUrl: `${webhookBase}/whatsapp/${channel.channelKey}`,
     widgetUrl: `${appOrigin}/widget/${channel.channelKey}`,
@@ -869,7 +1064,8 @@ function ChannelControls({
   const updateChannel = useMutation(api.channels.update);
   const rotateKeys = useMutation(api.channels.rotateKeys);
   const removeChannel = useMutation(api.channels.remove);
-  const { isWeb, live } = links;
+  const { connect } = useInstagramConnect();
+  const { isWeb, isInstagram, live } = links;
 
   return (
     <>
@@ -900,6 +1096,8 @@ function ChannelControls({
 
       <ChannelMenu
         isWeb={isWeb}
+        isInstagram={isInstagram}
+        onReconnect={() => connect(channel.agentId, channel.name)}
         onRotate={async () => {
           await rotateKeys({ channelId: channel._id });
           toast.add({
@@ -917,7 +1115,17 @@ function ChannelControls({
           toast.add({ title: "Channel deleted", type: "success" });
         }}
         edit={
-          isWeb ? (
+          isInstagram ? (
+            <InstagramDialog
+              channelId={channel._id}
+              initial={{ name: channel.name, agentId: channel.agentId }}
+              trigger={
+                <DropdownMenuItem closeOnClick={false}>
+                  Edit
+                </DropdownMenuItem>
+              }
+            />
+          ) : isWeb ? (
             <WebChannelDialog
               channelId={channel._id}
               initial={{
@@ -974,7 +1182,9 @@ function ChannelSetup({
   channel: ChannelRow;
   links: ChannelLinks;
 }) {
-  const { isWeb, webhookUrl, widgetUrl, embedCode, waLink } = links;
+  const { isWeb, isInstagram, webhookUrl, widgetUrl, embedCode, waLink } = links;
+
+  if (isInstagram) return <InstagramSetup channel={channel} links={links} />;
 
   return (
     <>
@@ -1199,6 +1409,109 @@ function ChannelSetup({
   );
 }
 
+function InstagramSetup({
+  channel,
+  links,
+}: {
+  channel: ChannelRow;
+  links: ChannelLinks;
+}) {
+  const { connect, busy } = useInstagramConnect();
+  const account = channel.instagram;
+
+  return (
+    <>
+      {channel.lastError ? (
+        <Alert variant="destructive">
+          <WarningIcon />
+          <AlertTitle>Last delivery problem</AlertTitle>
+          <AlertDescription className="font-mono text-xs">
+            {channel.lastError}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Tabs defaultValue="account" className="min-w-0">
+          <TabsList>
+            <TabsTrigger value="account">Account</TabsTrigger>
+            <TabsTrigger value="qr">QR code</TabsTrigger>
+          </TabsList>
+          <TabsContent value="account">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3">
+              {account?.profilePictureUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={account.profilePictureUrl}
+                  alt=""
+                  className="size-12 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <span
+                  className={`flex size-12 shrink-0 items-center justify-center rounded-full text-white ${INSTAGRAM_GRADIENT}`}
+                >
+                  <InstagramLogo className="size-6" />
+                </span>
+              )}
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate font-medium">
+                  {account?.name || channel.name}
+                </span>
+                {account ? (
+                  <a
+                    href={`https://instagram.com/${account.username}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-sm text-muted-foreground hover:underline"
+                  >
+                    @{account.username}
+                  </a>
+                ) : null}
+                {account?.tokenExpiresAt ? (
+                  <span className="text-xs text-muted-foreground">
+                    Access renews automatically · good until{" "}
+                    {new Date(account.tokenExpiresAt).toLocaleDateString()}
+                  </span>
+                ) : null}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 bg-background"
+                disabled={busy}
+                onClick={() => void connect(channel.agentId, channel.name)}
+              >
+                {busy ? <Spinner /> : <InstagramLogo />} Reconnect
+              </Button>
+            </div>
+          </TabsContent>
+          <TabsContent value="qr">
+            <ChannelQr
+              url={links.igLink}
+              caption="Point a phone camera at this to open a direct message to this account in Instagram. Send anything and the front desk answers."
+              unavailable="This account has no username saved. Reconnect it to fetch one."
+            />
+          </TabsContent>
+        </Tabs>
+
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/30 p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium">
+            <InfoIcon className="size-4 text-muted-foreground" />
+            No messages arriving?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            In the Instagram app, open Settings {"→"} Messages and story
+            replies {"→"} Message controls {"→"} Connected tools, and turn on{" "}
+            <strong className="text-foreground">Allow access to messages</strong>.
+            Replies are only delivered within 24 hours of the customer&apos;s
+            last message.
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
 /** The full card: everything about the channel, on the page. */
 function ChannelCard({
   channel,
@@ -1207,7 +1520,7 @@ function ChannelCard({
   channel: ChannelRow;
   links: ChannelLinks;
 }) {
-  const { isWeb, live } = links;
+  const { isWeb, isInstagram, live } = links;
   return (
     <Card>
       {/* One row, always: who this is, where it points, how much has come
@@ -1222,6 +1535,8 @@ function ChannelCard({
           >
             {isWeb ? (
               <GlobeIcon className="size-5" />
+            ) : isInstagram ? (
+              <InstagramLogo className="size-5" />
             ) : (
               <WhatsappLogoIcon className="size-5" />
             )}
@@ -1248,6 +1563,9 @@ function ChannelCard({
                 <Badge variant="secondary" className="font-mono">
                   {channel.whatsapp.displayPhoneNumber}
                 </Badge>
+              ) : null}
+              {channel.instagram ? (
+                <Badge variant="secondary">@{channel.instagram.username}</Badge>
               ) : null}
             </CardTitle>
             <CardDescription>
@@ -1292,7 +1610,7 @@ function ChannelTile({
   channel: ChannelRow;
   links: ChannelLinks;
 }) {
-  const { isWeb, live } = links;
+  const { isWeb, isInstagram, live } = links;
   return (
     <Card size="sm" className="flex flex-col">
       <CardHeader className="flex items-start gap-3">
@@ -1303,6 +1621,8 @@ function ChannelTile({
         >
           {isWeb ? (
             <GlobeIcon className="size-5" />
+          ) : isInstagram ? (
+            <InstagramLogo className="size-5" />
           ) : (
             <WhatsappLogoIcon className="size-5" />
           )}
@@ -1316,6 +1636,8 @@ function ChannelTile({
               <span className="font-mono">
                 {channel.whatsapp.displayPhoneNumber}
               </span>
+            ) : channel.instagram ? (
+              `@${channel.instagram.username}`
             ) : isWeb ? (
               "Website widget"
             ) : (
@@ -1372,7 +1694,8 @@ function ChannelTile({
             <DialogTrigger
               render={
                 <Button size="sm" variant="outline">
-                  <GearIcon /> {isWeb ? "Embed & QR" : "Setup & QR"}
+                  <GearIcon />{" "}
+                  {isWeb ? "Embed & QR" : isInstagram ? "Account & QR" : "Setup & QR"}
                 </Button>
               }
             />
@@ -1382,7 +1705,9 @@ function ChannelTile({
                 <DialogDescription>
                   {isWeb
                     ? "Put the widget on your website, or open it on its own."
-                    : "Connect this number in Meta, or share it as a QR code."}
+                    : isInstagram
+                      ? "The connected Instagram account, and a QR code that opens a chat with it."
+                      : "Connect this number in Meta, or share it as a QR code."}
                 </DialogDescription>
               </DialogHeader>
               <div className="flex flex-col gap-4">
@@ -1402,6 +1727,29 @@ function ChannelTile({
 export default function ChannelsPage() {
   const workspace = useWorkspace();
   const base = `/w/${workspace.slug}`;
+  const router = useRouter();
+  const params = useSearchParams();
+  const connectedParam = params.get("connected");
+  const instagramError = params.get("instagram_error");
+  useEffect(() => {
+    if (connectedParam !== "instagram" && !instagramError) return;
+    toast.add(
+      instagramError
+        ? {
+            title: "Could not connect Instagram",
+            description: instagramError,
+            type: "error",
+          }
+        : {
+            title: "Instagram connected",
+            description:
+              "Direct messages to this account are now answered by your agent.",
+            type: "success",
+          }
+    );
+    router.replace(`${base}/channels`);
+  }, [base, connectedParam, instagramError, router]);
+
   const channels = useQuery(api.channels.listByWorkspace, {
     workspaceId: workspace._id,
   });
@@ -1435,6 +1783,7 @@ export default function ChannelsPage() {
   const counts: Record<ChannelFilter, number> = {
     all: all.length,
     whatsapp: all.filter((c) => c.type === "whatsapp").length,
+    instagram: all.filter((c) => c.type === "instagram").length,
     web: all.filter((c) => c.type === "web").length,
     // Anything not currently taking messages, whichever way it got there —
     // paused by hand or knocked into error by a failed delivery. They are the
@@ -1466,12 +1815,13 @@ export default function ChannelsPage() {
             Channels
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            WhatsApp numbers and website widgets. Each one points at an agent —
+            WhatsApp numbers, Instagram accounts and website widgets. Each one
+            points at an agent —
             normally the front desk, which routes each conversation on to
             whichever agent should handle it.
           </p>
         </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <ChannelDialog
               trigger={
                 <Button variant="outline">
@@ -1479,6 +1829,7 @@ export default function ChannelsPage() {
                 </Button>
               }
             />
+            <ConnectInstagramButton />
             <WebChannelDialog
               trigger={
                 <Button>
@@ -1586,8 +1937,8 @@ export default function ChannelsPage() {
               </EmptyMedia>
               <EmptyTitle>No channels connected</EmptyTitle>
               <EmptyDescription>
-                You need the phone number ID, WABA ID and a system-user access
-                token from your WhatsApp Business Platform app.
+                Connect a WhatsApp number, sign in with an Instagram business
+                account, or put a chat widget on your website.
               </EmptyDescription>
             </EmptyHeader>
               <div className="flex flex-wrap justify-center gap-2">
@@ -1598,6 +1949,7 @@ export default function ChannelsPage() {
                     </Button>
                   }
                 />
+                <ConnectInstagramButton />
                 <WebChannelDialog
                   trigger={
                     <Button>

@@ -123,14 +123,14 @@ export const review = internalAction({
     // bother writing one it cannot send.
     const budgetLeft = context.followUpCount < context.maxFollowUps;
     const windowOpen =
-      context.channelType !== "whatsapp" ||
+      context.channelType === "web" ||
       (context.lastInboundAt !== null &&
         now - context.lastInboundAt <
           WHATSAPP_FREE_FORM_WINDOW_HOURS * 60 * 60_000);
     const deliverable =
       budgetLeft &&
       windowOpen &&
-      (context.channelType !== "whatsapp" ||
+      (context.channelType === "web" ||
         (context.channelActive && Boolean(context.channelId)));
 
     const stageList = context.stages
@@ -275,18 +275,23 @@ export const review = internalAction({
     let followedUp = false;
     let whatsapp: { wamid?: string } | undefined;
     if (shouldSend) {
-      if (context.channelType === "whatsapp" && context.channelId && context.externalId) {
+      if (context.channelType !== "web" && context.channelId && context.externalId) {
         const sent: { ok: boolean; error?: string; wamid?: string } =
-          await ctx.runAction(internal.whatsapp.sendOutbound, {
-            channelId: context.channelId,
-            to: context.externalId,
-            message: { kind: "text", body: followUpText },
-            source: "follow_up",
-            conversationId: args.conversationId,
-          });
+          await ctx.runAction(
+            context.channelType === "instagram"
+              ? internal.instagram.sendOutbound
+              : internal.whatsapp.sendOutbound,
+            {
+              channelId: context.channelId,
+              to: context.externalId,
+              message: { kind: "text", body: followUpText },
+              source: "follow_up",
+              conversationId: args.conversationId,
+            }
+          );
         followedUp = sent.ok;
-        whatsapp = { wamid: sent.wamid };
-      } else {
+        if (context.channelType === "whatsapp") whatsapp = { wamid: sent.wamid };
+      } else if (context.channelType === "web") {
         // On the web widget there is nothing to post to: recording the message
         // is the delivery, and the visitor's open subscription renders it.
         followedUp = true;

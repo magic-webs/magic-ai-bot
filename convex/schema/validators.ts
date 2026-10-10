@@ -85,3 +85,9 @@ export const deliveryStatus = v.union(
   v.literal("read"),
   v.literal("failed")
 );
+
+export const channelType = v.union(
+  v.literal("whatsapp"),
+  v.literal("web"),
+  v.literal("instagram")
+);

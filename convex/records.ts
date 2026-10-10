@@ -1168,7 +1168,12 @@ export const fileFromTool = internalMutation({
     agentId: v.id("agents"),
     conversationId: v.optional(v.id("conversations")),
     contactId: v.optional(v.id("contacts")),
-    source: v.union(v.literal("whatsapp"), v.literal("web"), v.literal("api")),
+    source: v.union(
+      v.literal("whatsapp"),
+      v.literal("web"),
+      v.literal("instagram"),
+      v.literal("api")
+    ),
     person: v.optional(personShape),
     values: v.array(kvPair),
     notes: v.optional(v.string()),

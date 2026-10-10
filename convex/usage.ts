@@ -5,6 +5,7 @@ import { lookupPrice, mergedCatalogue } from "./lib/modelCatalogue";
 import { costNanoUsd } from "./lib/pricing";
 import { dayKey } from "./lib/dailyStats";
 import { addToUsageDaily } from "./lib/usageDaily";
+import { channelType } from "./schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -35,7 +36,7 @@ export const record = internalMutation({
     agentId: v.optional(v.id("agents")),
     conversationId: v.optional(v.id("conversations")),
     source: sourceValidator,
-    channelType: v.optional(v.union(v.literal("whatsapp"), v.literal("web"))),
+    channelType: v.optional(channelType),
     model: v.string(),
     kind: v.union(v.literal("chat"), v.literal("embedding")),
     inputTokens: v.number(),

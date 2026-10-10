@@ -41,7 +41,7 @@ import {
   SirenIcon,
 } from "@phosphor-icons/react";
 
-const CHANNEL_TYPES = new Set(["all", "whatsapp", "web"]);
+const CHANNEL_TYPES = new Set(["all", "whatsapp", "web", "instagram"]);
 
 function channelLabel(channel: { name: string; phone: string | null }) {
   return channel.phone ? `${channel.name} · ${channel.phone}` : channel.name;
@@ -174,7 +174,9 @@ export default function ConversationsPage() {
       bucket: statusFilter === "escalated" ? "all" : statusFilter,
       agentId: agentFilter === "all" ? undefined : (agentFilter as Id<"agents">),
       channelType:
-        channelFilter === "whatsapp" || channelFilter === "web"
+        channelFilter === "whatsapp" ||
+        channelFilter === "web" ||
+        channelFilter === "instagram"
           ? channelFilter
           : undefined,
       channelId: CHANNEL_TYPES.has(channelFilter)
@@ -440,6 +442,7 @@ export default function ConversationsPage() {
                       { value: "all", label: "Every channel" },
                       { value: "whatsapp", label: "Any WhatsApp number" },
                       { value: "web", label: "Web chat" },
+                      { value: "instagram", label: "Any Instagram account" },
                       ...(manyChannels ? (channels ?? []) : []).map((channel) => ({
                         value: channel._id as string,
                         label: channelLabel(channel),

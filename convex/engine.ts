@@ -44,6 +44,7 @@ import {
 } from "./lib/apps";
 import { callApp } from "./lib/appClient";
 import { summarise, type HeaderSpec, type Outbound } from "./lib/whatsappSend";
+import { channelType } from "./schema";
 import {
   parametersToJsonSchema,
   renderTemplate,
@@ -82,7 +83,7 @@ type TurnContext = {
   agent: Doc<"agents">;
   conversationId: Id<"conversations">;
   contactId: Id<"contacts">;
-  channelType: "whatsapp" | "web";
+  channelType: Doc<"channels">["type"];
   // Both needed to send anything richer than the reply text: the channel holds
   // the credentials, and on WhatsApp the external id *is* the phone number.
   channelId?: Id<"channels">;
@@ -164,7 +165,7 @@ async function retrieveKnowledge(
     // Carried purely for usage attribution: the embedding is part of whatever
     // conversation asked for it, and reporting it as channel-less would put
     // real per-message spend under "no channel".
-    channelType?: "whatsapp" | "web";
+    channelType?: Doc<"channels">["type"];
     conversationId?: Id<"conversations">;
   }
 ): Promise<Array<{ text: string; sourceTitle: string }>> {
@@ -539,21 +540,26 @@ function makeDeliver(ctx: ActionCtx, turn: TurnContext) {
     // Send first, record second. A payload the provider rejected must not sit
     // in the transcript as something the customer saw.
     let wamid: string | undefined;
-    if (channelType === "whatsapp") {
+    if (channelType !== "web") {
       if (!channelId || !externalId) {
-        throw new ConvexError("This conversation has no WhatsApp channel to send on.");
+        throw new ConvexError("This conversation has no channel to send on.");
       }
       const result: { ok: boolean; error?: string; wamid?: string } =
-        await ctx.runAction(internal.whatsapp.sendOutbound, {
-          channelId,
-          to: externalId,
-          message,
-          source: "agent",
-          conversationId,
-        });
+        await ctx.runAction(
+          channelType === "instagram"
+            ? internal.instagram.sendOutbound
+            : internal.whatsapp.sendOutbound,
+          {
+            channelId,
+            to: externalId,
+            message,
+            source: "agent",
+            conversationId,
+          }
+        );
       if (!result.ok) {
         throw new ConvexError(
-          result.error ?? "WhatsApp would not accept that message."
+          result.error ?? "The channel would not accept that message."
         );
       }
       wamid = result.wamid;
@@ -1110,7 +1116,7 @@ function buildRecordTools(
           agentId: agent._id,
           conversationId: turn.conversationId,
           contactId: turn.contactId,
-          source: turn.channelType === "whatsapp" ? "whatsapp" : "web",
+          source: turn.channelType,
           person:
             person ??
             (turn.contact.name || turn.contact.phone
@@ -1661,7 +1667,7 @@ function buildAppTools(
 
 const turnArgs = {
   agentId: v.id("agents"),
-  channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+  channelType: channelType,
   channelId: v.optional(v.id("channels")),
   externalId: v.string(),
   contactName: v.optional(v.string()),
@@ -1671,7 +1677,7 @@ const turnArgs = {
 
 type TurnArgs = {
   agentId: Id<"agents">;
-  channelType: "whatsapp" | "web";
+  channelType: Doc<"channels">["type"];
   channelId?: Id<"channels">;
   externalId: string;
   contactName?: string;

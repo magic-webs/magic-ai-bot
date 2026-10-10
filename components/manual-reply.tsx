@@ -5,6 +5,7 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
+import { CHANNEL_LABEL, type ChannelKind } from "@/components/channel-mark";
 import { SelectField } from "@/components/select-field";
 import { Countdown, replyWindow, useNow } from "@/components/handback-timer";
 import {
@@ -217,7 +218,7 @@ export function ManualReply({
 }: {
   conversationId: Id<"conversations">;
   workspaceId: Id<"workspaces">;
-  channelType: "whatsapp" | "web";
+  channelType: ChannelKind;
   /** When the customer last wrote, which starts WhatsApp's 24-hour window. */
   lastInboundAt: number | null;
   /**
@@ -257,7 +258,7 @@ export function ManualReply({
   const [pauseMinutes, setPauseMinutes] = useState(storedPause);
 
   const now = useNow();
-  const window24 = channelType === "whatsapp" ? replyWindow(lastInboundAt, now) : null;
+  const window24 = channelType !== "web" ? replyWindow(lastInboundAt, now) : null;
   // The server's answer is as of the query's last run; the clock here is
   // current. Either one saying closed is closed.
   const closed = windowClosed || (window24 !== null && !window24.open);
@@ -334,8 +335,8 @@ export function ManualReply({
           className="mx-auto mb-1.5 flex w-full max-w-3xl items-center gap-1.5 text-xs text-muted-foreground"
           title={
             neverWritten
-              ? `${contactLabel} has not written on WhatsApp yet, so a free-form message cannot be delivered.`
-              : `WhatsApp only delivers a free-form reply within 24 hours of the customer's last message. ${contactLabel} last wrote before that, so this will likely be rejected.`
+              ? `${contactLabel} has not written on ${CHANNEL_LABEL[channelType]} yet, so a free-form message cannot be delivered.`
+              : `${CHANNEL_LABEL[channelType]} only delivers a free-form reply within 24 hours of the customer's last message. ${contactLabel} last wrote before that, so this will likely be rejected.`
           }
         >
           {neverWritten ? (
@@ -354,7 +355,7 @@ export function ManualReply({
               ? "mx-auto mb-1.5 flex w-full max-w-3xl items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400"
               : "mx-auto mb-1.5 flex w-full max-w-3xl items-center gap-1.5 text-xs text-muted-foreground"
           }
-          title={`WhatsApp delivers a free-form reply until ${new Date(window24.endsAt).toLocaleString()} — 24 hours after ${contactLabel}'s last message. After that only an approved template gets through.`}
+          title={`${CHANNEL_LABEL[channelType]} delivers a free-form reply until ${new Date(window24.endsAt).toLocaleString()} — 24 hours after ${contactLabel}'s last message.${channelType === "whatsapp" ? " After that only an approved template gets through." : ""}`}
         >
           <WindowClock lastInboundAt={lastInboundAt} size={16} />
           <span>

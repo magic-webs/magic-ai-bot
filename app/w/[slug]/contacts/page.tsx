@@ -55,6 +55,8 @@ import {
 } from "@phosphor-icons/react";
 import { formatDistanceToNow } from "date-fns";
 import { friendlyError } from "@/lib/errors";
+import { InstagramLogo } from "@/components/brand-icons";
+import { CHANNEL_LABEL, type ChannelKind } from "@/components/channel-mark";
 
 /** A contacts row: the document plus the conversation it belongs to. */
 type ContactRow = {
@@ -65,7 +67,7 @@ type ContactRow = {
   company?: string;
   remark?: string;
   externalId: string;
-  channelType: "whatsapp" | "web";
+  channelType: ChannelKind;
   lastSeenAt: number;
   conversationId: Id<"conversations"> | null;
   messageCount: number;
@@ -88,6 +90,9 @@ function displayName(contact: ContactRow): string {
   if (contact.phone?.trim()) return contact.phone;
   if (contact.channelType === "web") {
     return `Web visitor ${contact.externalId.slice(-4)}`;
+  }
+  if (contact.channelType === "instagram") {
+    return `Instagram user ${contact.externalId.slice(-4)}`;
   }
   return contact.externalId;
 }
@@ -523,13 +528,15 @@ export default function ContactsPage() {
                       <span
                         className="text-muted-foreground"
                         title={
-                          contact.channelType === "whatsapp"
-                            ? "WhatsApp"
-                            : "Website widget"
+                          contact.channelType === "web"
+                            ? "Website widget"
+                            : CHANNEL_LABEL[contact.channelType]
                         }
                       >
                         {contact.channelType === "whatsapp" ? (
                           <WhatsappLogoIcon className="size-4" />
+                        ) : contact.channelType === "instagram" ? (
+                          <InstagramLogo />
                         ) : (
                           <GlobeIcon className="size-4" />
                         )}

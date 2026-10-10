@@ -539,6 +539,9 @@ export const respondToEvent = internalAction({
       conversationId: args.conversationId,
     });
     if (!context) return { handled: false, reason: "no_conversation" };
+    if (context.channelType === "instagram") {
+      return await ctx.runAction(internal.instagram.respondToEvent, args);
+    }
 
     const fileOnly = async (reason: string) => {
       await ctx.runMutation(internal.conversations.recordCustomerEvent, {

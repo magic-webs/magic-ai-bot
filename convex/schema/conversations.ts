@@ -1,12 +1,12 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import { deliveryStatus, kvPair } from "./validators";
+import { channelType, deliveryStatus, kvPair } from "./validators";
 
 export const conversationsTables = {
   channels: defineTable({
     workspaceId: v.id("workspaces"),
     agentId: v.id("agents"),
-    type: v.union(v.literal("whatsapp"), v.literal("web")),
+    type: channelType,
     name: v.string(),
     channelKey: v.string(),
     externalId: v.optional(v.string()),
@@ -19,6 +19,16 @@ export const conversationsTables = {
         businessId: v.optional(v.string()),
         displayPhoneNumber: v.optional(v.string()),
         accessToken: v.string(),
+      })
+    ),
+    instagram: v.optional(
+      v.object({
+        userId: v.string(),
+        username: v.string(),
+        name: v.optional(v.string()),
+        profilePictureUrl: v.optional(v.string()),
+        accessToken: v.string(),
+        tokenExpiresAt: v.number(),
       })
     ),
     status: v.union(
@@ -34,12 +44,29 @@ export const conversationsTables = {
     .index("by_workspace", ["workspaceId"])
     .index("by_agent", ["agentId"])
     .index("by_channelKey", ["channelKey"])
-    .index("by_externalId", ["externalId"]),
+    .index("by_externalId", ["externalId"])
+    .index("by_type", ["type"]),
+
+  instagramOAuthStates: defineTable({
+    state: v.string(),
+    workspaceId: v.id("workspaces"),
+    agentId: v.id("agents"),
+    name: v.string(),
+    returnTo: v.string(),
+    createdAt: v.number(),
+  }).index("by_state", ["state"]),
+
+  instagramEvents: defineTable({
+    mid: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_mid", ["mid"])
+    .index("by_createdAt", ["createdAt"]),
 
   contacts: defineTable({
     workspaceId: v.id("workspaces"),
     externalId: v.string(),
-    channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+    channelType,
     name: v.optional(v.string()),
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -51,6 +78,7 @@ export const conversationsTables = {
       v.union(
         v.literal("whatsapp"),
         v.literal("web"),
+        v.literal("instagram"),
         v.literal("manual"),
         v.literal("import")
       )
@@ -79,7 +107,7 @@ export const conversationsTables = {
     humanHandlingAt: v.optional(v.number()),
     humanHandlingUntil: v.optional(v.number()),
     channelId: v.optional(v.id("channels")),
-    channelType: v.union(v.literal("whatsapp"), v.literal("web")),
+    channelType,
     status: v.union(
       v.literal("open"),
       v.literal("escalated"),

@@ -1,6 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import { messageCategory } from "./validators";
+import { channelType, messageCategory } from "./validators";
 
 const usageSource = v.union(
   v.literal("chat"),
@@ -26,9 +26,7 @@ export const currencyTerms = v.object({
   trialPlanId: v.optional(v.id("billingPlans")),
 });
 
-const usageChannel = v.optional(
-  v.union(v.literal("whatsapp"), v.literal("web"))
-);
+const usageChannel = v.optional(channelType);
 const usageKind = v.union(v.literal("chat"), v.literal("embedding"));
 
 export const billingTables = {

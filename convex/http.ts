@@ -5,6 +5,7 @@ import { interpretEvent } from "./lib/apps";
 import { verifyDelivery } from "./lib/appWebhooks";
 import { isLinkBot } from "./lib/links";
 import { publicSiteUrl } from "./lib/publicUrl";
+import { parseSignedRequest, validSignature } from "./lib/instagram";
 import {
   paymentFields,
   subscriptionFields,
@@ -361,6 +362,173 @@ http.route({
       : `?integration_error=${encodeURIComponent(result.error ?? "Could not connect.")}`;
     return Response.redirect(`${result.returnTo}${query}`, 302);
   }),
+});
+
+// ---------------------------------------------------------------------------
+// Instagram, through Instagram Login. One app-wide webhook for every connected
+// account, routed by `entry.id`, which is the account's `user_id`.
+//
+//   https://<deployment>.convex.site/instagram/callback
+//   https://<deployment>.convex.site/instagram/webhook
+//   https://<deployment>.convex.site/instagram/deauthorize
+//   https://<deployment>.convex.site/instagram/data-deletion
+// ---------------------------------------------------------------------------
+
+function withQuery(base: string, key: string, value: string): string {
+  return `${base}${base.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
+}
+
+http.route({
+  path: "/instagram/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const params = new URL(request.url).searchParams;
+    const state = params.get("state") ?? "";
+    const code = params.get("code");
+    const denied = params.get("error");
+
+    if (denied || !code) {
+      const pending = state
+        ? await ctx.runMutation(internal.instagram.takeState, { state })
+        : null;
+      const reason =
+        params.get("error_reason") === "user_denied"
+          ? "Instagram sign-in was cancelled."
+          : (params.get("error_description") ??
+            "Instagram did not return an authorisation code.");
+      if (pending?.returnTo) {
+        return Response.redirect(
+          withQuery(pending.returnTo, "instagram_error", reason),
+          302
+        );
+      }
+      return callbackPage("Nothing was connected", reason);
+    }
+
+    const result = await ctx.runAction(internal.instagram.finishConnect, {
+      code,
+      state,
+    });
+    if (!result.returnTo) {
+      return callbackPage(
+        result.ok ? "Connected" : "Could not connect",
+        result.error ?? "You can close this tab."
+      );
+    }
+    return Response.redirect(
+      result.ok
+        ? withQuery(result.returnTo, "connected", "instagram")
+        : withQuery(result.returnTo, "instagram_error", result.error ?? "Could not connect."),
+      302
+    );
+  }),
+});
+
+http.route({
+  path: "/instagram/webhook",
+  method: "GET",
+  handler: httpAction(async (_ctx, request) => {
+    const params = new URL(request.url).searchParams;
+    const expected = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+    if (
+      params.get("hub.mode") !== "subscribe" ||
+      !expected ||
+      params.get("hub.verify_token") !== expected
+    ) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    return new Response(params.get("hub.challenge") ?? "", {
+      status: 200,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }),
+});
+
+http.route({
+  path: "/instagram/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const raw = await request.text();
+    const secret = process.env.INSTAGRAM_APP_SECRET;
+    if (
+      !secret ||
+      !(await validSignature(secret, raw, request.headers.get("x-hub-signature-256")))
+    ) {
+      return new Response("Invalid signature", { status: 403 });
+    }
+
+    let payload: {
+      object?: string;
+      entry?: Array<{ id?: string | number; messaging?: unknown[] }>;
+    };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return new Response("Invalid JSON", { status: 400 });
+    }
+
+    if (payload.object === "instagram") {
+      for (const entry of payload.entry ?? []) {
+        if (entry.id === undefined) continue;
+        for (const event of entry.messaging ?? []) {
+          await ctx.scheduler.runAfter(0, internal.instagram.handleInbound, {
+            userId: String(entry.id),
+            event,
+          });
+        }
+      }
+    }
+    return new Response("EVENT_RECEIVED", { status: 200 });
+  }),
+});
+
+async function signedRequestUser(request: Request): Promise<string | null> {
+  const secret = process.env.INSTAGRAM_APP_SECRET;
+  if (!secret) return null;
+  const form = await request.formData().catch(() => null);
+  const signed = form?.get("signed_request");
+  if (typeof signed !== "string") return null;
+  return (await parseSignedRequest(secret, signed))?.user_id ?? null;
+}
+
+http.route({
+  path: "/instagram/deauthorize",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const userId = await signedRequestUser(request);
+    if (!userId) return new Response("Invalid request", { status: 400 });
+    await ctx.runMutation(internal.instagram.revokeAccount, { userId });
+    return new Response("ok", { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/instagram/data-deletion",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const userId = await signedRequestUser(request);
+    if (!userId) return new Response("Invalid request", { status: 400 });
+    await ctx.runMutation(internal.instagram.revokeAccount, { userId });
+    const code = crypto.randomUUID();
+    return new Response(
+      JSON.stringify({
+        url: `${publicSiteUrl()}/instagram/data-deletion?code=${code}`,
+        confirmation_code: code,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }),
+});
+
+http.route({
+  path: "/instagram/data-deletion",
+  method: "GET",
+  handler: httpAction(async () =>
+    callbackPage(
+      "Instagram data removed",
+      "The access token for this Instagram account has been deleted, and no further messages are read from it."
+    )
+  ),
 });
 
 // --- Incoming webhooks for alerts --------------------------------------------

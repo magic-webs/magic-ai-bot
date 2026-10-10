@@ -25,7 +25,8 @@ import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { useWorkspace } from "@/components/workspace-provider";
 import { AgentAvatar } from "@/components/agent-avatar";
-import { WhatsAppLogo } from "@/components/brand-icons";
+import { InstagramLogo, WhatsAppLogo } from "@/components/brand-icons";
+import { CHANNEL_LABEL, type ChannelKind } from "@/components/channel-mark";
 import { cn } from "@/lib/utils";
 import {
   BooksIcon,
@@ -51,7 +52,7 @@ import {
 
 type ChannelData = {
   label: string;
-  channel: "whatsapp" | "web";
+  channel: ChannelKind;
   live: boolean;
   status: string;
   messages: number;
@@ -126,6 +127,7 @@ function routingClause(note: string): string {
 
 function ChannelNode({ data }: NodeProps<Node<ChannelData>>) {
   const whatsapp = data.channel === "whatsapp";
+  const instagram = data.channel === "instagram";
   return (
     <div
       className={cn(
@@ -137,11 +139,17 @@ function ChannelNode({ data }: NodeProps<Node<ChannelData>>) {
         className={cn(
           "flex size-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm",
           // WhatsApp's own app-icon gradient, so the tile reads as the app.
-          whatsapp ? "bg-linear-to-b from-[#5FFC7B] to-[#28D146]" : "bg-sky-500"
+          whatsapp
+            ? "bg-linear-to-b from-[#5FFC7B] to-[#28D146]"
+            : instagram
+              ? "bg-[radial-gradient(circle_at_30%_107%,#fdf497_0%,#fdf497_5%,#fd5949_45%,#d6249f_60%,#285AEB_90%)]"
+              : "bg-sky-500"
         )}
       >
         {whatsapp ? (
           <WhatsAppLogo className="size-6" />
+        ) : instagram ? (
+          <InstagramLogo className="size-5" />
         ) : (
           <GlobeIcon weight="fill" className="size-5" />
         )}
@@ -161,7 +169,7 @@ function ChannelNode({ data }: NodeProps<Node<ChannelData>>) {
           )}
           <span className="truncate">
             {data.live ? "Live" : data.status} ·{" "}
-            {whatsapp ? "WhatsApp" : "Web chat"}
+            {CHANNEL_LABEL[data.channel]}
           </span>
         </p>
         {data.messages > 0 ? (
@@ -391,7 +399,7 @@ const QUIET = "var(--muted-foreground)";
 type ChannelRow = {
   _id: string;
   name: string;
-  type: string;
+  type: ChannelKind;
   status: string;
   agentId: string;
   messageCount: number;
@@ -502,7 +510,7 @@ function buildGraph(
       position: { x: COLUMN.channel, y: centre(channelRows.length, index) },
       data: {
         label: channel.name,
-        channel: channel.type === "whatsapp" ? "whatsapp" : "web",
+        channel: channel.type,
         live: channel.status === "active",
         status: channel.status,
         messages: channel.messageCount,

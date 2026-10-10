@@ -1,4 +1,5 @@
 import { GlobeIcon, UserIcon } from "@phosphor-icons/react";
+import type { ChannelKind } from "@/components/channel-mark";
 import { TeamAvatar } from "@/components/team-avatar";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +18,7 @@ import { cn } from "@/lib/utils";
 /** An unclaimed web session, as opposed to a visitor who left a name. */
 export function isAnonymousSession(
   label: string,
-  channelType: "whatsapp" | "web"
+  channelType: ChannelKind
 ): boolean {
   return channelType === "web" && /^web-[a-z0-9]+$/i.test(label);
 }
@@ -53,7 +54,7 @@ export function ContactAvatar({
 }: {
   /** The raw contact label, before `Web visitor abcd` is made of it. */
   label: string;
-  channelType: "whatsapp" | "web";
+  channelType: ChannelKind;
   size?: number;
   className?: string;
 }) {

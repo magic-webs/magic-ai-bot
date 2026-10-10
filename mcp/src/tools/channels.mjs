@@ -17,7 +17,7 @@ export function register(server) {
     {
       title: "List channels",
       description:
-        "Where the workspace is reachable. Web channels come with the embed snippet to paste into a site; WhatsApp channels come with the callback URL to configure in Meta. Access tokens are never returned.",
+        "Where the workspace is reachable. Web channels come with the embed snippet to paste into a site; WhatsApp channels come with the callback URL to configure in Meta; Instagram channels are connected from the Channels page. Access tokens are never returned.",
       inputSchema: { ...workspaceArg },
       annotations: { readOnlyHint: true },
     },
@@ -42,14 +42,21 @@ export function register(server) {
                 embedSnippet: `<script src="${APP_URL}/widget/${channel.channelKey}/embed.js" async></script>`,
                 directLink: `${APP_URL}/widget/${channel.channelKey}`,
               }
-            : {
-                callbackUrl: `${SITE_URL}/whatsapp/${channel.channelKey}`,
-                displayPhoneNumber: channel.whatsapp?.displayPhoneNumber ?? null,
-                phoneNumberId: channel.whatsapp?.phoneNumberId ?? null,
-                // What notification templates sync from.
-                wabaId: channel.whatsapp?.wabaId ?? null,
-                hasAccessToken: channel.hasAccessToken,
-              }),
+            : channel.type === "instagram"
+              ? {
+                  username: channel.instagram?.username ?? null,
+                  tokenExpiresAt: channel.instagram?.tokenExpiresAt
+                    ? new Date(channel.instagram.tokenExpiresAt).toISOString()
+                    : null,
+                }
+              : {
+                  callbackUrl: `${SITE_URL}/whatsapp/${channel.channelKey}`,
+                  displayPhoneNumber: channel.whatsapp?.displayPhoneNumber ?? null,
+                  phoneNumberId: channel.whatsapp?.phoneNumberId ?? null,
+                  // What notification templates sync from.
+                  wabaId: channel.whatsapp?.wabaId ?? null,
+                  hasAccessToken: channel.hasAccessToken,
+                }),
         }))
       );
     })

@@ -119,4 +119,11 @@ crons.interval(
   {}
 );
 
+crons.cron(
+  "refresh instagram tokens",
+  "40 2 * * *",
+  internal.instagram.refreshTokens,
+  {}
+);
+
 export default crons;
